@@ -192,5 +192,8 @@ model RevenueCategorizedLine {
 
   @@index([runId])
   @@index([clienteConexaId])
+  // Usado por src/lib/reports/overview.ts para achar, por fatura, a rodada
+  // concluída mais recente (dedup entre rodadas que se sobrepõem — ADR-0012).
+  @@index([crConexaId])
   @@map("revenue_categorized_lines")
 }

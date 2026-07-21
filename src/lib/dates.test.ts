@@ -2,6 +2,13 @@ import { describe, expect, it } from "vitest";
 import { getPeriodBounds, shiftPeriodKey } from "@/lib/dates";
 
 describe("getPeriodBounds", () => {
+  it("dia: fromKey e toKey são o mesmo dia da referência", () => {
+    const b = getPeriodBounds("day", "2026-07-21");
+    expect(b.fromKey).toBe("2026-07-21");
+    expect(b.toKey).toBe("2026-07-21");
+    expect(b.toDateExclusive.toISOString().slice(0, 10)).toBe("2026-07-22");
+  });
+
   it("mês: janeiro inteiro a partir de qualquer dia do mês", () => {
     const b = getPeriodBounds("month", "2026-01-15");
     expect(b.fromKey).toBe("2026-01-01");
@@ -55,6 +62,11 @@ describe("getPeriodBounds", () => {
 });
 
 describe("shiftPeriodKey", () => {
+  it("dia: +1/-1 navegam um dia, cruzando virada de mês corretamente", () => {
+    expect(shiftPeriodKey("2026-07-31", "day", 1)).toBe("2026-08-01");
+    expect(shiftPeriodKey("2026-08-01", "day", -1)).toBe("2026-07-31");
+  });
+
   it("mês: -1 cruza a virada de ano corretamente", () => {
     expect(shiftPeriodKey("2026-01-01", "month", -1)).toBe("2025-12-01");
   });

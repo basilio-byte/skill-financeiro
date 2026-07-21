@@ -41,10 +41,14 @@
 
 ## Telas
 - **`/` (Panorama)** — `src/lib/reports/overview.ts` escopa KPIs e breakdowns (categoria,
-  conta) a UM período selecionado (semana/mês/trimestre/semestre/ano — `PeriodControls`,
-  `src/lib/dates.ts`, ADR-0011), filtrando por `dataCredito`. Mostra também uma tendência
-  dos últimos 12 buckets da mesma granularidade (`PeriodBarChart`, série única). "Últimas
-  rodadas" continua global (histórico operacional, não escopado ao período).
+  conta) a UM período selecionado (diário/semana/mês/trimestre/semestre/ano —
+  `PeriodControls`, `src/lib/dates.ts`, ADR-0011), filtrando por `dataCredito`. Mostra também
+  uma tendência dos últimos 12 buckets da mesma granularidade (`PeriodBarChart`, série
+  única). Todas as somas cross-rodada passam por `linhasDeduplicadasPorFatura()` — cada
+  fatura conta uma única vez, globalmente (nunca escopado ao período aberto): revisão
+  manual vence sempre, senão a rodada CONCLUÍDA mais recente (ADR-0012; rodadas se
+  sobrepõem quando o mesmo período é reprocessado). "Últimas rodadas" continua
+  global e NÃO deduplicado (histórico operacional — cada rodada mostra o que ELA calculou).
 - **`/runs`, `/runs/[id]`** — disparo de rodada e detalhe/export. Em "Faturas para revisar"
   (linhas `S`/`SEM_LV`), cada linha é editável (categoria/valor) via
   `updateCategorizedLineAction` (ADMIN) — ADR-0010. A edição recalcula

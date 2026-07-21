@@ -40,3 +40,19 @@ Regras herdadas do projeto irmão (`seahub_financeiro`) + as específicas deste 
    linha, os agregados da própria rodada (`resumoPorCategoria`/`totalRecebido`) são
    recalculados na mesma transação, para que Panorama e o resumo da rodada nunca fiquem
    dessincronizados de uma revisão manual já feita.
+10. **Rodadas se sobrepõem — nunca somar entre rodadas sem deduplicar por fatura, E a
+    escolha do vencedor nunca pode ignorar revisão manual nem depender da janela de data
+    consultada.** Cada `RevenueCategorizationRun` é um registro histórico imutável e
+    independente; rodar o MESMO período (ou um que se sobrepõe) de novo é uma operação
+    normal e esperada (ex.: reprocessar após cadastrar uma categoria nova), não um erro do
+    usuário. Bug real encontrado em produção (2026-07-21): o Panorama somava os totais de
+    TODAS as rodadas concluídas de um período, então rodar o mesmo período 3x triplicava o
+    número exibido. A correção (`linhasDeduplicadasPorFatura()` em
+    `src/lib/reports/overview.ts`, ADR-0012) escolhe, por fatura (`crConexaId`), um único
+    vencedor GLOBAL (nunca escopado à janela do período sendo exibido) com prioridade: (1)
+    linha revisada manualmente sempre vence sobre qualquer rodada não-revisada, por mais
+    recente que seja — nunca reverter silenciosamente uma correção humana (regra 9); (2)
+    entre revisões, a mais recente; (3) sem revisão nenhuma, a rodada concluída mais
+    recente. Views de UMA rodada específica (`/runs/[id]`, export) continuam mostrando os
+    números que ELA calculou, sem deduplicar — são o registro histórico daquela execução,
+    não uma agregação.

@@ -98,8 +98,48 @@
   com uma tendência dos últimos 12 buckets da mesma granularidade numa única query (janela
   ampla, agregada em memória). "Últimas rodadas" continua global. Ver ADR-0011.
 - Validado: `typecheck`/`test` (48 testes, todos passando, +12 de dates.test.ts)/`build`
-  limpos.
-- **Pendente para a próxima sessão:** testar a revisão manual e os filtros de período
-  clicando de verdade numa rodada real (só chegou a typecheck/test/build nesta sessão até
-  aqui); Easypanel; clique-a-clique num navegador real (segue pendente de sessões
-  anteriores).
+  limpos; e, ainda na mesma sessão, revisão manual e os 5 filtros de período foram
+  confirmados contra dado real (simulação da transação de revisão + curl em todas as
+  granularidades batendo com soma direta em SQL) antes do commit `ab2d9ad`. Commit + push
+  feitos, imagem publicada no GHCR.
+- Pendente: Easypanel; clique-a-clique num navegador real (o usuário testou isso na sessão
+  seguinte e achou o bug de soma entre rodadas registrado abaixo).
+
+## 2026-07-21 (cont. 3) — Bug real em produção: rodadas sobrepostas somavam no Panorama
+- O usuário testou a aplicação num navegador de verdade (primeira vez) e, ao criar várias
+  rodadas para o mesmo período (testando o fluxo), viu o total do Panorama crescer a cada
+  rodada nova — 3 rodadas do período 01–19/07 estavam somando 3x. Reportou com prints reais.
+- Causa raiz e correção: ver ADR-0012 e financial-rigor.md #10.
+  `linhasDeduplicadasPorFatura()` (SQL raw, `DISTINCT ON` por `crConexaId`, rodada concluída
+  mais recente vence) substitui a soma cega de todas as linhas de todas as rodadas na janela.
+  Novo índice `@@index([crConexaId])` (migration `20260721184331_index_cr_conexa_id`).
+- Validado contra os dados JÁ duplicados no banco local (2 rodadas do mesmo período,
+  01–21/07/2026): confirmado que (a) nenhuma fatura ficou com linhas de duas rodadas ao
+  mesmo tempo, (b) o total deduplicado (R$248.369,78) ficou correto e DIFERENTE do de
+  qualquer rodada individual (R$258.121,80 cada) — não por bug, mas porque o Conexa é um
+  sistema vivo e o rateio de algumas faturas mudou entre as duas rodadas (~1h30 de intervalo
+  entre elas). Confirmado via curl em todas as granularidades (mês/trimestre/semestre/ano)
+  batendo exato com soma direta em SQL.
+- Rodada uma verificação adversarial (workflow, 3 revisores independentes + síntese) antes
+  de fechar a correção — achou 2 problemas REAIS na v1 do fix, ambos corrigidos antes do
+  commit (ver ADR-0012 atualizada): (1) CRÍTICO — a v1 ignorava `revisadoManualmente`, então
+  qualquer rodada nova sobreposta (mesmo por motivo não relacionado) revertia silenciosamente
+  uma correção manual no Panorama; corrigido priorizando revisão manual no critério de
+  desempate. (2) MODERADO — a v1 filtrava por data ANTES de escolher o vencedor por fatura,
+  então uma fatura cujo `dataCredito` mudasse entre rodadas podia ser contada em dois
+  períodos diferentes ao mesmo tempo; corrigido escolhendo o vencedor GLOBALMENTE, só
+  filtrando por data depois. Revalidado contra dado real (marcação manual de teste numa
+  linha de uma rodada antiga, confirmando que ela vence sobre a versão nova não-revisada).
+- Adicionado também: granularidade "Diário" no Panorama (pedido do usuário, tinha esquecido
+  de incluir antes) — `src/lib/dates.ts` ganhou `"day"` no mesmo padrão das demais, 2 testes
+  novos.
+- **Contexto novo e importante revelado pelo usuário:** a intenção é que este sistema rode
+  AUTOMATICAMENTE a cada 15 minutos, mantendo os dados sempre atualizados — não é só um
+  botão manual ocasional. Isso muda o cálculo de risco: cada rodada automática cria linhas
+  NOVAS (nada é substituído), então rodar para sempre a cada 15 min faria
+  `RevenueCategorizedLine` crescer sem limite (na ordem de dezenas de milhares de linhas por
+  dia, dependendo do período reprocessado a cada disparo) — a correção desta sessão resolve
+  os NÚMEROS exibidos, não esse crescimento de dados. Isso precisa de uma decisão de
+  arquitetura (rodadas append-only + faxina periódica das superadas, vs. modelo
+  upsert-por-fatura tipo o sync do projeto irmão) antes de construir o agendador — ainda não
+  decidido, para discutir com o usuário antes de implementar.

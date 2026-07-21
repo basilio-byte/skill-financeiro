@@ -5,6 +5,7 @@ import {
   addWeeks,
   addYears,
   format,
+  startOfDay,
   startOfMonth,
   startOfQuarter,
   startOfWeek,
@@ -20,9 +21,10 @@ import { toZonedTime } from "date-fns-tz";
  */
 export const APP_TZ = process.env.APP_TIMEZONE || "America/Fortaleza";
 
-export type PeriodKind = "week" | "month" | "quarter" | "semester" | "year";
+export type PeriodKind = "day" | "week" | "month" | "quarter" | "semester" | "year";
 
 export const PERIOD_KINDS: Array<{ value: PeriodKind; label: string }> = [
+  { value: "day", label: "Diário" },
   { value: "week", label: "Semanal" },
   { value: "month", label: "Mensal" },
   { value: "quarter", label: "Trimestral" },
@@ -100,6 +102,10 @@ export function getPeriodBounds(kind: PeriodKind, reference?: Date | string): Pe
   let start: Date;
   let nextStart: Date;
   switch (kind) {
+    case "day":
+      start = startOfDay(refZoned);
+      nextStart = addDays(start, 1);
+      break;
     case "week":
       start = startOfWeek(refZoned, { weekStartsOn: WEEK_STARTS_ON });
       nextStart = addWeeks(start, 1);
@@ -142,6 +148,8 @@ function quarterOf(d: Date): number {
 
 function formatPeriodLabel(kind: PeriodKind, start: Date, end: Date): string {
   switch (kind) {
+    case "day":
+      return start.toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
     case "week":
       return `${start.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} – ${end.toLocaleDateString(
         "pt-BR",
@@ -163,6 +171,9 @@ export function shiftPeriodKey(fromKey: string, kind: PeriodKind, amount: number
   const base = parseCalendarKey(fromKey);
   let shifted: Date;
   switch (kind) {
+    case "day":
+      shifted = addDays(base, amount);
+      break;
     case "week":
       shifted = addWeeks(base, amount);
       break;

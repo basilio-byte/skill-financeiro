@@ -140,5 +140,74 @@ categoria/conta ao período selecionado, filtrando por `dataCredito` (o mesmo ca
 organiza todo o resto do app) — e monta uma tendência dos últimos 12 buckets da mesma
 granularidade terminando no período selecionado, numa única query (janela ampla, agregada em
 memória). "Últimas rodadas" continua global/não escopado (é histórico operacional, não
-uma métrica financeira do período).
+uma métrica financeira do período). Adicionado depois (mesma sessão, pedido do usuário):
+granularidade "Diário" (`day`), no mesmo padrão das demais.
+**Status:** aceito.
+
+## ADR-0012 — Deduplicação por fatura entre rodadas sobrepostas no Panorama
+**Contexto:** usuário reportou (com prints reais) que rodar o mesmo período mais de uma vez
+fazia o total do Panorama crescer a cada rodada nova — 3 rodadas do período 01–19/07
+somavam 3x o valor de uma fatura só. Causa raiz: `buildOverview` somava
+`RevenueCategorizedLine.valorRecebidoCat` de TODAS as linhas de TODAS as rodadas concluídas
+na janela, sem levar em conta que a MESMA fatura (`crConexaId`) pode existir em várias
+rodadas — cada rodada é um snapshot histórico independente e completo, não um delta.
+**Decisão (v1):** `linhasDeduplicadasPorFatura()` em `src/lib/reports/overview.ts` usa SQL raw
+(Postgres `DISTINCT ON`, via `prisma.$queryRaw`) para escolher, por `crConexaId`, a rodada
+CONCLUÍDA mais recente e trazer TODAS as linhas dessa fatura NAQUELA rodada (preserva o
+rateio entre categorias de faturas `Proporcionado: S`). Índice novo `@@index([crConexaId])`.
+
+**Correção v2, depois de verificação adversarial (2026-07-21, 3 revisores independentes):**
+a v1 tinha dois bugs reais, ambos corrigidos antes do commit:
+1. **CRÍTICO — ignorava revisão manual.** O critério "rodada mais recente vence" não
+   considerava `revisadoManualmente`. Como toda rodada NOVA sempre recomeça com
+   `revisadoManualmente=false` para todas as faturas (a engine não conhece correções
+   manuais feitas em rodadas antigas), qualquer reprocessamento do período — mesmo por
+   motivo TOTALMENTE não relacionado (ex.: cadastrar categoria de outro serviço) — revertia
+   silenciosamente uma correção humana no Panorama, violando diretamente
+   financial-rigor.md #9/ADR-0010. **Corrigido:** o `ORDER BY` da escolha do vencedor agora
+   prioriza `revisadoManualmente DESC` acima de tudo, com `revisadoEm DESC` como desempate
+   entre revisões — revisão manual só perde para outra revisão manual mais recente, nunca
+   para uma rodada não-revisada, por mais nova que seja.
+2. **MODERADO — vencedor escopado à janela de data, não global.** A v1 filtrava por
+   `dataCredito` DENTRO da CTE, antes do `DISTINCT ON` escolher o vencedor — ou seja, a
+   "disputa" só via candidatas cujo `dataCredito` já caía na janela consultada. Se o
+   `dataCredito` de uma fatura mudasse entre duas rodadas (Conexa é um sistema vivo — já
+   documentado como possível), o Panorama de um período podia escolher uma versão
+   desatualizada (porque a versão nova, com outro `dataCredito`, ficava fora daquela janela
+   e nem entrava na disputa), enquanto OUTRO período escolhia a versão nova — a mesma
+   fatura contada em dois painéis de período diferentes ao mesmo tempo. **Corrigido:** o
+   vencedor por fatura agora é escolhido GLOBALMENTE (sem filtro de data nenhum na CTE); o
+   filtro de `dataCredito` só entra DEPOIS, no SELECT externo, sobre a versão já vencedora —
+   garantindo que cada fatura pertença a exatamente um período, seja qual for a janela
+   consultada.
+**Validado** (via SQL direto + a aplicação real) contra os dados já duplicados no banco
+local: (a) nenhuma fatura fica com linhas de DUAS rodadas ao mesmo tempo; (b) uma linha
+marcada `revisadoManualmente` numa rodada ANTIGA venceu sobre a versão não-revisada de uma
+rodada mais NOVA, e o rótulo revisado apareceu corretamente na tela; (c) o total deduplicado
+ficou diferente do de qualquer rodada individual isolada — não por bug, mas porque o rateio
+de algumas faturas mudou entre duas coletas ao vivo do Conexa (~1h30 de intervalo).
+**Escopo da correção:** só agregações CROSS-rodada (Panorama). `/runs/[id]` e o export de
+uma rodada específica continuam mostrando os números que ELA calculou — são o registro
+histórico daquela execução, correto por definição, não uma agregação a deduplicar.
+**Riscos em aberto, não resolvidos aqui:**
+- **Faturas "canceladas" ficam presas para sempre.** Se uma fatura sai da lista aceita do
+  Conexa entre duas coletas (ex.: cancelamento) e a rodada nova simplesmente não a inclui
+  mais, o `DISTINCT ON` não tem como perceber isso — a versão antiga (única candidata
+  remanescente) segue vencendo indefinidamente. Não há hoje um mecanismo de "tombstone"
+  para faturas que desapareceram. Achado pela verificação adversarial, não corrigido nesta
+  sessão — fica documentado como limitação conhecida.
+- **Custo de performance:** a escolha do vencedor agora escaneia TODAS as rodadas
+  concluídas do sistema (não só a janela), para garantir corretude global. Aceitável no
+  volume atual; precisa ser revisitado se o volume de rodadas crescer muito (ver próximo
+  ponto).
+- Cada rodada nova (mesmo de um período repetido) cria linhas NOVAS — nada é substituído
+  nem limpo. Se o sistema passar a rodar automaticamente em intervalos curtos (ex.: a cada
+  15 min, intenção verbalizada pelo usuário), o volume de `RevenueCategorizedLine` cresce
+  sem limite e sem nunca purgar as linhas de rodadas já superadas — e o custo de performance
+  acima piora com o tempo. Esta ADR resolve a CORREÇÃO dos números exibidos, não o
+  crescimento de dados — ver conversa em aberto no progress.md sobre a arquitetura do
+  agendador automático (append-only + faxina periódica vs. modelo upsert-por-fatura).
+- Sem teste automatizado cobrindo `linhasDeduplicadasPorFatura` (requer banco real — não há
+  hoje infraestrutura de teste de integração no projeto). A cobertura até aqui é validação
+  manual empírica contra dado real, repetida a cada mudança nesta função.
 **Status:** aceito.
