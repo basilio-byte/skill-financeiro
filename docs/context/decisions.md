@@ -72,3 +72,20 @@ princípio do projeto irmão, só que automatizado em vez de manual).
 **Consequência:** o Easypanel consome `:latest` direto do GHCR — não é mais preciso rodar
 `docker build`/`docker push` manualmente a cada deploy, só dar push na `main`.
 **Status:** aceito.
+
+## ADR-0008 — Seed de categorias automático no boot, mas só uma vez
+**Contexto:** o primeiro deploy exigia um passo manual (`npm run db:seed-categories` via
+console do Easypanel) — o usuário pediu para eliminar todo passo manual do deploy.
+**Decisão:** `scripts/seed-categories.mjs` (reescrito de TS/tsx para JS puro, mesmo espírito
+de `bootstrap-admin.mjs`, sem dependência extra na imagem) roda automaticamente no
+`docker-entrypoint.sh` a cada boot, mas só semeia se `RevenueCategoryRule` estiver **vazia**
+— nunca reaplica o CSV por cima de uma tabela já populada.
+**Por quê não rodar sempre (upsert):** depois do primeiro boot, a tabela passa a ser
+gerenciada pela tela `/categorias`. Se o seed reaplicasse o CSV a cada restart via upsert,
+qualquer correção manual do financeiro para um nome que já existia no CSV original seria
+silenciosamente revertida no próximo deploy — um bug de rigor sério (dado editado pelo
+usuário sendo pisado por dado versionado no repo).
+**Falha não derruba o boot:** diferente do `prisma migrate deploy` (que aborta o container
+se falhar — uma migration quebrada é grave), uma falha no seed de categorias só gera um
+aviso no log; a aplicação sobe mesmo assim (com `/categorias` vazia, corrigível na hora).
+**Status:** aceito.

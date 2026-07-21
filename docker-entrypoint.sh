@@ -24,5 +24,13 @@ if [ -n "$ADMIN_EMAIL" ] && [ -n "$ADMIN_PASSWORD" ]; then
   node ./scripts/bootstrap-admin.mjs
 fi
 
+# Semeia a tabela de categorias a partir do CSV, só no primeiro boot (a
+# tabela vazia é o sinal — depois disso ela é gerenciada por /categorias).
+# Não derruba o container se falhar: preferimos subir com a tela de
+# categorias vazia (corrigível na hora, via /categorias ou rodando o
+# comando de novo) a travar toda a aplicação por causa de um CSV ruim.
+echo "[entrypoint] Verificando tabela de categorias..."
+node ./scripts/seed-categories.mjs || echo "[entrypoint] AVISO: seed de categorias falhou — cadastre manualmente em /categorias ou rode 'npm run db:seed-categories' de novo."
+
 echo "[entrypoint] Iniciando aplicação: $*"
 exec "$@"

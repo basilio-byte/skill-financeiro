@@ -29,6 +29,20 @@
 - Primeiro commit + push feito (`e00b767`). Adicionado `.github/workflows/docker-publish.yml`
   (ADR-0007): publica `ghcr.io/basilio-byte/skill-financeiro` automaticamente a cada push
   na `main`, com tags `latest` + short-sha.
-- **Pendente para a próxima sessão:** configurar o serviço no Easypanel (Postgres + App
-  apontando pro GHCR), rodar o seed de categorias em produção, testar a UI num navegador de
-  verdade (só foi testada via curl/API nesta sessão).
+- Push confirmado publicamente e workflow rodou com sucesso: `ghcr.io/basilio-byte/skill-financeiro`
+  está publicado e é **pull público** (confirmado puxando o manifest sem autenticação) —
+  Easypanel não precisa de credencial de registry. Snag de autenticação no meio do caminho:
+  Git Credential Manager local estava logado como `basiliolp`, sem push em
+  `basilio-byte/skill-financeiro` — resolvido pelo usuário adicionando `basiliolp` como
+  colaborador do repo.
+- Automatizado o resto do boot (pedido do usuário, "tudo automático"): `prisma/seed-categories.ts`
+  virou `scripts/seed-categories.mjs` (JS puro, sem tsx — precisa rodar na imagem de
+  produção, que não carrega TypeScript) e passou a rodar sozinho no
+  `docker-entrypoint.sh`, mas só semeia se a tabela estiver vazia (ADR-0008) — nunca
+  reaplica o CSV por cima de edições manuais feitas em `/categorias`. Primeiro deploy no
+  Easypanel agora não tem NENHUM passo manual (migrations + admin + categorias, tudo no boot).
+- **Pendente para a próxima sessão:** configurar de fato o serviço no Easypanel (Postgres +
+  App apontando pro GHCR + envs), testar a UI num navegador de verdade (só foi testada via
+  curl/API nesta sessão). Ideia em aberto, não implementada: um segundo job de CI que chame
+  o webhook de redeploy do Easypanel automaticamente após o build (precisa da URL/token do
+  webhook, que o usuário ainda não passou).
