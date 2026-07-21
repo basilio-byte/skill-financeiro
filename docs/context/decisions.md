@@ -59,3 +59,16 @@ arquivos reais baixados em 2026-07-21 antes de escrever qualquer código.
 futuro quebrar essas suposições, trocar por uma lib auditada (`exceljs`) é uma troca de
 módulo isolada — a interface (`readXlsxAsObjects`) não muda.
 **Status:** aceito.
+
+## ADR-0007 — Publicação de imagem automática via GitHub Actions → GHCR
+**Contexto:** o projeto irmão publica a imagem manualmente (`docker build` + `docker push`
+local) porque a cota de GitHub Actions da conta estava esgotada na época. Aqui não há esse
+bloqueio conhecido.
+**Decisão:** `.github/workflows/docker-publish.yml` builda e publica
+`ghcr.io/basilio-byte/skill-financeiro` a cada push na `main` (+ disparo manual via
+`workflow_dispatch`), sempre com duas tags: `latest` e o short-sha do commit — nunca só
+`latest`, para sempre ser possível saber qual commit está rodando em produção (mesmo
+princípio do projeto irmão, só que automatizado em vez de manual).
+**Consequência:** o Easypanel consome `:latest` direto do GHCR — não é mais preciso rodar
+`docker build`/`docker push` manualmente a cada deploy, só dar push na `main`.
+**Status:** aceito.

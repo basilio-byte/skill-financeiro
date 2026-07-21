@@ -20,7 +20,15 @@
   reader sem dependência (validado contra arquivos reais), cliente conexa-web, motor de
   categorização (rules/join/rateio/categorize-invoices/run), telas (login/runs/categorias/
   minha-conta), infra Docker, seed de categorias.
-- **Pendente para a próxima sessão:** rodar `npm install` + `typecheck`/`build`/testes,
-  validar o `xlsx/reader.ts` contra os arquivos reais baixados nesta sessão, rodar uma
-  rodada real de ponta a ponta e conferir a QA da skill original (soma "Valor Recebido
-  Cat." = soma "Valor Recebido" do CR), primeiro commit + push.
+- **Concluído ainda em 2026-07-21:** `npm install`, `typecheck`/`test` (23 testes)/`build`
+  limpos; `xlsx/reader.ts` validado contra os dois arquivos reais baixados (1372 linhas
+  Vendas, 739 linhas CR); rodada real de ponta a ponta via `POST /api/runs` contra o Conexa
+  de produção (01–21/07/2026): 684 faturas CR, 1252 itens LV, 40 sem LV, R$258.121,80 —
+  QA da skill original bateu exato (soma "Valor Recebido Cat." = soma "Valor Recebido
+  Total" por fatura). Export `.xlsx` confirmado como Excel 2007+ real.
+- Primeiro commit + push feito (`e00b767`). Adicionado `.github/workflows/docker-publish.yml`
+  (ADR-0007): publica `ghcr.io/basilio-byte/skill-financeiro` automaticamente a cada push
+  na `main`, com tags `latest` + short-sha.
+- **Pendente para a próxima sessão:** configurar o serviço no Easypanel (Postgres + App
+  apontando pro GHCR), rodar o seed de categorias em produção, testar a UI num navegador de
+  verdade (só foi testada via curl/API nesta sessão).

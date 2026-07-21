@@ -65,18 +65,31 @@ npm run dev                   # http://localhost:3000
 | `npm run prisma:deploy` | aplica migrations (produção) |
 | `npm run db:seed-categories` | semeia/atualiza a tabela de categorias a partir do CSV |
 
+## CI/CD
+
+`.github/workflows/docker-publish.yml` builda e publica a imagem no GHCR automaticamente a
+cada push na `main` (e sob demanda via "Run workflow"). Publica sempre duas tags:
+`ghcr.io/basilio-byte/skill-financeiro:latest` e `:<short-sha>` — nunca só `latest`, pra
+sempre dar pra saber qual commit está rodando em produção (ver ADR-0007 em
+[`docs/context/decisions.md`](docs/context/decisions.md)). Não precisa rodar `docker build`
+manualmente — só dar push.
+
 ## Deploy no Easypanel
 
 1. Serviço **Postgres** próprio (não compartilhar com `seahub_financeiro`).
-2. Serviço **App** (build via Dockerfile deste repo, ou imagem publicada no GHCR).
-   O `docker-entrypoint.sh` roda `prisma migrate deploy` no boot.
+2. Serviço **App** do tipo **Docker Image** → `ghcr.io/basilio-byte/skill-financeiro:latest`.
+   Se o pacote estiver privado no GHCR, cadastre credenciais do registry no Easypanel (usuário
+   GitHub + um PAT com escopo `read:packages`). O `docker-entrypoint.sh` roda
+   `prisma migrate deploy` no boot — sem passo extra.
 3. **Secrets/env:** `DATABASE_URL`, `SESSION_SECRET` (`openssl rand -base64 48`),
    `CONEXA_BASE_URL`, `CONEXA_WEB_USERNAME`, `CONEXA_WEB_PASSWORD`, `APP_URL`,
    `APP_TIMEZONE=America/Fortaleza`, `ADMIN_EMAIL`/`ADMIN_PASSWORD` (só no primeiro boot).
-4. Healthcheck: `GET /api/health`.
-5. Depois do primeiro boot, rode `npm run db:seed-categories` uma vez (ou inclua no
-   entrypoint, se preferir automatizar) e cadastre as demais categorias em `/categorias`
-   conforme aparecerem serviços novos.
+4. Porta do serviço: `3000`. Healthcheck: `GET /api/health`.
+5. Depois do primeiro boot, rode `npm run db:seed-categories` uma vez (via exec/console do
+   Easypanel) e cadastre as demais categorias em `/categorias` conforme aparecerem serviços
+   novos.
+6. Para atualizar depois de um novo push: no Easypanel, "Redeploy" (ou configure
+   auto-redeploy no push do `:latest`, se o Easypanel suportar watch de tag).
 
 ## Segurança
 - Segredos só via env/secrets — nunca no repositório (`.env` é gitignored).
