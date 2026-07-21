@@ -28,3 +28,15 @@ Regras herdadas do projeto irmão (`seahub_financeiro`) + as específicas deste 
 8. **Falha de rodada nunca é silenciosa.** `RevenueCategorizationRun.status = FAILED` +
    `erro` preenchido sempre que fetch/parse/categorização falhar — nunca deixar uma rodada
    "sumir" sem rastro.
+9. **Regra permanente (2026-07-21, pedido explícito do usuário): tudo — cálculo, categoria,
+   valores, dashboard — segue a skill `categoriza-receita` à risca. A ÚNICA exceção é dado
+   ajustado manualmente ("revisado") em `/runs/[id]`.** Mesmo essa exceção é rastreada, nunca
+   uma sobrescrita silenciosa: `RevenueCategorizedLine.revisadoManualmente`/`revisadoPorId`/
+   `revisadoEm` registram a revisão, e `categoriaOriginal`/`valorRecebidoCatOriginal` guardam
+   o valor que a skill calculou ANTES da primeira revisão (nunca sobrescritos em revisões
+   seguintes — é a referência permanente de "o que o algoritmo disse"). Isso significa: (a)
+   nenhum código de agregação/relatório deve "corrigir" ou reinterpretar o output da skill por
+   conta própria — só o humano, explicitamente, via a tela de revisão; (b) ao editar uma
+   linha, os agregados da própria rodada (`resumoPorCategoria`/`totalRecebido`) são
+   recalculados na mesma transação, para que Panorama e o resumo da rodada nunca fiquem
+   dessincronizados de uma revisão manual já feita.

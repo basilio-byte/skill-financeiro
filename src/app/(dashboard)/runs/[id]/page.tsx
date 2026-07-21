@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { prisma } from "@/lib/db";
 import { formatBRL } from "@/lib/money";
 import { Card, SectionTitle } from "@/components/ui";
+import { LinhaRevisaoRow, type LinhaRevisao } from "@/components/linha-revisao-row";
 
 export const metadata: Metadata = { title: "Detalhe da rodada" };
 
@@ -10,22 +11,32 @@ function formatDate(d: Date): string {
   return d.toLocaleDateString("pt-BR", { timeZone: "UTC" });
 }
 
-const PROPORCIONADO_LABEL: Record<string, string> = {
-  N: "N",
-  S: "S — rateado (revisar)",
-  SEM_LV: "Sem LV (revisar)",
-};
-
 export default async function RunDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const run = await prisma.revenueCategorizationRun.findUnique({ where: { id } });
   if (!run) notFound();
 
-  const linhasParaRevisar = await prisma.revenueCategorizedLine.findMany({
+  const linhasParaRevisarRaw = await prisma.revenueCategorizedLine.findMany({
     where: { runId: id, proporcionado: { in: ["S", "SEM_LV"] } },
     orderBy: { crConexaId: "asc" },
     take: 200,
+    include: { revisadoPor: { select: { name: true } } },
   });
+
+  const linhasParaRevisar: LinhaRevisao[] = linhasParaRevisarRaw.map((l) => ({
+    id: l.id,
+    crConexaId: l.crConexaId,
+    razaoSocial: l.razaoSocial,
+    servicoOuPlano: l.servicoOuPlano,
+    categoria: l.categoria,
+    proporcionado: l.proporcionado,
+    valorRecebidoCat: l.valorRecebidoCat.toString(),
+    revisadoManualmente: l.revisadoManualmente,
+    revisadoPorNome: l.revisadoPor?.name ?? null,
+    revisadoEm: l.revisadoEm?.toISOString() ?? null,
+    categoriaOriginal: l.categoriaOriginal,
+    valorRecebidoCatOriginal: l.valorRecebidoCatOriginal?.toString() ?? null,
+  }));
 
   const resumo = (run.resumoPorCategoria as Array<{ categoria: string; total: string }> | null) ?? [];
 
@@ -49,7 +60,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
       ) : null}
 
       <Card>
-        <SectionTitle>Resumo por categoria</SectionTitle>
+        <SectionTitle hint="reflete revisões manuais já feitas">Resumo por categoria</SectionTitle>
         <table className="w-full text-left text-sm">
           <thead className="text-slate-500">
             <tr>
@@ -78,6 +89,11 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
         <SectionTitle hint='rateadas ("S") ou sem correspondência no Listar Vendas ("Sem LV")'>
           Faturas para revisar
         </SectionTitle>
+        <p className="mb-3 text-xs text-slate-500">
+          Categoria e valor aqui vêm calculados pela skill categoriza-receita. "Editar" corrige manualmente esta
+          linha — a correção fica marcada e rastreada (quem, quando, valor original), e nunca é sobrescrita
+          automaticamente depois.
+        </p>
         <table className="w-full text-left text-sm">
           <thead className="text-slate-500">
             <tr>
@@ -87,22 +103,16 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
               <th className="pb-2 pr-4">Categoria</th>
               <th className="pb-2 pr-4">Proporcionado</th>
               <th className="pb-2 pr-4">Valor Cat.</th>
+              <th className="pb-2 pr-4" />
             </tr>
           </thead>
           <tbody>
             {linhasParaRevisar.map((l) => (
-              <tr key={l.id} className="border-t border-slate-100">
-                <td className="py-2 pr-4">{l.crConexaId}</td>
-                <td className="py-2 pr-4">{l.razaoSocial}</td>
-                <td className="py-2 pr-4 text-slate-600">{l.servicoOuPlano}</td>
-                <td className="py-2 pr-4">{l.categoria}</td>
-                <td className="py-2 pr-4">{PROPORCIONADO_LABEL[l.proporcionado] ?? l.proporcionado}</td>
-                <td className="py-2 pr-4">{formatBRL(l.valorRecebidoCat.toString())}</td>
-              </tr>
+              <LinhaRevisaoRow key={l.id} linha={l} />
             ))}
             {linhasParaRevisar.length === 0 ? (
               <tr>
-                <td colSpan={6} className="py-6 text-center text-slate-400">
+                <td colSpan={7} className="py-6 text-center text-slate-400">
                   Nada para revisar.
                 </td>
               </tr>

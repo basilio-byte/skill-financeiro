@@ -1,12 +1,14 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { buildOverview } from "@/lib/reports/overview";
+import { PERIOD_KINDS, type PeriodKind } from "@/lib/dates";
 import { formatBRL } from "@/lib/money";
 import { Card, SectionTitle } from "@/components/ui";
 import { KpiCard } from "@/components/kpi-card";
 import { ChartCard } from "@/components/charts/chart-card";
 import { PeriodBarChart } from "@/components/charts/period-bar-chart";
 import { BreakdownList } from "@/components/breakdown-list";
+import { PeriodControls } from "@/components/period-controls";
 
 export const metadata: Metadata = { title: "Panorama" };
 
@@ -16,61 +18,73 @@ function fmtDate(d: Date): string {
 
 const STATUS_LABEL: Record<string, string> = { RUNNING: "Rodando", DONE: "Concluída", FAILED: "Falhou" };
 
-export default async function PanoramaPage() {
-  const report = await buildOverview();
+const VALID_KINDS = PERIOD_KINDS.map((k) => k.value);
+
+export default async function PanoramaPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ g?: string; ref?: string }>;
+}) {
+  const sp = await searchParams;
+  const kind: PeriodKind = (VALID_KINDS as string[]).includes(sp.g ?? "") ? (sp.g as PeriodKind) : "month";
+
+  const report = await buildOverview(kind, sp.ref);
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-xl font-semibold text-slate-900">Panorama</h1>
-        <p className="text-sm text-slate-500">Receita categorizada em todas as rodadas concluídas.</p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold text-slate-900">Panorama</h1>
+          <p className="text-sm capitalize text-slate-500">{report.periodo.label}</p>
+        </div>
+        <PeriodControls kind={kind} fromKey={report.periodo.fromKey} />
       </div>
 
       {/* KPIs */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <KpiCard
-          label="Total recebido categorizado"
-          amount={report.totalRecebidoGeral}
+          label="Total recebido no período"
+          amount={report.totalRecebidoPeriodo}
           tone="positive"
-          hint={`${report.rodadasConcluidas} rodada(s) concluída(s)`}
+          hint="por Data de Crédito da Cobrança"
         />
         <KpiCard
-          label="Sem categoria"
-          amount={report.totalSemCategoria}
+          label="Sem categoria no período"
+          amount={report.totalSemCategoriaPeriodo}
           tone={report.percentualSemCategoria > 0 ? "negative" : "neutral"}
-          sublabel={`${report.percentualSemCategoria}% do total`}
+          sublabel={`${report.percentualSemCategoria}% do período`}
           hint="Revisar em /categorias"
         />
-        <KpiCard label="Rodadas concluídas" value={String(report.rodadasConcluidas)} />
+        <KpiCard label="Rodadas concluídas" value={String(report.rodadasConcluidas)} hint="total do sistema" />
         <KpiCard label="Regras de categorização ativas" value={String(report.regrasCadastradas)} />
       </div>
 
-      {/* Total recebido por rodada — série única (uma matiz, sem legenda) */}
+      {/* Tendência — série única (uma matiz, sem legenda) */}
       <ChartCard
-        title="Total recebido por rodada"
-        hint="ordem cronológica pelo período de cada rodada"
-        rows={report.porRodada.map((p) => ({ key: p.label, total: p.total }))}
+        title="Total recebido por período"
+        hint={`últimos 12 períodos (${PERIOD_KINDS.find((k) => k.value === kind)?.label.toLowerCase()}) até o selecionado`}
+        rows={report.tendencia.map((p) => ({ key: p.label, total: p.total }))}
         columns={[
-          { key: "key", label: "Rodada" },
+          { key: "key", label: "Período" },
           { key: "total", label: "Total", money: true },
         ]}
       >
-        <PeriodBarChart data={report.porRodada} />
+        <PeriodBarChart data={report.tendencia} />
       </ChartCard>
 
-      {/* Breakdowns: categoria (ranking, magnitude) e conta */}
+      {/* Breakdowns do período selecionado */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card>
-          <SectionTitle hint={formatBRL(report.totalRecebidoGeral)}>Receita por categoria</SectionTitle>
-          <BreakdownList items={report.porCategoria} emptyLabel="Nenhuma rodada concluída ainda" />
+          <SectionTitle hint={formatBRL(report.totalRecebidoPeriodo)}>Receita por categoria</SectionTitle>
+          <BreakdownList items={report.porCategoria} emptyLabel="Nenhuma receita categorizada neste período" />
         </Card>
         <Card>
           <SectionTitle>Receita por conta</SectionTitle>
-          <BreakdownList items={report.porConta} emptyLabel="Nenhuma rodada concluída ainda" />
+          <BreakdownList items={report.porConta} emptyLabel="Nenhuma receita categorizada neste período" />
         </Card>
       </div>
 
-      {/* Últimas rodadas */}
+      {/* Últimas rodadas (histórico geral, não escopado ao período) */}
       <Card>
         <SectionTitle>Últimas rodadas</SectionTitle>
         <div className="overflow-x-auto">

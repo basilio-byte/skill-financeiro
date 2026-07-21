@@ -109,3 +109,36 @@ uma de Contas.
   quebraria a referência da imagem no CI e exigiria renomear o repo no GitHub, fora do
   pedido original.
 **Status:** aceito.
+
+## ADR-0010 — Revisão manual de linha categorizada (única exceção à skill)
+**Contexto:** "Faturas para revisar" era só uma listagem — o financeiro não tinha como
+corrigir uma categoria ou valor errado sem reprocessar a rodada inteira. O usuário pediu
+essa capacidade, mas com uma regra: TUDO deve seguir a skill categoriza-receita à risca,
+exceto dado explicitamente revisado à mão.
+**Decisão:** `RevenueCategorizedLine` ganha `revisadoManualmente`/`revisadoPorId`/
+`revisadoEm` + snapshot `categoriaOriginal`/`valorRecebidoCatOriginal` (preenchido só na
+PRIMEIRA revisão, nunca sobrescrito depois — é a referência permanente do que a skill
+calculou). `updateCategorizedLineAction` (ADMIN only) edita categoria/valor de uma linha e,
+na MESMA transação, recalcula `resumoPorCategoria`/`totalRecebido` da rodada a partir de
+TODAS as linhas — para que o resumo da rodada e o Panorama nunca fiquem dessincronizados
+de uma revisão já feita.
+**Por que não reprocessar a fatura inteira:** editar só a linha tocada (não redistribuir
+automaticamente entre as demais linhas de uma fatura rateada) é mais simples e não arrisca
+"corrigir" algo que o financeiro não pediu para mexer — o preço é que, depois de uma edição,
+a soma das linhas de uma fatura rateada pode não bater mais com `valorRecebidoTotal`; isso é
+aceito como responsabilidade de quem revisa (fica visível o valor original para conferência).
+**Status:** aceito.
+
+## ADR-0011 — Panorama por período (semana/mês/trimestre/semestre/ano)
+**Contexto:** o Panorama agregava TODAS as rodadas concluídas de uma vez, sem recorte de
+tempo — usuário pediu visualização semanal/mensal/trimestral/semestral/anual, no espírito do
+`PeriodControls`/`getPeriodBounds` do projeto irmão (que só tinha dia/semana/mês/ano).
+**Decisão:** `src/lib/dates.ts` (portado e estendido com trimestre/semestre, usando
+`date-fns` — já era dependência do scaffold) + `PeriodControls` (portado, sem o seletor de
+unidade que não existe aqui). `buildOverview(kind, ref)` escopa KPIs e os breakdowns
+categoria/conta ao período selecionado, filtrando por `dataCredito` (o mesmo campo que já
+organiza todo o resto do app) — e monta uma tendência dos últimos 12 buckets da mesma
+granularidade terminando no período selecionado, numa única query (janela ampla, agregada em
+memória). "Últimas rodadas" continua global/não escopado (é histórico operacional, não
+uma métrica financeira do período).
+**Status:** aceito.

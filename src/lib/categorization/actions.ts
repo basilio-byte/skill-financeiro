@@ -3,9 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { requireUser } from "@/lib/auth/session";
+import { requireRole, requireUser } from "@/lib/auth/session";
 import { startCategorizationRun } from "@/lib/categorization/run";
+import { ZERO, money, roundMoney, sum, toAmountString } from "@/lib/money";
 
 const periodoSchema = z.object({
   periodoInicio: z.string().min(1, "Informe a data início"),
@@ -81,4 +83,84 @@ export async function toggleCategoryRuleAction(id: string, ativo: boolean): Prom
   await requireUser();
   await prisma.revenueCategoryRule.update({ where: { id }, data: { ativo } });
   revalidatePath("/categorias");
+}
+
+// ---------------------------------------------------------------------------
+// Revisão manual de uma linha categorizada ("Faturas para revisar").
+//
+// Regra permanente do projeto (ver docs/context/financial-rigor.md): tudo
+// segue a skill categoriza-receita à risca; a ÚNICA exceção é dado revisado
+// manualmente aqui — e mesmo essa exceção fica rastreada (quem, quando, e o
+// valor ORIGINAL calculado pela skill, nunca sobrescrito em revisões seguintes).
+// ---------------------------------------------------------------------------
+
+const lineEditSchema = z.object({
+  lineId: z.string().min(1),
+  categoria: z.string().trim().min(1, "Informe a categoria"),
+  valor: z.string().min(1, "Informe o valor"),
+});
+
+export interface LineEditState {
+  error?: string;
+  ok?: string;
+}
+
+export async function updateCategorizedLineAction(_prev: LineEditState, formData: FormData): Promise<LineEditState> {
+  const admin = await requireRole("ADMIN");
+  const parsed = lineEditSchema.safeParse({
+    lineId: formData.get("lineId"),
+    categoria: formData.get("categoria"),
+    valor: formData.get("valor"),
+  });
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Dados inválidos" };
+
+  const novoValor = roundMoney(money(parsed.data.valor));
+  if (Number.isNaN(novoValor.toNumber())) return { error: "Valor inválido." };
+  if (novoValor.isNegative()) return { error: "O valor não pode ser negativo." };
+
+  const linha = await prisma.revenueCategorizedLine.findUnique({ where: { id: parsed.data.lineId } });
+  if (!linha) return { error: "Linha não encontrada." };
+
+  await prisma.$transaction(async (tx) => {
+    await tx.revenueCategorizedLine.update({
+      where: { id: linha.id },
+      data: {
+        categoria: parsed.data.categoria,
+        valorRecebidoCat: toAmountString(novoValor),
+        revisadoManualmente: true,
+        revisadoPorId: admin.id,
+        revisadoEm: new Date(),
+        // Snapshot só na PRIMEIRA revisão — preserva o que a skill calculou originalmente,
+        // mesmo que a linha seja revisada de novo mais tarde.
+        ...(linha.revisadoManualmente
+          ? {}
+          : { categoriaOriginal: linha.categoria, valorRecebidoCatOriginal: linha.valorRecebidoCat }),
+      },
+    });
+
+    // Recalcula os agregados da rodada (resumoPorCategoria/totalRecebido) a partir de
+    // TODAS as linhas — agora parcialmente revisadas — para que Panorama e o resumo
+    // da própria rodada nunca fiquem dessincronizados de uma revisão manual.
+    const todasLinhas = await tx.revenueCategorizedLine.findMany({ where: { runId: linha.runId } });
+    const porCategoria = new Map<string, ReturnType<typeof money>>();
+    for (const l of todasLinhas) {
+      const atual = porCategoria.get(l.categoria) ?? ZERO;
+      porCategoria.set(l.categoria, atual.plus(money(l.valorRecebidoCat.toString())));
+    }
+    const resumo = [...porCategoria.entries()]
+      .map(([categoria, total]) => ({ categoria, total: toAmountString(roundMoney(total)) }))
+      .sort((a, b) => Number(b.total) - Number(a.total));
+    const totalRecebido = toAmountString(roundMoney(sum(todasLinhas.map((l) => l.valorRecebidoCat.toString()))));
+
+    await tx.revenueCategorizationRun.update({
+      where: { id: linha.runId },
+      data: { resumoPorCategoria: resumo as unknown as Prisma.InputJsonValue, totalRecebido },
+    });
+  });
+
+  revalidatePath(`/runs/${linha.runId}`);
+  revalidatePath("/runs");
+  revalidatePath("/");
+  revalidatePath("/categorias");
+  return { ok: "Linha atualizada." };
 }

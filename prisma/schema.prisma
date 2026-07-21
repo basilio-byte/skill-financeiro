@@ -36,9 +36,10 @@ model User {
   updatedAt    DateTime  @updatedAt
   lastLoginAt  DateTime?
 
-  sessions    Session[]
-  loginEvents LoginEvent[]
-  runs        RevenueCategorizationRun[]
+  sessions       Session[]
+  loginEvents    LoginEvent[]
+  runs           RevenueCategorizationRun[]
+  linhasRevisadas RevenueCategorizedLine[]
 
   @@map("users")
 }
@@ -173,6 +174,21 @@ model RevenueCategorizedLine {
 
   // Linha bruta de origem (CR + itens LV casados), para auditoria/reprocessamento.
   raw Json
+
+  // ---------------------------------------------------------------------
+  // Revisão manual — ver docs/context/financial-rigor.md, regra permanente:
+  // TUDO segue a skill categoriza-receita à risca; a ÚNICA exceção é dado
+  // ajustado manualmente aqui, e mesmo essa exceção fica rastreada (quem,
+  // quando, e qual era o valor ORIGINAL calculado pela skill).
+  // ---------------------------------------------------------------------
+  revisadoManualmente Boolean   @default(false)
+  revisadoPorId       String?
+  revisadoPor         User?     @relation(fields: [revisadoPorId], references: [id], onDelete: SetNull)
+  revisadoEm          DateTime?
+  // Snapshot do valor calculado pela skill ANTES da primeira revisão manual —
+  // nunca sobrescrito em revisões seguintes, é a referência de "o que a skill disse".
+  categoriaOriginal        String?
+  valorRecebidoCatOriginal Decimal? @db.Decimal(14, 2)
 
   @@index([runId])
   @@index([clienteConexaId])

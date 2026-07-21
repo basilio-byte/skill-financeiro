@@ -72,3 +72,34 @@
 - **Pendente para a próxima sessão:** configurar de fato o serviço no Easypanel (Postgres +
   App apontando pro GHCR + envs), testar a UI num navegador de verdade (só validada via
   build/typecheck/testes — Panorama/Contas/Pendências ainda não foram clicadas numa tela).
+
+## 2026-07-21 (cont. 2) — Revisão manual de linhas + Panorama por período
+- Pedido do usuário: (1) "Faturas para revisar" precisa ter campos editáveis (categoria,
+  valor) — hoje é só uma listagem que nunca pode ser ajustada; (2) regra permanente: tudo
+  (cálculo, categoria, valores, dashboard) segue a skill categoriza-receita à risca, a ÚNICA
+  exceção é dado ajustado manualmente ("revisado"); (3) visualização de dados
+  semanal/mensal/trimestral/semestral/anual.
+- Schema (`20260721181630_revisao_manual_linha`): `RevenueCategorizedLine` ganha
+  `revisadoManualmente`/`revisadoPorId`/`revisadoEm` + snapshot `categoriaOriginal`/
+  `valorRecebidoCatOriginal` (preenchido só na primeira revisão, nunca depois — é a
+  referência permanente do que a skill calculou). Ver ADR-0010.
+- `updateCategorizedLineAction` (ADMIN only): edita categoria/valor de uma linha e, na MESMA
+  transação, recalcula `resumoPorCategoria`/`totalRecebido` da rodada a partir de todas as
+  linhas — Panorama e o resumo da rodada nunca ficam dessincronizados de uma revisão feita.
+  UI: `LinhaRevisaoRow` (componente client, expande um form inline por linha) em
+  `/runs/[id]`.
+- `src/lib/dates.ts` novo: portado o `getPeriodBounds`/`PeriodControls` do projeto irmão
+  (que só tinha dia/semana/mês/ano) e estendido com trimestre e semestre (usando
+  `date-fns`, já era dependência não usada). 12 testes cobrindo os limites de cada
+  granularidade + a regressão de fuso que o projeto irmão já documentou (não deslizar um
+  dia ao interpretar `ref=2026-01-01`).
+- `src/lib/reports/overview.ts` reescrito: `buildOverview(kind, ref)` agora escopa KPIs e
+  os breakdowns (categoria/conta) a UM período selecionado (filtrando por `dataCredito`),
+  com uma tendência dos últimos 12 buckets da mesma granularidade numa única query (janela
+  ampla, agregada em memória). "Últimas rodadas" continua global. Ver ADR-0011.
+- Validado: `typecheck`/`test` (48 testes, todos passando, +12 de dates.test.ts)/`build`
+  limpos.
+- **Pendente para a próxima sessão:** testar a revisão manual e os filtros de período
+  clicando de verdade numa rodada real (só chegou a typecheck/test/build nesta sessão até
+  aqui); Easypanel; clique-a-clique num navegador real (segue pendente de sessões
+  anteriores).

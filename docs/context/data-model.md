@@ -22,6 +22,10 @@
   quando a categoria é "Sem Categoria" — assim dois serviços diferentes e ambos não
   mapeados na MESMA fatura não se fundem numa linha só (cada um precisa aparecer separado
   para o financeiro conseguir cadastrar a categoria certa de cada um).
+  `revisadoManualmente`/`revisadoPorId`/`revisadoEm` + `categoriaOriginal`/
+  `valorRecebidoCatOriginal` (ADR-0010): única exceção admitida ao "segue a skill à risca"
+  (ver financial-rigor.md #9) — o snapshot `*Original` só é preenchido na primeira revisão,
+  nunca depois, e é a referência permanente do que a skill calculou.
 
 ## Fluxo de uma rodada
 1. `startCategorizationRun` (`src/lib/categorization/run.ts`) cria o registro RUNNING.
@@ -36,10 +40,15 @@
    (categorization/export-xlsx.ts) a partir das linhas persistidas.
 
 ## Telas
-- **`/` (Panorama)** — `src/lib/reports/overview.ts` agrega TODAS as rodadas concluídas:
-  total geral, total "Sem Categoria" (com %), receita por categoria e por conta (ranking,
-  `BreakdownList`, uma matiz), total recebido por rodada (`PeriodBarChart`, série única).
-- **`/runs`, `/runs/[id]`** — disparo de rodada e detalhe/export.
+- **`/` (Panorama)** — `src/lib/reports/overview.ts` escopa KPIs e breakdowns (categoria,
+  conta) a UM período selecionado (semana/mês/trimestre/semestre/ano — `PeriodControls`,
+  `src/lib/dates.ts`, ADR-0011), filtrando por `dataCredito`. Mostra também uma tendência
+  dos últimos 12 buckets da mesma granularidade (`PeriodBarChart`, série única). "Últimas
+  rodadas" continua global (histórico operacional, não escopado ao período).
+- **`/runs`, `/runs/[id]`** — disparo de rodada e detalhe/export. Em "Faturas para revisar"
+  (linhas `S`/`SEM_LV`), cada linha é editável (categoria/valor) via
+  `updateCategorizedLineAction` (ADMIN) — ADR-0010. A edição recalcula
+  `resumoPorCategoria`/`totalRecebido` da rodada na mesma transação.
 - **`/categorias`** — tabela de regras + seção "Pendências de categorização" (linhas com
   `categoria = "Sem Categoria"`, agrupadas por `servicoOuPlano`, com contagem/total/amostras
   e um form de criação já preenchido com o nome — cadastrar aqui corrige só rodadas

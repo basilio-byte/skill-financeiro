@@ -1,80 +1,109 @@
 import "server-only";
 import { prisma } from "@/lib/db";
 import { money, sum, roundMoney, toAmountString, ZERO, type Money } from "@/lib/money";
+import { getPeriodBounds, shiftPeriodKey, type PeriodBounds, type PeriodKind } from "@/lib/dates";
 import type { BreakdownItem } from "@/components/breakdown-list";
 import type { PeriodPoint } from "@/components/charts/period-bar-chart";
 
 export interface OverviewData {
-  totalRecebidoGeral: string;
-  totalSemCategoria: string;
+  periodo: PeriodBounds;
+  totalRecebidoPeriodo: string;
+  totalSemCategoriaPeriodo: string;
   percentualSemCategoria: number;
   rodadasConcluidas: number;
   regrasCadastradas: number;
   porCategoria: BreakdownItem[];
   porConta: BreakdownItem[];
-  porRodada: PeriodPoint[];
+  tendencia: PeriodPoint[];
   ultimasRodadas: Array<{ id: string; periodoInicio: Date; periodoFim: Date; status: string; totalRecebido: string }>;
 }
 
-function fmtDate(d: Date): string {
-  return d.toLocaleDateString("pt-BR", { timeZone: "UTC" });
-}
+const TREND_BUCKETS = 12;
 
-/** Monta os dados do Panorama a partir das rodadas já concluídas. */
-export async function buildOverview(): Promise<OverviewData> {
-  const [runsDone, regrasCadastradas, ultimasRodadas, contaGroups] = await Promise.all([
-    prisma.revenueCategorizationRun.findMany({ where: { status: "DONE" }, orderBy: { periodoInicio: "asc" } }),
-    prisma.revenueCategoryRule.count({ where: { ativo: true } }),
-    prisma.revenueCategorizationRun.findMany({ orderBy: { iniciadoEm: "desc" }, take: 8 }),
-    prisma.revenueCategorizedLine.groupBy({
-      by: ["conta"],
-      where: { run: { status: "DONE" } },
-      _sum: { valorRecebidoCat: true },
+/**
+ * Monta o Panorama para um período (semana/mês/trimestre/semestre/ano),
+ * escopado por `dataCredito` — o mesmo campo que já organiza as rodadas
+ * (Data de Crédito da Cobrança). KPIs/breakdowns são do período selecionado;
+ * a tendência mostra os últimos `TREND_BUCKETS` buckets terminando nele.
+ */
+export async function buildOverview(kind: PeriodKind, ref?: string): Promise<OverviewData> {
+  const periodo = getPeriodBounds(kind, ref);
+
+  const primeiroBucketKey = (() => {
+    let k = periodo.fromKey;
+    for (let i = 0; i < TREND_BUCKETS - 1; i++) k = shiftPeriodKey(k, kind, -1);
+    return k;
+  })();
+  const janelaInicio = getPeriodBounds(kind, primeiroBucketKey).fromDate;
+
+  const [linhasJanela, regrasCadastradas, rodadasConcluidas, ultimasRodadas] = await Promise.all([
+    prisma.revenueCategorizedLine.findMany({
+      where: {
+        run: { status: "DONE" },
+        dataCredito: { gte: janelaInicio, lt: periodo.toDateExclusive },
+      },
+      select: { categoria: true, conta: true, valorRecebidoCat: true, dataCredito: true },
     }),
+    prisma.revenueCategoryRule.count({ where: { ativo: true } }),
+    prisma.revenueCategorizationRun.count({ where: { status: "DONE" } }),
+    prisma.revenueCategorizationRun.findMany({ orderBy: { iniciadoEm: "desc" }, take: 8 }),
   ]);
 
-  const totalRecebidoGeral = sum(runsDone.map((r) => r.totalRecebido.toString()));
+  const linhasPeriodo = linhasJanela.filter(
+    (l) => l.dataCredito && l.dataCredito >= periodo.fromDate && l.dataCredito < periodo.toDateExclusive,
+  );
 
-  // Soma o resumoPorCategoria (já calculado por rodada) entre todas as rodadas —
-  // evita reprocessar todas as linhas para o Panorama.
   const porCategoriaMap = new Map<string, Money>();
-  for (const run of runsDone) {
-    const resumo = (run.resumoPorCategoria as Array<{ categoria: string; total: string }> | null) ?? [];
-    for (const r of resumo) {
-      porCategoriaMap.set(r.categoria, (porCategoriaMap.get(r.categoria) ?? ZERO).plus(money(r.total)));
-    }
+  const porContaMap = new Map<string, Money>();
+  for (const l of linhasPeriodo) {
+    const valor = money(l.valorRecebidoCat.toString());
+    porCategoriaMap.set(l.categoria, (porCategoriaMap.get(l.categoria) ?? ZERO).plus(valor));
+    const contaKey = l.conta || "Sem conta informada";
+    porContaMap.set(contaKey, (porContaMap.get(contaKey) ?? ZERO).plus(valor));
   }
-  const totalSemCategoria = porCategoriaMap.get("Sem Categoria") ?? ZERO;
+  const totalRecebidoPeriodo = sum(linhasPeriodo.map((l) => l.valorRecebidoCat.toString()));
+  const totalSemCategoriaPeriodo = porCategoriaMap.get("Sem Categoria") ?? ZERO;
 
   const porCategoria: BreakdownItem[] = [...porCategoriaMap.entries()]
     .map(([categoria, total]) => ({ key: categoria, label: categoria, total: toAmountString(roundMoney(total)) }))
     .sort((a, b) => Number(b.total) - Number(a.total));
-
-  const porConta: BreakdownItem[] = contaGroups
-    .map((g) => ({
-      key: g.conta || "—",
-      label: g.conta || "Sem conta informada",
-      total: toAmountString(roundMoney(money(g._sum.valorRecebidoCat ?? 0))),
-    }))
+  const porConta: BreakdownItem[] = [...porContaMap.entries()]
+    .map(([conta, total]) => ({ key: conta, label: conta, total: toAmountString(roundMoney(total)) }))
     .sort((a, b) => Number(b.total) - Number(a.total));
 
-  const porRodada: PeriodPoint[] = runsDone.map((r) => ({
-    key: r.id,
-    label: `${fmtDate(r.periodoInicio)}–${fmtDate(r.periodoFim)}`,
-    total: Number(r.totalRecebido),
+  // Tendência: soma por bucket da mesma granularidade, dentro da janela ampla.
+  const buckets: PeriodBounds[] = [];
+  let cursorKey = primeiroBucketKey;
+  for (let i = 0; i < TREND_BUCKETS; i++) {
+    buckets.push(getPeriodBounds(kind, cursorKey));
+    cursorKey = shiftPeriodKey(cursorKey, kind, 1);
+  }
+  const somaPorBucket = new Map<string, Money>(buckets.map((b) => [b.fromKey, ZERO]));
+  for (const l of linhasJanela) {
+    if (!l.dataCredito) continue;
+    const bucket = buckets.find((b) => l.dataCredito! >= b.fromDate && l.dataCredito! < b.toDateExclusive);
+    if (bucket) {
+      somaPorBucket.set(bucket.fromKey, (somaPorBucket.get(bucket.fromKey) ?? ZERO).plus(money(l.valorRecebidoCat.toString())));
+    }
+  }
+  const tendencia: PeriodPoint[] = buckets.map((b) => ({
+    key: b.fromKey,
+    label: b.label,
+    total: roundMoney(somaPorBucket.get(b.fromKey) ?? ZERO).toNumber(),
   }));
 
   return {
-    totalRecebidoGeral: toAmountString(roundMoney(totalRecebidoGeral)),
-    totalSemCategoria: toAmountString(roundMoney(totalSemCategoria)),
-    percentualSemCategoria: totalRecebidoGeral.isZero()
+    periodo,
+    totalRecebidoPeriodo: toAmountString(roundMoney(totalRecebidoPeriodo)),
+    totalSemCategoriaPeriodo: toAmountString(roundMoney(totalSemCategoriaPeriodo)),
+    percentualSemCategoria: totalRecebidoPeriodo.isZero()
       ? 0
-      : Number(totalSemCategoria.div(totalRecebidoGeral).times(100).toFixed(1)),
-    rodadasConcluidas: runsDone.length,
+      : Number(totalSemCategoriaPeriodo.div(totalRecebidoPeriodo).times(100).toFixed(1)),
+    rodadasConcluidas,
     regrasCadastradas,
     porCategoria,
     porConta,
-    porRodada,
+    tendencia,
     ultimasRodadas: ultimasRodadas.map((r) => ({
       id: r.id,
       periodoInicio: r.periodoInicio,
