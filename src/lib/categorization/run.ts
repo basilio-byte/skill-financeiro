@@ -86,6 +86,7 @@ function toLineData(runId: string, l: CategorizedLine) {
     razaoSocial: l.razaoSocial || null,
     planoContratado: l.planoContratado || null,
     categoria: l.categoria,
+    servicoOuPlano: l.servicoOuPlano,
     proporcionado: l.proporcionado,
     tipo: l.tipo || null,
     status: l.status || null,

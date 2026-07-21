@@ -49,6 +49,9 @@ export interface CategorizedLine {
   razaoSocial: string;
   planoContratado: string;
   categoria: string;
+  /** Nome exato buscado contra RevenueCategoryRule (Serviço/Item do LV, ou o
+   *  plano contratado quando SEM_LV) — permite auditar/corrigir "Sem Categoria". */
+  servicoOuPlano: string;
   proporcionado: ProporcionadoTipo;
   tipo: string;
   status: string;

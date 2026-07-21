@@ -1,5 +1,5 @@
 import { ZERO, sum, roundMoney, toAmountString, type Money } from "@/lib/money";
-import { CategoryMatcher, type CategoryRule } from "@/lib/categorization/rules";
+import { CategoryMatcher, SEM_CATEGORIA, type CategoryRule } from "@/lib/categorization/rules";
 import { joinContasReceberComListarVendas } from "@/lib/categorization/join";
 import type {
   CategorizationRunResult,
@@ -32,7 +32,7 @@ export function categorizeInvoices(
       totalSemLV += 1;
       const match = matcher.match(cr.planoContratado);
       if (match.matchType === "sem_categoria" && cr.planoContratado) servicosNaoMapeados.add(cr.planoContratado);
-      linhas.push(buildLinha(cr, match.categoria, "SEM_LV", cr.valorRecebido, cr.valorRecebido));
+      linhas.push(buildLinha(cr, match.categoria, cr.planoContratado, "SEM_LV", cr.valorRecebido, cr.valorRecebido));
       continue;
     }
 
@@ -41,23 +41,35 @@ export function categorizeInvoices(
       if (match.matchType === "sem_categoria" && lv.servicoItem) servicosNaoMapeados.add(lv.servicoItem);
       return match.categoria;
     });
-    const categoriasUnicas = [...new Set(categoriasPorItem)];
 
-    if (categoriasUnicas.length === 1) {
-      linhas.push(buildLinha(cr, categoriasUnicas[0]!, "N", cr.valorRecebido, cr.valorRecebido));
+    // Chave de agrupamento: categoria, EXCETO para "Sem Categoria" — aí agrupa
+    // por (categoria, nome exato do serviço), para que dois serviços diferentes
+    // e ambos não mapeados não sejam silenciosamente fundidos numa linha só
+    // (cada um precisa aparecer separado na auditoria de /categorias).
+    const bucketKey = (categoria: string, nome: string) => (categoria === SEM_CATEGORIA ? `${categoria}::${nome}` : categoria);
+
+    const buckets = new Map<string, { categoria: string; nome: string; itens: ListarVendasRow[] }>();
+    itensLV.forEach((lv, i) => {
+      const categoria = categoriasPorItem[i]!;
+      const key = bucketKey(categoria, lv.servicoItem);
+      const bucket = buckets.get(key);
+      if (bucket) bucket.itens.push(lv);
+      else buckets.set(key, { categoria, nome: lv.servicoItem, itens: [lv] });
+    });
+
+    if (buckets.size === 1) {
+      const only = [...buckets.values()][0]!;
+      linhas.push(buildLinha(cr, only.categoria, only.nome, "N", cr.valorRecebido, cr.valorRecebido));
       continue;
     }
 
-    // Múltiplas categorias na mesma fatura -> rateio proporcional pelo peso
-    // (soma do valor dos itens LV) de cada categoria.
-    const pesos = categoriasUnicas.map((categoria) =>
-      itensLV
-        .filter((_, i) => categoriasPorItem[i] === categoria)
-        .reduce<Money>((acc, lv) => acc.plus(lv.valor), ZERO),
-    );
+    // Múltiplos buckets na mesma fatura -> rateio proporcional pelo peso (soma
+    // do valor dos itens LV) de cada bucket.
+    const bucketList = [...buckets.values()];
+    const pesos = bucketList.map((b) => b.itens.reduce<Money>((acc, lv) => acc.plus(lv.valor), ZERO));
     const partes = allocateProportionally(cr.valorRecebido, pesos);
-    categoriasUnicas.forEach((categoria, i) => {
-      linhas.push(buildLinha(cr, categoria, "S", partes[i]!, cr.valorRecebido));
+    bucketList.forEach((b, i) => {
+      linhas.push(buildLinha(cr, b.categoria, b.nome, "S", partes[i]!, cr.valorRecebido));
     });
   }
 
@@ -83,6 +95,7 @@ export function categorizeInvoices(
 function buildLinha(
   cr: ContasReceberRow,
   categoria: string,
+  servicoOuPlano: string,
   proporcionado: ProporcionadoTipo,
   valorRecebidoCategoria: Money,
   valorRecebidoTotal: Money,
@@ -96,6 +109,7 @@ function buildLinha(
     razaoSocial: cr.razaoSocial,
     planoContratado: cr.planoContratado,
     categoria,
+    servicoOuPlano,
     proporcionado,
     tipo: cr.tipo,
     status: cr.status,

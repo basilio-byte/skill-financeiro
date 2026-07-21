@@ -4,8 +4,8 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { verifyPassword, hashPassword } from "@/lib/auth/password";
-import { createSession, destroyCurrentSession, requireUser } from "@/lib/auth/session";
+import { verifyPassword } from "@/lib/auth/password";
+import { createSession, destroyCurrentSession } from "@/lib/auth/session";
 
 const loginSchema = z.object({
   email: z.string().email("E-mail inválido").transform((v) => v.trim().toLowerCase()),
@@ -58,47 +58,10 @@ export async function loginAction(_prev: LoginState, formData: FormData): Promis
 
   await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
   await createSession(user.id);
-  redirect("/runs");
+  redirect("/");
 }
 
 export async function logoutAction(): Promise<void> {
   await destroyCurrentSession();
   redirect("/login");
-}
-
-const passwordChangeSchema = z
-  .object({
-    currentPassword: z.string().min(1, "Informe a senha atual"),
-    newPassword: z.string().min(10, "A nova senha deve ter ao menos 10 caracteres"),
-    confirmPassword: z.string(),
-  })
-  .refine((data) => data.newPassword === data.confirmPassword, {
-    message: "A confirmação não corresponde à nova senha",
-    path: ["confirmPassword"],
-  });
-
-export interface PasswordChangeState {
-  error?: string;
-  success?: boolean;
-}
-
-export async function changePasswordAction(
-  _prev: PasswordChangeState,
-  formData: FormData,
-): Promise<PasswordChangeState> {
-  const user = await requireUser();
-  const parsed = passwordChangeSchema.safeParse({
-    currentPassword: formData.get("currentPassword"),
-    newPassword: formData.get("newPassword"),
-    confirmPassword: formData.get("confirmPassword"),
-  });
-  if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? "Dados inválidos" };
-  }
-  const ok = await verifyPassword(parsed.data.currentPassword, user.passwordHash);
-  if (!ok) return { error: "Senha atual incorreta." };
-
-  const passwordHash = await hashPassword(parsed.data.newPassword);
-  await prisma.user.update({ where: { id: user.id }, data: { passwordHash } });
-  return { success: true };
 }

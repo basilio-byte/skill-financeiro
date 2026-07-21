@@ -1,7 +1,11 @@
 import Link from "next/link";
+import type { Metadata } from "next";
 import { prisma } from "@/lib/db";
 import { formatBRL } from "@/lib/money";
+import { Card, SectionTitle } from "@/components/ui";
 import { NewRunForm } from "@/app/(dashboard)/runs/new-run-form";
+
+export const metadata: Metadata = { title: "Rodadas" };
 
 function formatDate(d: Date): string {
   return d.toLocaleDateString("pt-BR", { timeZone: "UTC" });
@@ -20,11 +24,16 @@ export default async function RunsPage() {
   });
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-6">
+      <div>
+        <h1 className="text-xl font-semibold text-slate-900">Rodadas</h1>
+        <p className="text-sm text-slate-500">Dispare uma nova categorização ou consulte o histórico.</p>
+      </div>
+
       <NewRunForm />
 
-      <div className="card overflow-x-auto">
-        <h2 className="mb-4 font-semibold text-slate-900">Rodadas</h2>
+      <Card className="overflow-x-auto">
+        <SectionTitle hint={`${runs.length} rodada(s)`}>Histórico</SectionTitle>
         <table className="w-full text-left text-sm">
           <thead className="text-slate-500">
             <tr>
@@ -40,7 +49,7 @@ export default async function RunsPage() {
             {runs.map((run) => (
               <tr key={run.id} className="border-t border-slate-100">
                 <td className="py-2 pr-4">
-                  <Link href={`/runs/${run.id}`} className="text-brand-600 hover:underline">
+                  <Link href={`/runs/${run.id}`} className="text-seahub-600 hover:underline">
                     {formatDate(run.periodoInicio)} – {formatDate(run.periodoFim)}
                   </Link>
                 </td>
@@ -60,7 +69,7 @@ export default async function RunsPage() {
             ) : null}
           </tbody>
         </table>
-      </div>
+      </Card>
     </div>
   );
 }

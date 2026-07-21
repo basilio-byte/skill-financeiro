@@ -1,6 +1,10 @@
 import { notFound } from "next/navigation";
+import type { Metadata } from "next";
 import { prisma } from "@/lib/db";
 import { formatBRL } from "@/lib/money";
+import { Card, SectionTitle } from "@/components/ui";
+
+export const metadata: Metadata = { title: "Detalhe da rodada" };
 
 function formatDate(d: Date): string {
   return d.toLocaleDateString("pt-BR", { timeZone: "UTC" });
@@ -26,7 +30,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
   const resumo = (run.resumoPorCategoria as Array<{ categoria: string; total: string }> | null) ?? [];
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-6">
       <div>
         <h1 className="text-xl font-semibold text-slate-900">
           Rodada {formatDate(run.periodoInicio)} – {formatDate(run.periodoFim)}
@@ -39,13 +43,13 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
       </div>
 
       {run.status === "DONE" ? (
-        <a className="btn" href={`/api/runs/${run.id}/export`}>
+        <a className="btn w-fit" href={`/api/runs/${run.id}/export`}>
           Baixar planilha (.xlsx)
         </a>
       ) : null}
 
-      <div className="card">
-        <h2 className="mb-4 font-semibold text-slate-900">Resumo por categoria</h2>
+      <Card>
+        <SectionTitle>Resumo por categoria</SectionTitle>
         <table className="w-full text-left text-sm">
           <thead className="text-slate-500">
             <tr>
@@ -68,18 +72,18 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
             </tr>
           </tfoot>
         </table>
-      </div>
+      </Card>
 
-      <div className="card overflow-x-auto">
-        <h2 className="mb-1 font-semibold text-slate-900">Faturas para revisar</h2>
-        <p className="mb-4 text-sm text-slate-500">
-          Rateadas entre categorias ("S") ou sem correspondência no Listar Vendas ("Sem LV").
-        </p>
+      <Card className="overflow-x-auto">
+        <SectionTitle hint='rateadas ("S") ou sem correspondência no Listar Vendas ("Sem LV")'>
+          Faturas para revisar
+        </SectionTitle>
         <table className="w-full text-left text-sm">
           <thead className="text-slate-500">
             <tr>
               <th className="pb-2 pr-4">CR ID</th>
               <th className="pb-2 pr-4">Cliente</th>
+              <th className="pb-2 pr-4">Serviço/Plano</th>
               <th className="pb-2 pr-4">Categoria</th>
               <th className="pb-2 pr-4">Proporcionado</th>
               <th className="pb-2 pr-4">Valor Cat.</th>
@@ -90,6 +94,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
               <tr key={l.id} className="border-t border-slate-100">
                 <td className="py-2 pr-4">{l.crConexaId}</td>
                 <td className="py-2 pr-4">{l.razaoSocial}</td>
+                <td className="py-2 pr-4 text-slate-600">{l.servicoOuPlano}</td>
                 <td className="py-2 pr-4">{l.categoria}</td>
                 <td className="py-2 pr-4">{PROPORCIONADO_LABEL[l.proporcionado] ?? l.proporcionado}</td>
                 <td className="py-2 pr-4">{formatBRL(l.valorRecebidoCat.toString())}</td>
@@ -97,14 +102,14 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
             ))}
             {linhasParaRevisar.length === 0 ? (
               <tr>
-                <td colSpan={5} className="py-6 text-center text-slate-400">
+                <td colSpan={6} className="py-6 text-center text-slate-400">
                   Nada para revisar.
                 </td>
               </tr>
             ) : null}
           </tbody>
         </table>
-      </div>
+      </Card>
     </div>
   );
 }

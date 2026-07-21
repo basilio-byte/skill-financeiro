@@ -146,6 +146,10 @@ model RevenueCategorizedLine {
   planoContratado String?
 
   categoria     String
+  // Nome exato usado na busca contra RevenueCategoryRule (Serviço/Item do LV,
+  // ou Plano Contratado do CR quando SEM_LV) — guardado mesmo quando a busca
+  // dá certo, para permitir auditoria de "Sem Categoria": ver /categorias.
+  servicoOuPlano String @default("")
   proporcionado Proporcionado
 
   tipo    String?

@@ -68,3 +68,13 @@ const BRL = new Intl.NumberFormat("pt-BR", {
 export function formatBRL(value: Money | number | string | null | undefined): string {
   return BRL.format(roundMoney(money(value)).toNumber());
 }
+
+/** Formato compacto para eixos/KPIs: R$ 1,2 mil / R$ 3,4 mi */
+export function formatBRLCompact(value: Money | number | string | null | undefined): string {
+  const n = roundMoney(money(value)).toNumber();
+  const abs = Math.abs(n);
+  const sign = n < 0 ? "-" : "";
+  if (abs >= 1_000_000) return `${sign}R$ ${(abs / 1_000_000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} mi`;
+  if (abs >= 1_000) return `${sign}R$ ${(abs / 1_000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} mil`;
+  return BRL.format(n);
+}

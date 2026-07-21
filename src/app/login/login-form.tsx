@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useActionState } from "react";
 import { loginAction, type LoginState } from "@/lib/auth/actions";
 
@@ -11,7 +12,8 @@ export function LoginForm() {
   return (
     <form action={formAction} className="card w-full max-w-sm space-y-4">
       <div>
-        <h1 className="text-lg font-semibold text-slate-900">skill-financeiro</h1>
+        <Image src="/logo.png" alt="Seahub" width={120} height={41} priority className="mb-3 h-8 w-auto" />
+        <h1 className="text-lg font-semibold text-slate-900">Financeiro Seahub</h1>
         <p className="text-sm text-slate-500">Categorização de receita — Seahub Coworking</p>
       </div>
 

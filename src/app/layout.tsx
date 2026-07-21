@@ -2,7 +2,10 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "skill-financeiro — Seahub Coworking",
+  title: {
+    default: "Financeiro Seahub",
+    template: "%s · Financeiro Seahub",
+  },
   description: "Categorização de receita da Seahub Coworking, integrada ao ERP Conexa.",
 };
 

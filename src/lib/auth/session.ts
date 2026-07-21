@@ -85,6 +85,24 @@ export async function getSessionUser(): Promise<User | null> {
   }
 }
 
+/**
+ * Id da sessão atual (o `sid` dentro do JWT), ou null.
+ *
+ * Usado para revogar as OUTRAS sessões ao trocar a própria senha sem deslogar
+ * quem está fazendo a troca. Só lê o cookie/assinatura — não vai ao banco.
+ */
+export async function getCurrentSessionId(): Promise<string | null> {
+  const cookieStore = await cookies();
+  const token = cookieStore.get(COOKIE_NAME)?.value;
+  if (!token) return null;
+  try {
+    const { payload } = await jwtVerify(token, secretKey());
+    return (payload.sid as string | undefined) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** Exige usuário autenticado; redireciona para /login se não houver. */
 export async function requireUser(): Promise<User> {
   const user = await getSessionUser();

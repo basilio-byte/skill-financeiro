@@ -89,3 +89,23 @@ usuário sendo pisado por dado versionado no repo).
 se falhar — uma migration quebrada é grave), uma falha no seed de categorias só gera um
 aviso no log; a aplicação sobe mesmo assim (com `/categorias` vazia, corrigível na hora).
 **Status:** aceito.
+
+## ADR-0009 — Layout/identidade visual e telas novas portados do projeto irmão
+**Contexto:** usuário pediu para copiar o layout do `seahub_financeiro` (logo, gráficos,
+paleta), renomear o produto para "Financeiro Seahub" e adicionar uma tela de Panorama e
+uma de Contas.
+**Decisão:**
+- Reaproveitado quase verbatim: `public/logo.png`, paleta Tailwind `seahub-*`, `Card`/
+  `SectionTitle` (`components/ui.tsx`), `KpiCard`, `ChartCard` (card com tabela gêmea
+  acessível), `BreakdownList` (ranking de uma matiz só — MAGNITUDE), e a tela `/contas`
+  inteira (gestão de usuários + auditoria de login), incluindo as guardas de "nunca ficar
+  sem admin" e "ninguém se tranca fora" (`user-guards.ts`/`user-actions.ts`).
+- **Não** reaproveitado: `SERIES`/`DIVERGING` (par receita×despesa com polaridade) — este
+  app não tem despesa nem "resultado" negativo, só ranking de categorias/contas. Os
+  gráficos daqui usam só `MAGNITUDE` (uma matiz), inclusive o gráfico de "total recebido
+  por rodada" (série ÚNICA — sem legenda, o título já nomeia a série).
+- **Nome exibido no app** é "Financeiro Seahub" (título, cabeçalho, tela de login). O nome
+  técnico do repositório/pacote/imagem GHCR continua `skill-financeiro` — trocar isso
+  quebraria a referência da imagem no CI e exigiria renomear o repo no GitHub, fora do
+  pedido original.
+**Status:** aceito.

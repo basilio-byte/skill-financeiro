@@ -41,8 +41,34 @@
   `docker-entrypoint.sh`, mas só semeia se a tabela estiver vazia (ADR-0008) — nunca
   reaplica o CSV por cima de edições manuais feitas em `/categorias`. Primeiro deploy no
   Easypanel agora não tem NENHUM passo manual (migrations + admin + categorias, tudo no boot).
+- Ideia em aberto, não implementada: um segundo job de CI que chame o webhook de redeploy
+  do Easypanel automaticamente após o build (precisa da URL/token do webhook, que o
+  usuário ainda não passou).
+
+## 2026-07-21 (cont.) — Layout do projeto irmão, rebrand e telas novas
+- Pedido do usuário: copiar o layout do `seahub_financeiro` (logo/gráficos), renomear o
+  produto de "skill-financeiro" para "Financeiro Seahub" dentro do app, criar a tela de
+  Contas, e tornar visíveis os dados brutos dos itens "Sem Categoria" para permitir
+  cadastro manual (auditoria) que já vale para rodadas futuras.
+- Reaproveitado do projeto irmão: `public/logo.png`, paleta Tailwind `seahub-*`,
+  `components/ui.tsx` (Card/SectionTitle), `KpiCard`, `ChartCard` (tabela gêmea acessível),
+  `BreakdownList`, e a tela `/contas` inteira com `user-actions.ts`/`user-guards.ts`
+  (guardas: nunca sem admin ativo, ninguém se tranca fora) — ver ADR-0009.
+- Adaptado (não copiado 1:1): paleta de gráficos virou só `MAGNITUDE` (ranking de
+  categoria/conta) — não há `SERIES`/`DIVERGING` porque este app não tem despesa nem
+  polaridade, só receita categorizada.
+- Nova tela `/` (Panorama): KPIs (total categorizado, sem categoria %, rodadas, regras
+  ativas), gráfico de total recebido por rodada (série única), breakdowns por categoria e
+  por conta, últimas rodadas. Agregação em `src/lib/reports/overview.ts`.
+- Schema: `RevenueCategorizedLine.servicoOuPlano` (novo campo, migration
+  `20260721174037_add_servico_ou_plano`) guarda o nome exato buscado contra as regras —
+  base da nova seção "Pendências de categorização" em `/categorias`, que agrupa por nome
+  as linhas "Sem Categoria", mostra amostras (cliente/competência/valor) e tem um form
+  pré-preenchido para cadastrar a categoria ali mesmo. Detalhe de correção: quando uma
+  fatura tem múltiplos itens SEM categoria e nomes DIFERENTES, `categorize-invoices.ts`
+  agora agrupa por `(categoria, nome)` em vez de só `categoria` — sem isso, dois serviços
+  diferentes não mapeados na mesma fatura se fundiam numa linha só e a auditoria perdia
+  informação.
 - **Pendente para a próxima sessão:** configurar de fato o serviço no Easypanel (Postgres +
-  App apontando pro GHCR + envs), testar a UI num navegador de verdade (só foi testada via
-  curl/API nesta sessão). Ideia em aberto, não implementada: um segundo job de CI que chame
-  o webhook de redeploy do Easypanel automaticamente após o build (precisa da URL/token do
-  webhook, que o usuário ainda não passou).
+  App apontando pro GHCR + envs), testar a UI num navegador de verdade (só validada via
+  build/typecheck/testes — Panorama/Contas/Pendências ainda não foram clicadas numa tela).

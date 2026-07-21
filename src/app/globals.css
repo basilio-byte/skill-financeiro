@@ -7,7 +7,7 @@ body {
 }
 
 .btn {
-  @apply inline-flex items-center justify-center rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50;
+  @apply inline-flex items-center justify-center rounded-md bg-seahub-600 px-4 py-2 text-sm font-medium text-white hover:bg-seahub-700 disabled:opacity-50;
 }
 
 .btn-secondary {
@@ -15,7 +15,7 @@ body {
 }
 
 .input {
-  @apply block w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500;
+  @apply block w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-seahub-500 focus:outline-none focus:ring-1 focus:ring-seahub-500;
 }
 
 .card {
