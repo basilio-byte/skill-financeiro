@@ -1,0 +1,13 @@
+# Normalização de fim de linha.
+* text=auto eol=lf
+
+# Scripts shell DEVEM manter LF (senão quebram no Alpine/sh e nos git hooks).
+*.sh text eol=lf
+.githooks/* text eol=lf
+docker-entrypoint.sh text eol=lf
+
+# Binários
+*.png binary
+*.jpg binary
+*.ico binary
+*.xlsx binary

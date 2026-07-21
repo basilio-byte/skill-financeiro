@@ -1,0 +1,61 @@
+# Decisões (ADRs)
+
+## ADR-0001 — Fork enxuto do seahub_financeiro
+**Contexto:** já existe um dashboard financeiro maduro para a Seahub (`seahub_financeiro`),
+com stack e infra de deploy validadas em produção (Next.js/Prisma/Postgres, Docker+Easypanel).
+**Decisão:** reaproveitar a mesma stack e os módulos genéricos (Dockerfile, auth,
+money.ts, xlsx writer, allocateProportionally) quase verbatim; escrever só o que é
+específico do categoriza-receita (conexa-web client, xlsx reader, motor de categorização).
+**Status:** aceito.
+
+## ADR-0002 — Ingestão via login web do Conexa, não API REST/upload manual
+**Contexto:** o filtro "Data de Crédito da Cobrança" que o financeiro usa para fechar o
+período de uma rodada não existe na API REST v2 (confirmado por busca exaustiva na coleção
+Postman) — só existe na tela de export administrativa (autenticação por sessão de usuário).
+A skill OpenClaw original (`categoriza-receita`) contorna isso pedindo pro financeiro
+exportar manualmente e subir os arquivos.
+**Decisão:** o app loga sozinho na tela do Conexa (usuário/senha em `CONEXA_WEB_USERNAME`/
+`CONEXA_WEB_PASSWORD`, uma superfície de credencial separada do `CONEXA_API_TOKEN` do
+projeto irmão) e baixa os dois exports via URL parametrizável — validado ao vivo em
+2026-07-21. Elimina o passo manual de upload.
+**Risco aceito:** mecanismo não-oficial; pode quebrar se o Conexa mudar a tela admin. Plano B
+(não implementado): reintroduzir upload manual dos dois arquivos — o parser/motor de
+categorização não muda, só a origem dos bytes.
+**Status:** aceito.
+
+## ADR-0003 — Exceção documentada ao princípio "nunca chutar categoria pelo nome"
+**Contexto:** o projeto irmão estabelece (ADR-0014/ADR-0019 de lá) que categoria nunca deve
+ser adivinhada por nome/prefixo — sempre join por ID. O categoriza-receita, porém, é
+fundamentalmente baseado em correspondência de nome/prefixo contra uma tabela mantida pelo
+financeiro.
+**Decisão:** manter o método de correspondência por nome (exato → sufixo → maior prefixo →
+fallback fixo → "Sem Categoria"), pois a tabela (`RevenueCategoryRule`) é curada pelo time
+financeiro (Duda) — não é um palpite de código, é conhecimento de negócio versionado.
+Diferente de "advinhar" categoria a partir de texto livre não validado.
+**Consequência:** a tabela precisa ser editável dentro do app (não só um seed estático),
+porque novos serviços aparecem com o uso — ver tela `/categorias`.
+**Status:** aceito.
+
+## ADR-0004 — Persistir cada rodada no Postgres
+**Contexto:** a skill original só gera um `.xlsx` avulso por rodada, sem histórico consultável.
+**Decisão:** `RevenueCategorizationRun` + `RevenueCategorizedLine` guardam cada rodada e cada
+linha categorizada. O `.xlsx` de saída é regenerado sob demanda a partir das linhas
+persistidas (`GET /api/runs/[id]/export`) — não guardamos o binário no banco.
+**Status:** aceito.
+
+## ADR-0005 — Deploy 100% isolado do seahub_financeiro
+**Contexto:** os dois projetos atendem à mesma empresa, mas são produtos/repos diferentes.
+**Decisão:** banco Postgres próprio, imagem Docker própria, serviço Easypanel próprio —
+nada compartilhado. Evita qualquer risco ao dashboard já em produção.
+**Status:** aceito.
+
+## ADR-0006 — Leitor de xlsx sem dependência (simétrico ao writer)
+**Contexto:** o projeto irmão já tem um escritor de `.xlsx` sem dependência (ADR-0017 de lá).
+Os exports do Conexa vêm em DEFLATE (diferente do STORE do writer).
+**Decisão:** `src/lib/xlsx/reader.ts` usa `node:zlib.inflateRawSync` (nativo do Node) +
+parsing manual de ZIP/sharedStrings/sheet XML — validado empiricamente contra os dois
+arquivos reais baixados em 2026-07-21 antes de escrever qualquer código.
+**Risco aceito:** escopo pequeno (uma aba, sem células mescladas/fórmulas). Se um export
+futuro quebrar essas suposições, trocar por uma lib auditada (`exceljs`) é uma troca de
+módulo isolada — a interface (`readXlsxAsObjects`) não muda.
+**Status:** aceito.

@@ -1,0 +1,44 @@
+# Uso local de desenvolvimento e referência para o Easypanel.
+# No Easypanel: crie um serviço Postgres e um serviço App (build via Dockerfile),
+# e configure as variáveis de ambiente como Secrets (não versionadas).
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: skillfin
+      POSTGRES_PASSWORD: skillfin
+      POSTGRES_DB: skill_financeiro
+    ports:
+      - "5433:5432"
+    volumes:
+      - skillfin_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U skillfin -d skill_financeiro"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      APP_URL: http://localhost:3000
+      APP_TIMEZONE: America/Fortaleza
+      DATABASE_URL: postgres://skillfin:skillfin@db:5432/skill_financeiro
+      SESSION_SECRET: ${SESSION_SECRET:-dev-secret-troque-em-producao}
+      CONEXA_BASE_URL: https://seahubcoworking.conexa.app
+      CONEXA_WEB_USERNAME: ${CONEXA_WEB_USERNAME:-}
+      CONEXA_WEB_PASSWORD: ${CONEXA_WEB_PASSWORD:-}
+    ports:
+      - "3001:3000"
+
+volumes:
+  skillfin_pgdata:

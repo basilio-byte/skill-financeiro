@@ -1,0 +1,70 @@
+import Decimal from "decimal.js";
+
+/**
+ * Aritmética monetária com rigor. NUNCA use `number` para somar/multiplicar
+ * dinheiro no projeto — sempre passe por aqui. Ver docs/context/financial-rigor.md.
+ *
+ * Usamos um clone isolado do Decimal para não afetar configurações globais.
+ *  - precisão alta o suficiente para rateios;
+ *  - arredondamento comercial (HALF_UP) ao materializar em reais.
+ */
+const M = Decimal.clone({ precision: 30, rounding: Decimal.ROUND_HALF_UP });
+
+export type Money = Decimal;
+
+/** Valor monetário a partir de number | string | Decimal | null | undefined. */
+export function money(value: number | string | Decimal | null | undefined): Money {
+  if (value === null || value === undefined || value === "") return new M(0);
+  return new M(typeof value === "number" ? String(value) : value);
+}
+
+export const ZERO: Money = new M(0);
+
+/** Soma segura de uma lista de valores (ignora null/undefined). */
+export function sum(values: Array<number | string | Decimal | null | undefined>): Money {
+  return values.reduce<Money>((acc, v) => acc.plus(money(v)), new M(0));
+}
+
+export function add(a: Money, b: Money): Money {
+  return a.plus(b);
+}
+
+export function subtract(a: Money, b: Money): Money {
+  return a.minus(b);
+}
+
+/** Multiplica um valor por uma quantidade/fator. */
+export function multiply(a: Money, factor: number | string | Decimal): Money {
+  return a.times(money(factor));
+}
+
+/** Arredonda para 2 casas (centavos) no modo comercial. */
+export function roundMoney(value: Money): Money {
+  return value.toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+}
+
+export function isZero(value: Money): boolean {
+  return value.isZero();
+}
+
+/** Converte para centavos inteiros (bigint) — útil para persistência/serialização exata. */
+export function toCents(value: Money): bigint {
+  return BigInt(roundMoney(value).times(100).toFixed(0));
+}
+
+/** String "1234.56" — segura para trafegar/persistir sem perda. */
+export function toAmountString(value: Money): string {
+  return roundMoney(value).toFixed(2);
+}
+
+const BRL = new Intl.NumberFormat("pt-BR", {
+  style: "currency",
+  currency: "BRL",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+/** Formata em Real brasileiro: R$ 1.234,56 */
+export function formatBRL(value: Money | number | string | null | undefined): string {
+  return BRL.format(roundMoney(money(value)).toNumber());
+}

@@ -1,0 +1,176 @@
+// Modelo de dados do skill-financeiro — pipeline de categorização de receita da Seahub Coworking.
+// Ver docs/context/data-model.md e docs/context/financial-rigor.md.
+//
+// Regras de rigor aplicadas aqui:
+//  - Dinheiro é sempre Decimal(14,2) — nunca float.
+//  - Toda linha categorizada guarda `raw` (JSON bruto da fatura de origem) para auditoria.
+
+generator client {
+  provider      = "prisma-client-js"
+  // native = dev local; linux-musl-openssl-3.0.x = runtime Alpine (Docker/Easypanel)
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ===========================================================================
+// Autenticação / usuários internos
+// ===========================================================================
+
+enum UserRole {
+  ADMIN // gerencia tabela de categorias, dispara rodadas, gerencia usuários
+  VIEWER // apenas consulta rodadas e exporta
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  name         String
+  passwordHash String
+  role         UserRole  @default(VIEWER)
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  lastLoginAt  DateTime?
+
+  sessions    Session[]
+  loginEvents LoginEvent[]
+  runs        RevenueCategorizationRun[]
+
+  @@map("users")
+}
+
+// Sessões server-side (revogáveis). O cookie guarda só o id da sessão.
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  userAgent String?
+  ip        String?
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+// Auditoria de acesso.
+model LoginEvent {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  email     String
+  success   Boolean
+  reason    String?
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([email])
+  @@index([createdAt])
+  @@map("login_events")
+}
+
+// ===========================================================================
+// Categorização de receita
+// ===========================================================================
+
+// Tabela de categorização mantida pelo financeiro (Duda). Match exato pelo
+// nome do Serviço/Item (ou Plano Contratado, quando não há item no Listar
+// Vendas) contra `nome`; ver src/lib/categorization/rules.ts para a ordem de
+// prioridade completa (exato → sufixo → maior prefixo → fallback fixo).
+model RevenueCategoryRule {
+  id        String   @id @default(cuid())
+  nome      String   @unique
+  categoria String
+  ativo     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([categoria])
+  @@map("revenue_category_rules")
+}
+
+// N = fatura com categoria única (valor integral).
+// S = fatura com múltiplas categorias, valor rateado proporcionalmente (revisar).
+// SEM_LV = sem item correspondente no Listar Vendas; categoria veio do nome do
+//          plano contratado no Contas a Receber (revisar).
+enum Proporcionado {
+  N
+  S
+  SEM_LV
+}
+
+model RevenueCategorizationRun {
+  id             String    @id @default(cuid())
+  periodoInicio  DateTime  @db.Date
+  periodoFim     DateTime  @db.Date
+  status         String // RUNNING | DONE | FAILED
+  iniciadoEm     DateTime  @default(now())
+  concluidoEm    DateTime?
+
+  executadoPorId String?
+  executadoPor   User?     @relation(fields: [executadoPorId], references: [id], onDelete: SetNull)
+
+  totalLinhasCR  Int      @default(0)
+  totalLinhasLV  Int      @default(0)
+  totalSemLV     Int      @default(0)
+  totalRecebido  Decimal  @default(0) @db.Decimal(14, 2)
+
+  // Resumo por categoria ({ categoria, total }[]) — espelha o output já usado
+  // pela skill original, para exibir sem recalcular a partir das linhas.
+  resumoPorCategoria Json?
+  erro               String?
+
+  linhas RevenueCategorizedLine[]
+
+  @@index([periodoInicio, periodoFim])
+  @@map("revenue_categorization_runs")
+}
+
+model RevenueCategorizedLine {
+  id     String                   @id @default(cuid())
+  runId  String
+  run    RevenueCategorizationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  crConexaId      Int
+  unidade         String?
+  faturamento     String?
+  clienteConexaId Int?
+  cpfCnpj         String?
+  razaoSocial     String?
+  planoContratado String?
+
+  categoria     String
+  proporcionado Proporcionado
+
+  tipo    String?
+  status  String?
+  parcela String?
+
+  valorRecebidoCat   Decimal  @db.Decimal(14, 2)
+  valorRecebidoTotal Decimal  @db.Decimal(14, 2)
+  valorBruto         Decimal? @db.Decimal(14, 2)
+  valorDesconto      Decimal? @db.Decimal(14, 2)
+
+  vencimento  DateTime? @db.Date
+  quitacao    DateTime? @db.Date
+  competencia DateTime? @db.Date
+  emissao     DateTime? @db.Date
+  dataCredito DateTime? @db.Date
+
+  conta        String?
+  observacoes  String?
+  tags         String?
+
+  // Linha bruta de origem (CR + itens LV casados), para auditoria/reprocessamento.
+  raw Json
+
+  @@index([runId])
+  @@index([clienteConexaId])
+  @@map("revenue_categorized_lines")
+}

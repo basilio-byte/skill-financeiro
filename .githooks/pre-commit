@@ -1,0 +1,26 @@
+#!/bin/sh
+# Regra permanente do projeto: atualizar a memória de desenvolvimento a cada commit.
+# Bloqueia o commit se docs/context/progress.md não estiver entre as mudanças staged.
+# Exceção pontual: git commit --no-verify
+#
+# Ativado por: git config core.hooksPath .githooks  (feito pelo script "prepare" do npm)
+
+# Nada staged? não bloqueia (ex.: hooks de merge, commit vazio).
+if git diff --cached --quiet; then
+  exit 0
+fi
+
+if ! git diff --cached --name-only | grep -q '^docs/context/progress.md$'; then
+  echo "──────────────────────────────────────────────────────────────"
+  echo " ✗ Commit bloqueado: atualize a MEMÓRIA de desenvolvimento."
+  echo ""
+  echo "   Regra do projeto: 'atualizar as memórias a cada commit + push'."
+  echo "   Edite docs/context/progress.md (e decisions.md se algo mudou) e:"
+  echo "       git add docs/context/progress.md"
+  echo ""
+  echo "   Exceção pontual: git commit --no-verify"
+  echo "──────────────────────────────────────────────────────────────"
+  exit 1
+fi
+
+exit 0
