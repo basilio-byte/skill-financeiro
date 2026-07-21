@@ -13,11 +13,11 @@ function formatDate(d: Date): string {
 
 export default async function RunDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const run = await prisma.revenueCategorizationRun.findUnique({ where: { id } });
+  const run = await prisma.revenueSyncRun.findUnique({ where: { id } });
   if (!run) notFound();
 
   const linhasParaRevisarRaw = await prisma.revenueCategorizedLine.findMany({
-    where: { runId: id, proporcionado: { in: ["S", "SEM_LV"] } },
+    where: { ultimaRodadaId: id, proporcionado: { in: ["S", "SEM_LV"] } },
     orderBy: { crConexaId: "asc" },
     take: 200,
     include: { revisadoPor: { select: { name: true } } },
@@ -47,9 +47,22 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
           Rodada {formatDate(run.periodoInicio)} – {formatDate(run.periodoFim)}
         </h1>
         <p className="text-sm text-slate-500">
-          Status: {run.status} · Faturas CR: {run.totalLinhasCR} · Itens LV: {run.totalLinhasLV} · Sem LV:{" "}
-          {run.totalSemLV}
+          Origem: {run.origem === "AUTOMATICO" ? "Automático" : "Manual"} · Status: {run.status} · Faturas CR:{" "}
+          {run.totalLinhasCR} · Itens LV: {run.totalLinhasLV} · Sem LV: {run.totalSemLV}
         </p>
+        <p className="text-sm text-slate-500">
+          Linhas novas: {run.totalLinhasNovas} · Atualizadas: {run.totalLinhasAtualizadas}
+          {run.totalLinhasOrfasPreservadas > 0
+            ? ` · ${run.totalLinhasOrfasPreservadas} linha(s) revisada(s) manualmente preservada(s) (bucket não apareceu nesta rodada)`
+            : ""}
+        </p>
+        {run.totalFaturasComConflito > 0 ? (
+          <p className="mt-2 text-sm font-medium text-red-600">
+            ⚠ {run.totalFaturasComConflito} fatura(s) com possível dupla contagem — uma linha revisada manualmente
+            preservada não bate com o valor total da fatura (provável categoria antes corrigida à mão que ganhou
+            regra de verdade depois). Requer revisão humana; não foi corrigido automaticamente.
+          </p>
+        ) : null}
         {run.erro ? <p className="mt-2 text-sm text-red-600">Erro: {run.erro}</p> : null}
       </div>
 
@@ -60,7 +73,9 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
       ) : null}
 
       <Card>
-        <SectionTitle hint="reflete revisões manuais já feitas">Resumo por categoria</SectionTitle>
+        <SectionTitle hint="congelado no momento em que esta rodada rodou — para os números ao vivo, veja o Panorama">
+          Resumo por categoria
+        </SectionTitle>
         <table className="w-full text-left text-sm">
           <thead className="text-slate-500">
             <tr>
@@ -86,13 +101,18 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
       </Card>
 
       <Card className="overflow-x-auto">
-        <SectionTitle hint='rateadas ("S") ou sem correspondência no Listar Vendas ("Sem LV")'>
+        <SectionTitle hint='rateadas ("S") ou sem correspondência no Listar Vendas ("Sem LV"), tocadas pela última vez por ESTA rodada'>
           Faturas para revisar
         </SectionTitle>
         <p className="mb-3 text-xs text-slate-500">
           Categoria e valor aqui vêm calculados pela skill categoriza-receita. "Editar" corrige manualmente esta
           linha — a correção fica marcada e rastreada (quem, quando, valor original), e nunca é sobrescrita
-          automaticamente depois.
+          automaticamente depois. Como as linhas são atualizadas in-place (upsert por fatura), rodadas antigas tendem
+          a esvaziar esta lista com o tempo — para ver TODAS as pendências atuais do sistema, veja{" "}
+          <a href="/revisar" className="text-seahub-600 hover:underline">
+            /revisar
+          </a>
+          .
         </p>
         <table className="w-full text-left text-sm">
           <thead className="text-slate-500">

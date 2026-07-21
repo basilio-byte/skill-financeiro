@@ -11,6 +11,19 @@ import type {
 import { allocateProportionally } from "@/lib/categorization/rateio";
 
 /**
+ * Identidade estável de um bucket de categoria dentro de uma fatura — usada
+ * como chave de upsert entre rodadas (ADR-0013, `RevenueCategorizedLine.chaveLinha`).
+ * Precisa ser calculada a partir da categoria que a SKILL atribuiu (nunca a
+ * que uma revisão manual sobrescreveu depois), para que a mesma composição de
+ * itens LV produza sempre a mesma chave em rodadas futuras. "Sem Categoria"
+ * inclui o nome exato do serviço/plano porque dois serviços não mapeados na
+ * MESMA fatura são buckets distintos.
+ */
+export function chaveLinhaDoBucket(categoria: string, servicoOuPlano: string): string {
+  return categoria === SEM_CATEGORIA ? `${categoria}::${servicoOuPlano}` : categoria;
+}
+
+/**
  * Núcleo puro do motor de categorização: recebe as linhas já filtradas por
  * status aceito + a tabela de regras, devolve as linhas categorizadas e o
  * resumo da rodada. Sem I/O (sem Prisma, sem fetch) — testável com fixtures.
@@ -45,13 +58,12 @@ export function categorizeInvoices(
     // Chave de agrupamento: categoria, EXCETO para "Sem Categoria" — aí agrupa
     // por (categoria, nome exato do serviço), para que dois serviços diferentes
     // e ambos não mapeados não sejam silenciosamente fundidos numa linha só
-    // (cada um precisa aparecer separado na auditoria de /categorias).
-    const bucketKey = (categoria: string, nome: string) => (categoria === SEM_CATEGORIA ? `${categoria}::${nome}` : categoria);
-
+    // (cada um precisa aparecer separado na auditoria de /categorias). Mesma
+    // fórmula usada como chaveLinha persistida (chaveLinhaDoBucket acima).
     const buckets = new Map<string, { categoria: string; nome: string; itens: ListarVendasRow[] }>();
     itensLV.forEach((lv, i) => {
       const categoria = categoriasPorItem[i]!;
-      const key = bucketKey(categoria, lv.servicoItem);
+      const key = chaveLinhaDoBucket(categoria, lv.servicoItem);
       const bucket = buckets.get(key);
       if (bucket) bucket.itens.push(lv);
       else buckets.set(key, { categoria, nome: lv.servicoItem, itens: [lv] });
@@ -110,6 +122,7 @@ function buildLinha(
     planoContratado: cr.planoContratado,
     categoria,
     servicoOuPlano,
+    chaveLinha: chaveLinhaDoBucket(categoria, servicoOuPlano),
     proporcionado,
     tipo: cr.tipo,
     status: cr.status,

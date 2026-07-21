@@ -143,3 +143,107 @@
   arquitetura (rodadas append-only + faxina periódica das superadas, vs. modelo
   upsert-por-fatura tipo o sync do projeto irmão) antes de construir o agendador — ainda não
   decidido, para discutir com o usuário antes de implementar.
+
+## 2026-07-21 (cont. 4) — Upsert por fatura + sincronização automática de 15 minutos (ADR-0013)
+- Levantada com o usuário a decisão de arquitetura em aberto da sessão anterior. Escolhas
+  explícitas: (1) modelo de dados — upsert por fatura (não append-only + faxina); (2) janela
+  da sincronização automática — mês corrente (dia 1 até agora) a cada execução.
+- Schema: `RevenueCategorizationRun` renomeada para `RevenueSyncRun` (deixa de ser dona
+  exclusiva das linhas — `onDelete: Cascade` → `ultimaRodadaId`/`onDelete: Restrict`), novo
+  enum `OrigemRodada` (MANUAL/AUTOMATICO), contadores `totalLinhasNovas`/
+  `totalLinhasAtualizadas`/`totalLinhasOrfasPreservadas`. `RevenueCategorizedLine` ganhou
+  `chaveLinha` (identidade estável do bucket, calculada a partir da categoria que a SKILL
+  atribuiu — nunca a sobrescrita por revisão manual) e `@@unique([crConexaId, chaveLinha])`.
+  Migração `20260721193000_upsert_por_fatura` escrita à mão: renomeia a tabela de rodadas
+  preservando dados, faz backfill de `chaveLinha` a partir de
+  `COALESCE(categoriaOriginal, categoria)`, deduplica linhas existentes por
+  `(crConexaId, chaveLinha)` com a mesma prioridade da ADR-0012 antes de criar a constraint
+  única. Aplicada contra o banco de dev local (dado de teste real, sem produção ainda):
+  1718 → 886 linhas, 684 faturas distintas (bate com o número já validado em sessões
+  anteriores). Confirmado zero drift via `prisma migrate diff` depois de aplicar.
+- Novo `src/lib/categorization/persist.ts` (`persistLinhasCategorizadas`) substitui o
+  `createMany` por upsert nativo do Prisma por `(crConexaId, chaveLinha)`: protege
+  `categoria`/`valorRecebidoCat` de linhas `revisadoManualmente` (passa `undefined` no
+  update — Prisma ignora, equivalente a omitir); apaga linhas órfãs (bucket que sumiu do
+  resultado da rodada) exceto quando revisadas manualmente, aí preserva e conta.
+- `run.ts` reescrito: `startCategorizationRun` recusa rodar (lança
+  `SincronizacaoEmAndamentoError`) se já existe uma `RevenueSyncRun` RUNNING — protege tanto
+  o agendador colidindo com disparo manual quanto múltiplas réplicas.
+- Agendador novo: `src/lib/scheduler/auto-sync-window.ts` (`computeAutoSyncWindow`, puro,
+  testado) + `src/lib/scheduler/auto-sync.ts` (tick + loop `setTimeout` auto-reagendado, só
+  após o tick anterior terminar) + `src/instrumentation.ts` (hook de boot do Next.js —
+  chama `scheduleAutoSync()` uma vez quando o servidor sobe). Novo em `env.ts`:
+  `SYNC_AUTO_ENABLED` (default true — cuidado documentado no código: NÃO usar
+  `z.coerce.boolean()`, `Boolean("false")` é `true` em JS) e `SYNC_INTERVAL_MINUTES`
+  (default 15). Desligado no `.env` local para não logar de verdade no Conexa durante o dev.
+- `overview.ts` simplificado: como só existe uma linha por bucket agora, a CTE de
+  deduplicação por leitura (`linhasDeduplicadasPorFatura`, SQL cru, ADR-0012) foi removida —
+  vira um `findMany` direto filtrado por `dataCredito`.
+- `updateCategorizedLineAction` simplificado: não recalcula mais `resumoPorCategoria`/
+  `totalRecebido` "da rodada dona da linha" — esse conceito não existe mais (uma linha não
+  pertence a uma rodada só). Cada `RevenueSyncRun` guarda só o snapshot congelado do que ELA
+  calculou no momento.
+- Nova tela `/revisar` (proposta no plano, não pedida explicitamente, mas consequência
+  direta da mudança): fila de trabalho GLOBAL e sempre atual de faturas `S`/`SEM_LV`, já que
+  com sync a cada 15 min a visão por-rodada (`/runs/[id]`) esvazia com o tempo. Nav
+  atualizada. `/runs/[id]` e o export de uma rodada agora mostram o que ela tocou POR ÚLTIMO
+  (`ultimaRodadaId`), não mais "tudo que ela processou" como registro fechado.
+- Testes novos: `chaveLinha`/`chaveLinhaDoBucket` (mapeada vs. Sem Categoria, incluindo
+  SEM_LV e dois serviços não mapeados na mesma fatura) e `computeAutoSyncWindow` (mês
+  corrente, virada de mês, virada de ano) — 57 testes passando no total.
+- Riscos aceitos, documentados na ADR-0013 (não resolvidos nesta mudança): tombstone de
+  fatura cancelada/estornada continua em aberto (mesma limitação da ADR-0012); lock entre
+  réplicas é só o guard "já existe RUNNING", não um lock distribuído de verdade; upsert em
+  série via Prisma (não SQL em lote), revisitar se o volume crescer muito.
+
+## 2026-07-21 (cont. 5) — Verificação adversarial do upsert por fatura: 10 bugs reais achados e corrigidos
+- Dado o risco financeiro da mudança anterior, rodei uma verificação adversarial (workflow:
+  3 revisores independentes por ângulos diferentes — concorrência, rigor financeiro,
+  migração/agendador — + 1 verificador adversarial por achado, com instrução de tentar
+  REFUTAR). De 11 achados levantados, 10 sobreviveram à verificação (só 1 foi refutado).
+  Corrigidos todos antes de considerar a mudança pronta:
+  1. **CRÍTICO** — `persistLinhasCategorizadas` decidia a proteção de revisão manual (e a
+     decisão de apagar linha órfã) a partir de uma leitura separada e não-transacional; uma
+     revisão manual feita bem no meio de uma sincronização podia ser silenciosamente
+     sobrescrita ou até apagada. Corrigido: função inteira (leitura+delete+upserts) agora roda
+     numa única transação Serializable.
+  2. **CRÍTICO** — essa correção sozinha não bastava: `updateCategorizedLineAction` também
+     precisou virar Serializable (mesmo padrão de `inSerializableGuard`), senão o Postgres não
+     tem como detectar o conflito entre os dois lados. Em conflito real (P2034), o admin recebe
+     "tente novamente" em vez de a revisão ser aplicada pela metade.
+  3. **CRÍTICO** — risco estrutural (não só de timing): uma linha revisada manualmente cujo
+     bucket ("Sem Categoria::X") deixa de existir porque "X" ganhou uma regra de verdade depois
+     gera um bucket NOVO com a categoria certa, enquanto a linha antiga (preservada, nunca
+     apagada) continua ativa — dupla contagem real. Não é auto-corrigível (só um humano decide
+     qual versão vale). Mitigado com uma conferência por fatura (soma das linhas vs. valor
+     total) que sinaliza via `RevenueSyncRun.totalFaturasComConflito` (nova coluna, migration
+     `20260721202400_conflito_faturas_orfas`) e um alerta vermelho em `/runs/[id]` — nunca
+     silencioso, mas também não resolvido sozinho.
+  4. **CRÍTICO** — `computeAutoSyncWindow()` fusava o horário DUAS vezes no caminho de
+     produção (repassava o resultado já-fusado de `nowInAppTz()` para `getPeriodBounds`, que
+     fusa de novo) — durante as primeiras ~3h de todo mês (fuso UTC-3), a janela "mês corrente"
+     regredia pro mês anterior inteiro. Corrigido; regressão coberta por teste com fake timers.
+  5. **CRÍTICO** — `runAutoSyncTick` chamava `computeAutoSyncWindow()` FORA do try/catch — uma
+     exceção ali (ex.: por causa do bug acima, ou um fuso malconfigurado) virava unhandled
+     rejection e derrubava o processo inteiro, inclusive no tick imediato do boot. Corrigido.
+  6. **MODERADO** — `instrumentation.ts::register()` chamava `scheduleAutoSync()` (que valida
+     TODO o schema de env, não só variáveis de sync) sem try/catch — uma variável não
+     relacionada malconfigurada podia impedir o Next.js de terminar de preparar o servidor,
+     derrubando toda requisição. Corrigido com try/catch isolado.
+  7. **MODERADO** — o guard "já existe rodada RUNNING" não tinha recuperação: um crash do
+     processo no meio de uma rodada a deixava RUNNING para sempre, bloqueando toda
+     sincronização futura permanentemente. Corrigido com `RODADA_TRAVADA_MS` (30 min) —
+     recupera automaticamente marcando FAILED.
+  8. **MODERADO** — delete de linhas órfãs e upserts rodavam em transações separadas (um crash
+     no meio deixava estado inconsistente) — resolvido de graça pela correção #1/#2 (tudo numa
+     transação só agora).
+  9. **MENOR** — financial-rigor.md regra #9(b) ainda descrevia um comportamento
+     (recalcular o resumo "da rodada dona da linha") que a própria ADR-0013 já tinha removido
+     intencionalmente. Texto corrigido.
+- Durante a validação, o usuário perguntou sobre duplicatas visíveis em `/categorias`
+  ("Sala 03 da Loja 21", CR 27585, e "Contrato sala 02 - Loja 28", CR 27812, aparecendo 2x) —
+  confirmado via SQL direto que o banco atual já tem exatamente 1 linha para cada uma dessas
+  faturas; a tela que o usuário via refletia dado de antes da migração/upsert (um dev server
+  na porta 3000 já estava rodando fora desta sessão).
+- Validação final: `npm run typecheck`/`test`/`build` limpos, migração nova aplicada sem
+  drift (`prisma migrate diff` vazio).

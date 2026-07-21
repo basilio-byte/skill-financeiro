@@ -22,6 +22,17 @@ const envSchema = z.object({
   CONEXA_BASE_URL: z.string().url().default("https://seahubcoworking.conexa.app"),
   CONEXA_WEB_USERNAME: z.string().default(""),
   CONEXA_WEB_PASSWORD: z.string().default(""),
+
+  // Agendador de sincronização automática (src/lib/scheduler/auto-sync.ts,
+  // ADR-0013) — roda em processo, dentro do próprio servidor Next.js.
+  // NÃO usar z.coerce.boolean() aqui: `Boolean("false")` é `true` em JS, então
+  // coerce trataria SYNC_AUTO_ENABLED=false como ligado — comparação explícita
+  // com a string "true" evita essa pegadinha.
+  SYNC_AUTO_ENABLED: z
+    .string()
+    .default("true")
+    .transform((v) => v === "true"),
+  SYNC_INTERVAL_MINUTES: z.coerce.number().int().positive().default(15),
 });
 
 type Env = z.infer<typeof envSchema>;

@@ -38,7 +38,7 @@ model User {
 
   sessions       Session[]
   loginEvents    LoginEvent[]
-  runs           RevenueCategorizationRun[]
+  runs           RevenueSyncRun[]
   linhasRevisadas RevenueCategorizedLine[]
 
   @@map("users")
@@ -106,21 +106,48 @@ enum Proporcionado {
   SEM_LV
 }
 
-model RevenueCategorizationRun {
-  id             String    @id @default(cuid())
-  periodoInicio  DateTime  @db.Date
-  periodoFim     DateTime  @db.Date
+// MANUAL = disparada por um usuário em /runs. AUTOMATICO = agendador de
+// sincronização periódica (src/lib/scheduler/auto-sync.ts, ADR-0013).
+enum OrigemRodada {
+  MANUAL
+  AUTOMATICO
+}
+
+// Um registro de EXECUÇÃO da sincronização — não é mais dono exclusivo das
+// linhas que produziu (ver RevenueCategorizedLine/ADR-0013): o modelo é
+// upsert por fatura, então uma linha sobrevive a várias rodadas, sendo
+// atualizada in-place. Os totais aqui são um snapshot histórico do que ESTA
+// rodada calculou no momento — nunca recalculados depois (ex.: por uma
+// revisão manual posterior).
+model RevenueSyncRun {
+  id             String       @id @default(cuid())
+  periodoInicio  DateTime     @db.Date
+  periodoFim     DateTime     @db.Date
   status         String // RUNNING | DONE | FAILED
-  iniciadoEm     DateTime  @default(now())
+  origem         OrigemRodada @default(MANUAL)
+  iniciadoEm     DateTime     @default(now())
   concluidoEm    DateTime?
 
   executadoPorId String?
-  executadoPor   User?     @relation(fields: [executadoPorId], references: [id], onDelete: SetNull)
+  executadoPor   User?        @relation(fields: [executadoPorId], references: [id], onDelete: SetNull)
 
   totalLinhasCR  Int      @default(0)
   totalLinhasLV  Int      @default(0)
   totalSemLV     Int      @default(0)
   totalRecebido  Decimal  @default(0) @db.Decimal(14, 2)
+
+  // Quantas linhas esta rodada inseriu pela primeira vez / já existiam e
+  // foram atualizadas via upsert / linhas revisadas manualmente cujo bucket
+  // desapareceu do resultado desta rodada mas foram preservadas (nunca
+  // apagadas silenciosamente — ver financial-rigor.md #10).
+  totalLinhasNovas            Int @default(0)
+  totalLinhasAtualizadas      Int @default(0)
+  totalLinhasOrfasPreservadas Int @default(0)
+  // Faturas cuja soma de linhas atuais não bate com o valor total dela após
+  // uma linha órfã ser preservada (revisão manual + bucket novo cobrindo a
+  // mesma receita) — sinal de dupla contagem que exige revisão humana, nunca
+  // corrigido sozinho (ver persist.ts, achado por verificação adversarial).
+  totalFaturasComConflito     Int @default(0)
 
   // Resumo por categoria ({ categoria, total }[]) — espelha o output já usado
   // pela skill original, para exibir sem recalcular a partir das linhas.
@@ -130,15 +157,23 @@ model RevenueCategorizationRun {
   linhas RevenueCategorizedLine[]
 
   @@index([periodoInicio, periodoFim])
-  @@map("revenue_categorization_runs")
+  @@index([status])
+  @@map("revenue_sync_runs")
 }
 
 model RevenueCategorizedLine {
-  id     String                   @id @default(cuid())
-  runId  String
-  run    RevenueCategorizationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  id             String         @id @default(cuid())
+  ultimaRodadaId String
+  ultimaRodada   RevenueSyncRun @relation(fields: [ultimaRodadaId], references: [id], onDelete: Restrict)
 
   crConexaId      Int
+  // Identidade estável do bucket (categoria calculada PELA SKILL neste
+  // invoice, ou "Sem Categoria::<nome>" quando não mapeado — mesma fórmula de
+  // src/lib/categorization/categorize-invoices.ts) — nunca recalculada depois
+  // do insert, mesmo que uma revisão manual sobrescreva `categoria`. É o que
+  // permite o upsert por fatura encontrar a MESMA linha entre rodadas
+  // (ADR-0013): @@unique([crConexaId, chaveLinha]).
+  chaveLinha      String
   unidade         String?
   faturamento     String?
   clienteConexaId Int?
@@ -175,11 +210,15 @@ model RevenueCategorizedLine {
   // Linha bruta de origem (CR + itens LV casados), para auditoria/reprocessamento.
   raw Json
 
+  atualizadoEm DateTime @updatedAt
+
   // ---------------------------------------------------------------------
   // Revisão manual — ver docs/context/financial-rigor.md, regra permanente:
   // TUDO segue a skill categoriza-receita à risca; a ÚNICA exceção é dado
   // ajustado manualmente aqui, e mesmo essa exceção fica rastreada (quem,
-  // quando, e qual era o valor ORIGINAL calculado pela skill).
+  // quando, e qual era o valor ORIGINAL calculado pela skill). O upsert de
+  // cada rodada (src/lib/categorization/persist.ts) nunca sobrescreve
+  // `categoria`/`valorRecebidoCat` quando `revisadoManualmente = true`.
   // ---------------------------------------------------------------------
   revisadoManualmente Boolean   @default(false)
   revisadoPorId       String?
@@ -190,10 +229,8 @@ model RevenueCategorizedLine {
   categoriaOriginal        String?
   valorRecebidoCatOriginal Decimal? @db.Decimal(14, 2)
 
-  @@index([runId])
+  @@unique([crConexaId, chaveLinha])
   @@index([clienteConexaId])
-  // Usado por src/lib/reports/overview.ts para achar, por fatura, a rodada
-  // concluída mais recente (dedup entre rodadas que se sobrepõem — ADR-0012).
-  @@index([crConexaId])
+  @@index([dataCredito])
   @@map("revenue_categorized_lines")
 }

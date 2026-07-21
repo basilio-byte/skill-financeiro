@@ -52,6 +52,10 @@ export interface CategorizedLine {
   /** Nome exato buscado contra RevenueCategoryRule (Serviço/Item do LV, ou o
    *  plano contratado quando SEM_LV) — permite auditar/corrigir "Sem Categoria". */
   servicoOuPlano: string;
+  /** Identidade estável do bucket dentro da fatura, para upsert entre rodadas
+   *  (ver categorize-invoices.ts `chaveLinhaDoBucket` e ADR-0013). Nunca muda
+   *  mesmo que uma revisão manual sobrescreva `categoria` depois. */
+  chaveLinha: string;
   proporcionado: ProporcionadoTipo;
   tipo: string;
   status: string;

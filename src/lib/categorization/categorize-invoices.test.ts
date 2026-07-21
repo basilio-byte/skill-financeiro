@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { categorizeInvoices } from "@/lib/categorization/categorize-invoices";
+import { categorizeInvoices, chaveLinhaDoBucket } from "@/lib/categorization/categorize-invoices";
 import { money } from "@/lib/money";
 import type { ContasReceberRow, ListarVendasRow } from "@/lib/categorization/types";
 
@@ -94,5 +94,37 @@ describe("categorizeInvoices", () => {
   it("registra serviços sem categoria em servicosNaoMapeados", () => {
     const resultado = categorizeInvoices([cr()], [lv({ servicoItem: "Serviço Desconhecido" })], []);
     expect(resultado.servicosNaoMapeados).toContain("Serviço Desconhecido");
+  });
+
+  describe("chaveLinha (identidade estável do bucket para upsert entre rodadas — ADR-0013)", () => {
+    it("categoria mapeada -> chaveLinha é só a categoria", () => {
+      expect(chaveLinhaDoBucket("Salas Privativas", "Sala A")).toBe("Salas Privativas");
+    });
+
+    it("Sem Categoria -> chaveLinha inclui o nome exato do serviço/plano", () => {
+      expect(chaveLinhaDoBucket("Sem Categoria", "Serviço Desconhecido")).toBe("Sem Categoria::Serviço Desconhecido");
+    });
+
+    it("dois serviços não mapeados na mesma fatura geram chaveLinha distintas", () => {
+      const resultado = categorizeInvoices(
+        [cr({ valorRecebido: money("100") })],
+        [
+          lv({ id: 1, servicoItem: "Desconhecido A", valor: money("60") }),
+          lv({ id: 2, servicoItem: "Desconhecido B", valor: money("40") }),
+        ],
+        [],
+      );
+      expect(resultado.linhas).toHaveLength(2);
+      const chaves = resultado.linhas.map((l) => l.chaveLinha);
+      expect(new Set(chaves).size).toBe(2);
+      expect(chaves).toEqual(
+        expect.arrayContaining(["Sem Categoria::Desconhecido A", "Sem Categoria::Desconhecido B"]),
+      );
+    });
+
+    it("SEM_LV usa o plano contratado como chaveLinha quando não mapeado", () => {
+      const resultado = categorizeInvoices([cr({ planoContratado: "Plano Y" })], [], []);
+      expect(resultado.linhas[0]!.chaveLinha).toBe("Sem Categoria::Plano Y");
+    });
   });
 });

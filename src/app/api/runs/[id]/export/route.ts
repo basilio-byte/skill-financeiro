@@ -7,11 +7,14 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   await requireUser();
   const { id } = await params;
 
-  const run = await prisma.revenueCategorizationRun.findUnique({ where: { id } });
+  const run = await prisma.revenueSyncRun.findUnique({ where: { id } });
   if (!run) return NextResponse.json({ error: "Rodada não encontrada" }, { status: 404 });
 
+  // Como as linhas são upsert por fatura (ADR-0013), este export reflete o
+  // que essas linhas são AGORA (incluindo revisões/sincronizações feitas
+  // depois desta rodada) — não um snapshot congelado do que ela calculou.
   const linhas = await prisma.revenueCategorizedLine.findMany({
-    where: { runId: id },
+    where: { ultimaRodadaId: id },
     orderBy: { crConexaId: "asc" },
   });
 

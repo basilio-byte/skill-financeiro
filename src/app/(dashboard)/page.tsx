@@ -36,10 +36,6 @@ export default async function PanoramaPage({
         <div>
           <h1 className="text-xl font-semibold text-slate-900">Panorama</h1>
           <p className="text-sm capitalize text-slate-500">{report.periodo.label}</p>
-          <p className="mt-1 max-w-2xl text-xs text-slate-400">
-            Cada fatura conta uma única vez, pela rodada concluída mais recente que a processou — rodar o mesmo
-            período de novo (ex.: após cadastrar uma categoria) atualiza os números aqui, nunca soma em cima.
-          </p>
         </div>
         <PeriodControls kind={kind} fromKey={report.periodo.fromKey} />
       </div>
@@ -90,7 +86,7 @@ export default async function PanoramaPage({
 
       {/* Últimas rodadas (histórico geral, não escopado ao período) */}
       <Card>
-        <SectionTitle hint="cada rodada mostra o total que ELA calculou — pode se sobrepor com outra rodada do mesmo período">
+        <SectionTitle hint="cada rodada mostra o total que ELA calculou no momento — pode não bater com o Panorama acima, que reflete sincronizações e revisões manuais feitas depois">
           Últimas rodadas
         </SectionTitle>
         <div className="overflow-x-auto">

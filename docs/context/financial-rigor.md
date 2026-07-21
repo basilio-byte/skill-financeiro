@@ -25,34 +25,65 @@ Regras herdadas do projeto irmão (`seahub_financeiro`) + as específicas deste 
 7. **Conferência de toda rodada:** soma de `Valor Recebido Cat.` deve igualar a soma de
    `Valor Recebido` do Contas a Receber filtrado. Diferença normalmente indica fatura com
    Data de Crédito fora do período pedido incluída no export (checar filtro).
-8. **Falha de rodada nunca é silenciosa.** `RevenueCategorizationRun.status = FAILED` +
-   `erro` preenchido sempre que fetch/parse/categorização falhar — nunca deixar uma rodada
-   "sumir" sem rastro.
+8. **Falha de rodada nunca é silenciosa.** `RevenueSyncRun.status = FAILED` + `erro`
+   preenchido sempre que fetch/parse/categorização/persistência falhar — nunca deixar uma
+   rodada "sumir" sem rastro. Isso inclui rodadas travadas: se o processo morrer no meio de
+   uma sincronização, a rodada RUNNING é recuperada (marcada FAILED com o motivo) na próxima
+   tentativa, depois de um tempo — nunca fica presa em RUNNING para sempre bloqueando todas
+   as sincronizações futuras (ver ADR-0013, `RODADA_TRAVADA_MS` em `run.ts`).
 9. **Regra permanente (2026-07-21, pedido explícito do usuário): tudo — cálculo, categoria,
    valores, dashboard — segue a skill `categoriza-receita` à risca. A ÚNICA exceção é dado
-   ajustado manualmente ("revisado") em `/runs/[id]`.** Mesmo essa exceção é rastreada, nunca
-   uma sobrescrita silenciosa: `RevenueCategorizedLine.revisadoManualmente`/`revisadoPorId`/
-   `revisadoEm` registram a revisão, e `categoriaOriginal`/`valorRecebidoCatOriginal` guardam
-   o valor que a skill calculou ANTES da primeira revisão (nunca sobrescritos em revisões
-   seguintes — é a referência permanente de "o que o algoritmo disse"). Isso significa: (a)
-   nenhum código de agregação/relatório deve "corrigir" ou reinterpretar o output da skill por
-   conta própria — só o humano, explicitamente, via a tela de revisão; (b) ao editar uma
-   linha, os agregados da própria rodada (`resumoPorCategoria`/`totalRecebido`) são
-   recalculados na mesma transação, para que Panorama e o resumo da rodada nunca fiquem
-   dessincronizados de uma revisão manual já feita.
-10. **Rodadas se sobrepõem — nunca somar entre rodadas sem deduplicar por fatura, E a
-    escolha do vencedor nunca pode ignorar revisão manual nem depender da janela de data
-    consultada.** Cada `RevenueCategorizationRun` é um registro histórico imutável e
-    independente; rodar o MESMO período (ou um que se sobrepõe) de novo é uma operação
-    normal e esperada (ex.: reprocessar após cadastrar uma categoria nova), não um erro do
-    usuário. Bug real encontrado em produção (2026-07-21): o Panorama somava os totais de
-    TODAS as rodadas concluídas de um período, então rodar o mesmo período 3x triplicava o
-    número exibido. A correção (`linhasDeduplicadasPorFatura()` em
-    `src/lib/reports/overview.ts`, ADR-0012) escolhe, por fatura (`crConexaId`), um único
-    vencedor GLOBAL (nunca escopado à janela do período sendo exibido) com prioridade: (1)
-    linha revisada manualmente sempre vence sobre qualquer rodada não-revisada, por mais
-    recente que seja — nunca reverter silenciosamente uma correção humana (regra 9); (2)
-    entre revisões, a mais recente; (3) sem revisão nenhuma, a rodada concluída mais
-    recente. Views de UMA rodada específica (`/runs/[id]`, export) continuam mostrando os
-    números que ELA calculou, sem deduplicar — são o registro histórico daquela execução,
-    não uma agregação.
+   ajustado manualmente ("revisado") em `/runs/[id]` ou `/revisar`.** Mesmo essa exceção é
+   rastreada, nunca uma sobrescrita silenciosa: `RevenueCategorizedLine.revisadoManualmente`/
+   `revisadoPorId`/`revisadoEm` registram a revisão, e `categoriaOriginal`/
+   `valorRecebidoCatOriginal` guardam o valor que a skill calculou ANTES da primeira revisão
+   (nunca sobrescritos em revisões seguintes — é a referência permanente de "o que o
+   algoritmo disse"). Isso significa: nenhum código de agregação/relatório deve "corrigir" ou
+   reinterpretar o output da skill por conta própria — só o humano, explicitamente, via a
+   tela de revisão. (Desde a ADR-0013, uma `RevenueSyncRun` NÃO recalcula mais seu próprio
+   `resumoPorCategoria`/`totalRecebido` quando uma linha é revisada — esse número é um
+   snapshot congelado do que a rodada calculou no momento; os valores ao vivo, já com
+   revisões, vêm do Panorama e de `/revisar`, que consultam as linhas atuais direto.)
+10. **Upsert por fatura: cada bucket de categoria tem UMA linha atual, nunca linhas novas a
+    cada sincronização — e a proteção da revisão manual vem do próprio upsert, não de uma
+    escolha de "vencedor" na leitura.** (ADR-0013, substituiu o mecanismo de deduplicação
+    por leitura da ADR-0012 depois que o usuário revelou a intenção de sincronizar
+    automaticamente a cada 15 minutos — um modelo append-only cresceria sem limite nessa
+    cadência.) `RevenueCategorizedLine.chaveLinha` é a identidade estável de um bucket
+    (a categoria que a SKILL calculou, nunca a que uma revisão manual sobrescreveu depois —
+    ver `chaveLinhaDoBucket()` em `categorize-invoices.ts`), e `@@unique([crConexaId,
+    chaveLinha])` garante que existe só uma linha por bucket a qualquer momento —
+    sincronizar o mesmo período (ou um que se sobrepõe) 3x atualiza a MESMA linha 3x, nunca
+    soma. `persistLinhasCategorizadas()` (`src/lib/categorization/persist.ts`) faz o upsert:
+    quando a linha existente já está `revisadoManualmente`, `categoria`/`valorRecebidoCat`
+    são omitidos do update (nunca sobrescritos — regra 9); todo o resto (datas, status,
+    `raw`) continua atualizando normalmente, porque são dados factuais do Conexa, não
+    decisões da skill. Uma linha cujo bucket desaparece de uma rodada nova é apagada —
+    EXCETO se `revisadoManualmente`, caso em que é preservada e contada (nunca some
+    silenciosamente — regra 8). Views de UMA rodada específica (`/runs/[id]`) mostram só o
+    que ELA tocou por último (`ultimaRodadaId`) — não são mais "o registro completo daquela
+    execução" como no modelo antigo; para o que precisa de revisão em todo o sistema, use
+    `/revisar`. O Panorama (`overview.ts`) consulta as linhas atuais direto, sem SQL
+    especial de deduplicação.
+11. **A proteção da revisão manual (regra 9) só funciona de verdade se os DOIS lados forem
+    transações Serializable — achado real por verificação adversarial (2026-07-21) contra a
+    primeira versão da ADR-0013.** `persistLinhasCategorizadas()` lê `revisadoManualmente`,
+    decide o que proteger/apagar e grava tudo — leitura, delete de órfãs e todos os
+    upserts — dentro de UMA ÚNICA transação Serializable. Isso sozinho não bastaria: se
+    `updateCategorizedLineAction` (a revisão manual em si) rodasse fora de uma transação
+    Serializable também, o Postgres não teria como detectar o conflito entre as duas, e uma
+    revisão feita bem no meio de uma sincronização em andamento podia ser silenciosamente
+    sobrescrita (ou, no caso de uma linha órfã, até apagada) segundos depois de salva — por
+    isso `updateCategorizedLineAction` TAMBÉM roda em Serializable (mesmo padrão de
+    `inSerializableGuard` em `auth/user-actions.ts`), tratando o conflito real (Postgres
+    P2034) como "tente novamente", nunca aplicando a revisão pela metade.
+    **Risco residual documentado, não eliminado:** uma linha revisada manualmente cujo bucket
+    (`chaveLinha`) some de uma rodada (ex.: a categoria "adivinhada" à mão ganha depois uma
+    regra de verdade em `RevenueCategoryRule`) é preservada — nunca apagada, regra 9 — mas a
+    rodada seguinte cria um bucket NOVO com a categoria correta, e as duas linhas juntas
+    contam a mesma receita duas vezes. Não é possível resolver isso automaticamente sem
+    decidir qual das duas versões é a certa — decisão que só um humano pode tomar. Em vez de
+    tentar adivinhar, `persistLinhasCategorizadas()` confere a soma das linhas de toda fatura
+    afetada contra o valor total dela e, se não bater, conta em
+    `RevenueSyncRun.totalFaturasComConflito` e loga um erro explícito — nunca silencioso
+    (regra 8), mas também não autocorrigido. Aparece em `/runs/[id]` como um alerta visível.

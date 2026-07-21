@@ -17,8 +17,13 @@ const STATUS_LABEL: Record<string, string> = {
   FAILED: "Falhou",
 };
 
+const ORIGEM_LABEL: Record<string, string> = {
+  MANUAL: "Manual",
+  AUTOMATICO: "Automático",
+};
+
 export default async function RunsPage() {
-  const runs = await prisma.revenueCategorizationRun.findMany({
+  const runs = await prisma.revenueSyncRun.findMany({
     orderBy: { iniciadoEm: "desc" },
     take: 50,
   });
@@ -38,6 +43,7 @@ export default async function RunsPage() {
           <thead className="text-slate-500">
             <tr>
               <th className="pb-2 pr-4">Período</th>
+              <th className="pb-2 pr-4">Origem</th>
               <th className="pb-2 pr-4">Status</th>
               <th className="pb-2 pr-4">Faturas CR</th>
               <th className="pb-2 pr-4">Sem LV</th>
@@ -53,6 +59,7 @@ export default async function RunsPage() {
                     {formatDate(run.periodoInicio)} – {formatDate(run.periodoFim)}
                   </Link>
                 </td>
+                <td className="py-2 pr-4">{ORIGEM_LABEL[run.origem] ?? run.origem}</td>
                 <td className="py-2 pr-4">{STATUS_LABEL[run.status] ?? run.status}</td>
                 <td className="py-2 pr-4">{run.totalLinhasCR}</td>
                 <td className="py-2 pr-4">{run.totalSemLV}</td>
@@ -62,7 +69,7 @@ export default async function RunsPage() {
             ))}
             {runs.length === 0 ? (
               <tr>
-                <td colSpan={6} className="py-6 text-center text-slate-400">
+                <td colSpan={7} className="py-6 text-center text-slate-400">
                   Nenhuma rodada ainda.
                 </td>
               </tr>

@@ -3,11 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { requireRole, requireUser } from "@/lib/auth/session";
 import { startCategorizationRun } from "@/lib/categorization/run";
-import { ZERO, money, roundMoney, sum, toAmountString } from "@/lib/money";
+import { money, roundMoney, toAmountString } from "@/lib/money";
 
 const periodoSchema = z.object({
   periodoInicio: z.string().min(1, "Informe a data início"),
@@ -94,6 +93,8 @@ export async function toggleCategoryRuleAction(id: string, ativo: boolean): Prom
 // valor ORIGINAL calculado pela skill, nunca sobrescrito em revisões seguintes).
 // ---------------------------------------------------------------------------
 
+class LinhaNaoEncontradaError extends Error {}
+
 const lineEditSchema = z.object({
   lineId: z.string().min(1),
   categoria: z.string().trim().min(1, "Informe a categoria"),
@@ -118,48 +119,57 @@ export async function updateCategorizedLineAction(_prev: LineEditState, formData
   if (Number.isNaN(novoValor.toNumber())) return { error: "Valor inválido." };
   if (novoValor.isNegative()) return { error: "O valor não pode ser negativo." };
 
-  const linha = await prisma.revenueCategorizedLine.findUnique({ where: { id: parsed.data.lineId } });
-  if (!linha) return { error: "Linha não encontrada." };
+  // Serializable (mesmo padrão de `inSerializableGuard` em auth/user-actions.ts
+  // e do guard de `startCategorizationRun` em run.ts): uma sincronização
+  // automática pode estar rodando `persistLinhasCategorizadas` (também
+  // Serializable) neste exato momento, para a MESMA linha — sem os dois lados
+  // serializáveis, o Postgres não detecta o conflito, e essa revisão manual
+  // podia ser silenciosamente sobrescrita segundos depois de salva (achado
+  // por verificação adversarial). Em conflito real (P2034), pedimos pro admin
+  // tentar de novo — nunca aplicamos a revisão "meio feita".
+  let ultimaRodadaId: string;
+  try {
+    ultimaRodadaId = await prisma.$transaction(
+      async (tx) => {
+        const linha = await tx.revenueCategorizedLine.findUnique({ where: { id: parsed.data.lineId } });
+        if (!linha) throw new LinhaNaoEncontradaError();
 
-  await prisma.$transaction(async (tx) => {
-    await tx.revenueCategorizedLine.update({
-      where: { id: linha.id },
-      data: {
-        categoria: parsed.data.categoria,
-        valorRecebidoCat: toAmountString(novoValor),
-        revisadoManualmente: true,
-        revisadoPorId: admin.id,
-        revisadoEm: new Date(),
-        // Snapshot só na PRIMEIRA revisão — preserva o que a skill calculou originalmente,
-        // mesmo que a linha seja revisada de novo mais tarde.
-        ...(linha.revisadoManualmente
-          ? {}
-          : { categoriaOriginal: linha.categoria, valorRecebidoCatOriginal: linha.valorRecebidoCat }),
+        // Desde o modelo de upsert por fatura (ADR-0013), uma linha não pertence a
+        // UMA rodada só — não existe mais "o resumo da rodada dona da linha" para
+        // recalcular. Cada RevenueSyncRun fica congelada como estava no momento em
+        // que rodou; os números ao vivo (já com esta revisão) vêm do Panorama e de
+        // /revisar, que consultam as linhas atuais direto.
+        await tx.revenueCategorizedLine.update({
+          where: { id: linha.id },
+          data: {
+            categoria: parsed.data.categoria,
+            valorRecebidoCat: toAmountString(novoValor),
+            revisadoManualmente: true,
+            revisadoPorId: admin.id,
+            revisadoEm: new Date(),
+            // Snapshot só na PRIMEIRA revisão — preserva o que a skill calculou originalmente,
+            // mesmo que a linha seja revisada de novo mais tarde.
+            ...(linha.revisadoManualmente
+              ? {}
+              : { categoriaOriginal: linha.categoria, valorRecebidoCatOriginal: linha.valorRecebidoCat }),
+          },
+        });
+
+        return linha.ultimaRodadaId;
       },
-    });
-
-    // Recalcula os agregados da rodada (resumoPorCategoria/totalRecebido) a partir de
-    // TODAS as linhas — agora parcialmente revisadas — para que Panorama e o resumo
-    // da própria rodada nunca fiquem dessincronizados de uma revisão manual.
-    const todasLinhas = await tx.revenueCategorizedLine.findMany({ where: { runId: linha.runId } });
-    const porCategoria = new Map<string, ReturnType<typeof money>>();
-    for (const l of todasLinhas) {
-      const atual = porCategoria.get(l.categoria) ?? ZERO;
-      porCategoria.set(l.categoria, atual.plus(money(l.valorRecebidoCat.toString())));
+      { isolationLevel: "Serializable" },
+    );
+  } catch (err) {
+    if (err instanceof LinhaNaoEncontradaError) return { error: "Linha não encontrada." };
+    if ((err as { code?: string })?.code === "P2034") {
+      return { error: "Conflito de concorrência (uma sincronização estava rodando ao mesmo tempo) — tente novamente." };
     }
-    const resumo = [...porCategoria.entries()]
-      .map(([categoria, total]) => ({ categoria, total: toAmountString(roundMoney(total)) }))
-      .sort((a, b) => Number(b.total) - Number(a.total));
-    const totalRecebido = toAmountString(roundMoney(sum(todasLinhas.map((l) => l.valorRecebidoCat.toString()))));
+    throw err;
+  }
 
-    await tx.revenueCategorizationRun.update({
-      where: { id: linha.runId },
-      data: { resumoPorCategoria: resumo as unknown as Prisma.InputJsonValue, totalRecebido },
-    });
-  });
-
-  revalidatePath(`/runs/${linha.runId}`);
+  revalidatePath(`/runs/${ultimaRodadaId}`);
   revalidatePath("/runs");
+  revalidatePath("/revisar");
   revalidatePath("/");
   revalidatePath("/categorias");
   return { ok: "Linha atualizada." };
