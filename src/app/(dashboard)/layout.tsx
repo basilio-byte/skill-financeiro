@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 const NAV: Array<{ href: string; label: string; adminOnly?: boolean }> = [
   { href: "/", label: "Panorama" },
   { href: "/revisar", label: "Revisar" },
-  { href: "/runs", label: "Rodadas" },
+  { href: "/runs", label: "Sincronizações" },
   { href: "/categorias", label: "Categorias" },
   { href: "/contas", label: "Contas", adminOnly: true },
 ];

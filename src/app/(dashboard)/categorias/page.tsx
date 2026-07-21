@@ -82,8 +82,8 @@ export default async function CategoriasPage() {
             Pendências de categorização — "Sem Categoria"
           </SectionTitle>
           <p className="mb-4 text-sm text-slate-600">
-            Estes nomes não bateram com nenhuma regra em rodadas já processadas. Cadastre a categoria correta abaixo —
-            a próxima rodada que encontrar o mesmo nome já vem categorizada.
+            Estes nomes não bateram com nenhuma regra em sincronizações já processadas. Cadastre a categoria correta
+            abaixo — a próxima sincronização que encontrar o mesmo nome já vem categorizada.
           </p>
           <ul className="flex flex-col gap-4">
             {pendencias.map((p) => (
@@ -144,7 +144,7 @@ export default async function CategoriasPage() {
         <SectionTitle>Nova categoria</SectionTitle>
         <p className="mb-4 text-sm text-slate-500">
           Nome deve bater exatamente com o "Serviço/Item" (Listar Vendas) ou "Plano Contratado" (Contas a Receber) no
-          Conexa. Serviços novos que ainda não apareceram nas rodadas também podem ser cadastrados aqui, com
+          Conexa. Serviços novos que ainda não apareceram nas sincronizações também podem ser cadastrados aqui, com
           antecedência.
         </p>
         <form action={createCategoryRuleAction} className="flex flex-wrap items-end gap-4">

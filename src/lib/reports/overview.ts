@@ -15,8 +15,24 @@ export interface OverviewData {
   regrasCadastradas: number;
   porCategoria: BreakdownItem[];
   porConta: BreakdownItem[];
+  porConfianca: ConfiancaBreakdown;
   tendencia: PeriodPoint[];
   ultimasRodadas: Array<{ id: string; periodoInicio: Date; periodoFim: Date; status: string; totalRecebido: string }>;
+}
+
+/**
+ * Composição da receita do período por `Proporcionado` — o mesmo flag que a
+ * skill categoriza-receita já produz (ver reference-categoriza-receita-skill):
+ * "unica" = categoria única (valor integral, alta confiança); "rateado" =
+ * dividida entre categorias (revisar); "semLv" = sem item correspondente no
+ * Listar Vendas, categoria só do nome do plano (revisar). Nunca exibido antes
+ * — é sinal de qualidade de dado que já existe em toda linha, só não tinha
+ * visualização própria.
+ */
+export interface ConfiancaBreakdown {
+  unica: string;
+  rateado: string;
+  semLv: string;
 }
 
 const TREND_BUCKETS = 12;
@@ -24,6 +40,7 @@ const TREND_BUCKETS = 12;
 interface LinhaAgregada {
   categoria: string;
   conta: string | null;
+  proporcionado: "N" | "S" | "SEM_LV";
   valorRecebidoCat: Prisma.Decimal;
   dataCredito: Date | null;
 }
@@ -39,7 +56,7 @@ interface LinhaAgregada {
 async function linhasDaJanela(fromDate: Date, toDateExclusive: Date): Promise<LinhaAgregada[]> {
   return prisma.revenueCategorizedLine.findMany({
     where: { dataCredito: { gte: fromDate, lt: toDateExclusive } },
-    select: { categoria: true, conta: true, valorRecebidoCat: true, dataCredito: true },
+    select: { categoria: true, conta: true, proporcionado: true, valorRecebidoCat: true, dataCredito: true },
   });
 }
 
@@ -72,11 +89,17 @@ export async function buildOverview(kind: PeriodKind, ref?: string): Promise<Ove
 
   const porCategoriaMap = new Map<string, Money>();
   const porContaMap = new Map<string, Money>();
+  let unicaTotal = ZERO;
+  let rateadoTotal = ZERO;
+  let semLvTotal = ZERO;
   for (const l of linhasPeriodo) {
     const valor = money(l.valorRecebidoCat.toString());
     porCategoriaMap.set(l.categoria, (porCategoriaMap.get(l.categoria) ?? ZERO).plus(valor));
     const contaKey = l.conta || "Sem conta informada";
     porContaMap.set(contaKey, (porContaMap.get(contaKey) ?? ZERO).plus(valor));
+    if (l.proporcionado === "N") unicaTotal = unicaTotal.plus(valor);
+    else if (l.proporcionado === "S") rateadoTotal = rateadoTotal.plus(valor);
+    else semLvTotal = semLvTotal.plus(valor);
   }
   const totalRecebidoPeriodo = sum(linhasPeriodo.map((l) => l.valorRecebidoCat.toString()));
   const totalSemCategoriaPeriodo = porCategoriaMap.get("Sem Categoria") ?? ZERO;
@@ -120,6 +143,11 @@ export async function buildOverview(kind: PeriodKind, ref?: string): Promise<Ove
     regrasCadastradas,
     porCategoria,
     porConta,
+    porConfianca: {
+      unica: toAmountString(roundMoney(unicaTotal)),
+      rateado: toAmountString(roundMoney(rateadoTotal)),
+      semLv: toAmountString(roundMoney(semLvTotal)),
+    },
     tendencia,
     ultimasRodadas: ultimasRodadas.map((r) => ({
       id: r.id,

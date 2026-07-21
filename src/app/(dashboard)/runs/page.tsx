@@ -4,15 +4,25 @@ import { prisma } from "@/lib/db";
 import { formatBRL } from "@/lib/money";
 import { Card, SectionTitle } from "@/components/ui";
 import { NewRunForm } from "@/app/(dashboard)/runs/new-run-form";
+import { AutoRefresh } from "@/components/auto-refresh";
 
-export const metadata: Metadata = { title: "Rodadas" };
+export const metadata: Metadata = { title: "Sincronizações" };
 
 function formatDate(d: Date): string {
   return d.toLocaleDateString("pt-BR", { timeZone: "UTC" });
 }
 
+function formatElapsed(ms: number): string {
+  const totalMin = Math.floor(ms / 60_000);
+  const h = Math.floor(totalMin / 60);
+  const min = totalMin % 60;
+  if (h > 0) return `${h}h ${min}min`;
+  if (min > 0) return `${min}min`;
+  return "menos de 1min";
+}
+
 const STATUS_LABEL: Record<string, string> = {
-  RUNNING: "Rodando",
+  RUNNING: "Sincronizando",
   DONE: "Concluída",
   FAILED: "Falhou",
 };
@@ -27,18 +37,46 @@ export default async function RunsPage() {
     orderBy: { iniciadoEm: "desc" },
     take: 50,
   });
+  const emAndamento = runs.filter((r) => r.status === "RUNNING");
 
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-xl font-semibold text-slate-900">Rodadas</h1>
+        <h1 className="text-xl font-semibold text-slate-900">Sincronizações</h1>
         <p className="text-sm text-slate-500">Dispare uma nova categorização ou consulte o histórico.</p>
       </div>
 
-      <NewRunForm />
+      {emAndamento.length > 0 ? (
+        <>
+          <AutoRefresh />
+          {emAndamento.map((run) => (
+            <Card key={run.id} role="status" aria-live="polite" className="border-seahub-200 bg-seahub-50/40">
+              <div className="flex items-center gap-2">
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="motion-safe:animate-ping absolute inline-flex h-full w-full rounded-full bg-seahub-400 opacity-75" />
+                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-seahub-600" />
+                </span>
+                <p className="text-sm font-medium text-seahub-700">
+                  Sincronizando {formatDate(run.periodoInicio)} – {formatDate(run.periodoFim)} ·{" "}
+                  {ORIGEM_LABEL[run.origem] ?? run.origem}
+                </p>
+              </div>
+              <p className="mt-1 text-xs text-seahub-600">
+                Em andamento há {formatElapsed(Date.now() - run.iniciadoEm.getTime())} — esta página se atualiza
+                sozinha.
+              </p>
+              <Link href={`/runs/${run.id}`} className="mt-2 inline-block text-xs font-medium text-seahub-600 hover:text-seahub-700">
+                Ver detalhes →
+              </Link>
+            </Card>
+          ))}
+        </>
+      ) : null}
+
+      <NewRunForm jaEmAndamento={emAndamento.length > 0} />
 
       <Card className="overflow-x-auto">
-        <SectionTitle hint={`${runs.length} rodada(s)`}>Histórico</SectionTitle>
+        <SectionTitle hint={`${runs.length} sincronização(ões)`}>Histórico</SectionTitle>
         <table className="w-full text-left text-sm">
           <thead className="text-slate-500">
             <tr>
@@ -70,7 +108,7 @@ export default async function RunsPage() {
             {runs.length === 0 ? (
               <tr>
                 <td colSpan={7} className="py-6 text-center text-slate-400">
-                  Nenhuma rodada ainda.
+                  Nenhuma sincronização ainda.
                 </td>
               </tr>
             ) : null}

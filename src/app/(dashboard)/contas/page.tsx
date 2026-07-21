@@ -29,8 +29,8 @@ export default async function ContasPage() {
       <div>
         <h1 className="text-xl font-semibold text-slate-900">Contas e acessos</h1>
         <p className="text-sm text-slate-500">
-          Usuários internos, papéis e senhas. Administradores gerenciam categorias e disparam rodadas; visualizadores
-          só consultam.
+          Usuários internos, papéis e senhas. Administradores gerenciam categorias e disparam sincronizações;
+          visualizadores só consultam.
         </p>
       </div>
 

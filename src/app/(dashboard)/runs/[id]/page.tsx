@@ -5,7 +5,7 @@ import { formatBRL } from "@/lib/money";
 import { Card, SectionTitle } from "@/components/ui";
 import { LinhaRevisaoRow, type LinhaRevisao } from "@/components/linha-revisao-row";
 
-export const metadata: Metadata = { title: "Detalhe da rodada" };
+export const metadata: Metadata = { title: "Detalhe da sincronização" };
 
 function formatDate(d: Date): string {
   return d.toLocaleDateString("pt-BR", { timeZone: "UTC" });
@@ -44,7 +44,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="text-xl font-semibold text-slate-900">
-          Rodada {formatDate(run.periodoInicio)} – {formatDate(run.periodoFim)}
+          Sincronização {formatDate(run.periodoInicio)} – {formatDate(run.periodoFim)}
         </h1>
         <p className="text-sm text-slate-500">
           Origem: {run.origem === "AUTOMATICO" ? "Automático" : "Manual"} · Status: {run.status} · Faturas CR:{" "}
@@ -53,7 +53,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
         <p className="text-sm text-slate-500">
           Linhas novas: {run.totalLinhasNovas} · Atualizadas: {run.totalLinhasAtualizadas}
           {run.totalLinhasOrfasPreservadas > 0
-            ? ` · ${run.totalLinhasOrfasPreservadas} linha(s) revisada(s) manualmente preservada(s) (bucket não apareceu nesta rodada)`
+            ? ` · ${run.totalLinhasOrfasPreservadas} linha(s) revisada(s) manualmente preservada(s) (bucket não apareceu nesta sincronização)`
             : ""}
         </p>
         {run.totalFaturasComConflito > 0 ? (
@@ -73,7 +73,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
       ) : null}
 
       <Card>
-        <SectionTitle hint="congelado no momento em que esta rodada rodou — para os números ao vivo, veja o Panorama">
+        <SectionTitle hint="congelado no momento em que esta sincronização rodou — para os números ao vivo, veja o Panorama">
           Resumo por categoria
         </SectionTitle>
         <table className="w-full text-left text-sm">
@@ -101,14 +101,14 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
       </Card>
 
       <Card className="overflow-x-auto">
-        <SectionTitle hint='rateadas ("S") ou sem correspondência no Listar Vendas ("Sem LV"), tocadas pela última vez por ESTA rodada'>
+        <SectionTitle hint='rateadas ("S") ou sem correspondência no Listar Vendas ("Sem LV"), tocadas pela última vez por ESTA sincronização'>
           Faturas para revisar
         </SectionTitle>
         <p className="mb-3 text-xs text-slate-500">
           Categoria e valor aqui vêm calculados pela skill categoriza-receita. "Editar" corrige manualmente esta
           linha — a correção fica marcada e rastreada (quem, quando, valor original), e nunca é sobrescrita
-          automaticamente depois. Como as linhas são atualizadas in-place (upsert por fatura), rodadas antigas tendem
-          a esvaziar esta lista com o tempo — para ver TODAS as pendências atuais do sistema, veja{" "}
+          automaticamente depois. Como as linhas são atualizadas in-place (upsert por fatura), sincronizações antigas
+          tendem a esvaziar esta lista com o tempo — para ver TODAS as pendências atuais do sistema, veja{" "}
           <a href="/revisar" className="text-seahub-600 hover:underline">
             /revisar
           </a>

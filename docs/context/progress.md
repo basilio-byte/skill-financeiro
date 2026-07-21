@@ -247,3 +247,52 @@
   na porta 3000 já estava rodando fora desta sessão).
 - Validação final: `npm run typecheck`/`test`/`build` limpos, migração nova aplicada sem
   drift (`prisma migrate diff` vazio).
+
+## 2026-07-21 (cont. 5) — "Rodadas" → "Sincronizações", skill Impeccable instalado, Confiabilidade da categorização + banner de sincronização ao vivo
+- Renomeado o texto visível ao usuário do conceito de rodada de "Rodadas" para
+  "Sincronizações" — nav, títulos de página, tabelas em `/runs`, `/runs/[id]`, `/`, `/contas`,
+  `/categorias`. Identificadores internos (`RevenueSyncRun`, `OrigemRodada`, ADRs/docs)
+  mantidos como estavam — só o nome da página estava em escopo, não um rename de domínio.
+- Instalado o skill de terceiros **Impeccable** (`pbakaus/impeccable`, verificado via WebFetch
+  antes de instalar — ferramenta real de vocabulário de design para agentes de IA) via
+  `npx impeccable install`, em escopo de projeto: `.claude/skills/impeccable` +
+  `.github/skills/impeccable`, com hook `PostToolUse` (`.claude/settings.local.json`) rodando
+  o detector determinístico após todo Edit/Write em arquivo de UI. Sem `PRODUCT.md` ainda
+  (exigiria o fluxo `/impeccable init`, oferecido ao usuário mas não rodado, já que só crítica
+  pontual era necessária agora).
+- Duas visualizações novas no dashboard, escolhidas depois de mapear as telas do projeto
+  irmão `seahub_financeiro` (Explore agent) e descartar o que exige dado que este projeto não
+  tem (DRE/despesas/faturamento/recebimentos):
+  - **"Confiabilidade da categorização"** no Panorama (`src/components/confidence-breakdown.tsx`):
+    barra segmentada + legenda mostrando a composição da receita do período pelo flag
+    `Proporcionado` (N/S/SEM_LV) que a skill categoriza-receita já produz mas nunca tinha
+    visualização própria. `buildOverview()`/`OverviewData` em `src/lib/reports/overview.ts`
+    ganhou `porConfianca`.
+  - **Banner "sincronização em andamento"** em `/runs`: indicador pulsante + tempo decorrido +
+    auto-refresh a cada 5s (`src/components/auto-refresh.tsx`, `router.refresh()` em loop) —
+    justificado pelo scheduler automático de 15 min já em produção (ADR-0013) tornar "tem uma
+    sincronização rodando agora?" uma pergunta real.
+- Rodei a própria crítica dual-assessment do Impeccable (revisor de design LLM + detector
+  determinístico, isolados um do outro via um Workflow) contra as duas adições antes de
+  finalizar. Achado real, confirmado calculando luminância à mão: duas das três cores de
+  `CONFIANCA` (`emerald-500`/`amber-500`) falhavam contraste não-textual WCAG 1.4.11 (~2.5:1 e
+  ~2.1:1) contra o fundo branco do `Card`. Corrigido trocando para os tokens
+  `positive`/`warning`/`negative` já existentes (e nunca usados antes) em
+  `tailwind.config.ts`, todos ≥5:1 — resolve de graça um segundo achado (`CONFIANCA` era uma
+  terceira definição não-referenciada da mesma tríade boa/atenção/ruim). Também corrigidos:
+  espessura da barra alinhada ao `h-1.5` do `BreakdownList`; o card de sincronização agora
+  linka para `/runs/{id}` (era o único lugar do app referenciando uma rodada sem link);
+  `role="status"`/`aria-live="polite"` + `motion-safe:animate-ping` no banner (`Card` em
+  `src/components/ui.tsx` passou a aceitar props HTML arbitrárias via spread, antes só
+  aceitava `className`/`children`); `NewRunForm` agora se desabilita com aviso quando já há
+  sincronização em andamento. Deixado de fora deliberadamente: controle manual de
+  pausa/refresh para o poll de 5s (gap real de WCAG 2.2.2, mas decisão de escopo maior para
+  uma ferramenta interna de baixo tráfego) — sinalizado ao usuário como follow-up opcional em
+  vez de construído sem pedido. Crítica persistida em
+  `.impeccable/critique/2026-07-21T21-21-12Z__ma-confidence-breakdown-card-runs-live-sync-banner.md`.
+- Validado: `typecheck`/`test` (58/58) limpos, e smoke test manual contra o Postgres de dev
+  local real (sessão assinada descartável para o admin já existente, revogada depois) —
+  confirmado as duas páginas renderizando com dado real antes e depois da correção de cor
+  (863 linhas categorizadas já no banco, composição do período ~45% N / ~48% S / ~7% Sem LV).
+- `next lint` não tem config de ESLint nenhuma no repo (gap pré-existente, não desta sessão —
+  `next lint` pede setup interativo na primeira vez); não corrigido, fora de escopo.
