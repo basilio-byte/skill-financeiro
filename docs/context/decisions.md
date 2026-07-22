@@ -341,3 +341,64 @@ antes do commit:
   de remediação dedicada — resolver hoje exige acesso direto ao banco para decidir qual linha
   é a correta.
 **Status:** aceito.
+
+## ADR-0014 — Cadastrar categoria não recategoriza o passado: "Aplicar agora" re-sincroniza
+**Contexto:** usuário reportou que a Duda (conta dela, ADMIN confirmado por print de
+`/contas`) clicava em "Categorizar" numa pendência de `/categorias` e "nada acontecia",
+enquanto para ele "dava certo" — o item sumia da lista. Primeira hipótese (papel VIEWER) foi
+levantada e REFUTADA pelo próprio usuário antes de virar código. Causa raiz real: o clique
+sempre funcionou; `createCategoryRuleAction` grava em `RevenueCategoryRule`, mas a lista de
+pendências lê `RevenueCategorizedLine` — só uma sincronização transporta a regra de uma
+tabela para a outra, e `computeAutoSyncWindow()` cobre APENAS o mês corrente. Logo, o
+resultado visível dependia de algo que a tela nunca mostrou: a data das faturas. Item só com
+linhas do mês corrente sumia no tick seguinte (≤15 min); item com linhas de meses anteriores
+ficava preso na lista para sempre. Confirmado com dado real: das linhas "Sem Categoria" do
+banco de dev, 4 de 27 estão fora do mês corrente, e "Cliente Avulso" tem faturas espalhadas
+de 2025-08 a 2026-07 — cadastrar a categoria dele faria as de julho sumirem e as de 2025
+permanecerem, mantendo o item na tela com a mesma aparência.
+**Decisão:** `createCategoryRuleAction` passa a retornar `CategoryRuleState` (era `void`),
+confirmando o que foi salvo e devolvendo `pendentes` — quantas faturas já persistidas
+continuam "Sem Categoria" com aquele nome e o intervalo mínimo de `dataCredito` que as
+cobre. A UI oferece "Aplicar agora", que dispara `triggerRunAction` para EXATAMENTE esse
+período. Re-sincronizar em vez de dar `UPDATE` direto nas linhas é deliberado: uma linha que
+muda de categoria pode precisar ser FUNDIDA com outra linha da mesma fatura que já tem essa
+categoria, com o rateio proporcional refeito (`chaveLinhaDoBucket`/`allocateProportionally`)
+— o motor de categorização já faz isso corretamente, um `UPDATE` cru distorceria a fatura.
+Quando o período passa de 2 meses a UI avisa que o reprocessamento pode demorar. O texto da
+página, que prometia "a próxima sincronização que encontrar o mesmo nome já vem
+categorizada" (falso para meses anteriores), foi corrigido.
+**Riscos aceitos:** "Aplicar agora" pode disparar um reprocessamento longo (ex.: 12 meses
+para "Cliente Avulso") — mitigado só por aviso na tela, não por execução incremental. O
+período sugerido cobre o intervalo inteiro entre a fatura mais antiga e a mais nova, mesmo
+que os meses do meio não tenham pendência daquele nome.
+**Status:** aceito.
+
+## ADR-0015 — Categoria vira lista com opção de digitar; guardas de ADMIN e checkRole
+**Contexto:** (a) os campos de categoria eram texto livre em todo lugar, e como os relatórios
+agrupam por string exata, qualquer variante ("Serviços de Espaço " com espaço sobrando)
+viraria uma categoria separada no Panorama; (b) auditoria de permissões durante a
+investigação da ADR-0014 encontrou que criar/renomear/desativar regra de categorização e
+disparar sincronização exigiam apenas `requireUser()`, contrariando o comentário do enum
+`UserRole` em schema.prisma ("ADMIN gerencia tabela de categorias, dispara rodadas") — um
+VIEWER podia reescrever a tabela que rege toda a receita, sem rastro de autoria, e disparar
+rodadas que REESCREVEM linhas já persistidas (ADR-0013).
+**Decisão:** `CategoriaField` (`src/components/categoria-field.tsx`) usa `<select>` NATIVO
+com as categorias já conhecidas (`listCategoriasConhecidas()` une regras ativas + categorias
+já gravadas em linhas, para incluir as que vêm dos fallbacks fixos de rules.ts) mais uma
+opção "Outra… (digitar)" que desmonta o select e monta um `<input>` com o mesmo `name` — só
+um dos dois existe no DOM por vez, então nunca há dois valores concorrendo no submit. Nativo
+em vez de combobox próprio: já traz navegação por teclado, busca por digitação e suporte a
+leitor de tela. Valor fora da lista abre direto em modo texto, senão o select trocaria
+silenciosamente a categoria de uma linha ao salvar. Guardas: as actions de regra e de
+sincronização passam a exigir ADMIN, e `POST /api/runs` responde 403 em JSON.
+**Decisão de suporte — `checkRole()` (`src/lib/auth/session.ts`):** `requireRole()` usa
+`redirect()`, correto para PÁGINA e errado dentro de Server Action — `redirect()` lança
+`NEXT_REDIRECT`, a action nunca retorna seu estado, e o formulário fica sem `error`/`ok` para
+renderizar: a pessoa clica em salvar, é jogada para outra tela e nada explica o porquê.
+Exatamente a classe de sintoma investigada na ADR-0014. `checkRole()` devolve
+`{ok, user} | {ok:false, error}` para a UI mostrar. Aplicado nas actions de categorização e
+nas quatro actions de conta que tinham o mesmo defeito.
+**Riscos aceitos:** `listCategoriasConhecidas()` roda uma query a mais por página que usa o
+campo (aceitável no volume atual, ~15 categorias distintas); a lista não tem paginação nem
+busca própria além da busca nativa do `<select>`.
+**Status:** aceito.

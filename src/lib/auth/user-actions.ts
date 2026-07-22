@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
-import { getCurrentSessionId, requireRole, requireUser } from "@/lib/auth/session";
+import { checkRole, getCurrentSessionId, requireUser } from "@/lib/auth/session";
 import { guardUserDelete, guardUserEdit } from "@/lib/auth/user-guards";
 
 /**
@@ -77,7 +77,8 @@ async function revokeUserSessions(userId: string): Promise<void> {
 // Criar usuário (ADMIN)
 // ---------------------------------------------------------------------------
 export async function createUserAction(_prev: UserActionState, formData: FormData): Promise<UserActionState> {
-  await requireRole("ADMIN");
+  const auth = await checkRole("ADMIN");
+  if (!auth.ok) return { error: auth.error };
   const parsed = z
     .object({ name: nameSchema, email: emailSchema, role: roleSchema, password: passwordSchema })
     .safeParse({
@@ -103,7 +104,9 @@ export async function createUserAction(_prev: UserActionState, formData: FormDat
 // Editar usuário: nome, papel, ativo (ADMIN)
 // ---------------------------------------------------------------------------
 export async function updateUserAction(_prev: UserActionState, formData: FormData): Promise<UserActionState> {
-  const admin = await requireRole("ADMIN");
+  const auth = await checkRole("ADMIN");
+  if (!auth.ok) return { error: auth.error };
+  const admin = auth.user;
   const parsed = z
     .object({
       userId: z.string().min(1),
@@ -148,7 +151,8 @@ export async function updateUserAction(_prev: UserActionState, formData: FormDat
 // Resetar senha de um usuário (ADMIN)
 // ---------------------------------------------------------------------------
 export async function resetPasswordAction(_prev: UserActionState, formData: FormData): Promise<UserActionState> {
-  await requireRole("ADMIN");
+  const auth = await checkRole("ADMIN");
+  if (!auth.ok) return { error: auth.error };
   const parsed = z
     .object({ userId: z.string().min(1), password: passwordSchema })
     .safeParse({ userId: formData.get("userId"), password: formData.get("password") });
@@ -168,7 +172,9 @@ export async function resetPasswordAction(_prev: UserActionState, formData: Form
 // Excluir usuário (ADMIN)
 // ---------------------------------------------------------------------------
 export async function deleteUserAction(_prev: UserActionState, formData: FormData): Promise<UserActionState> {
-  const admin = await requireRole("ADMIN");
+  const auth = await checkRole("ADMIN");
+  if (!auth.ok) return { error: auth.error };
+  const admin = auth.user;
   const userId = String(formData.get("userId") ?? "");
   if (!userId) return { error: "Usuário inválido." };
 

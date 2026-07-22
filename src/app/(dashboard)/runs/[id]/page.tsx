@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { formatBRL } from "@/lib/money";
 import { Card, SectionTitle } from "@/components/ui";
 import { LinhaRevisaoRow, type LinhaRevisao } from "@/components/linha-revisao-row";
+import { listCategoriasConhecidas } from "@/lib/categorization/categorias";
 
 export const metadata: Metadata = { title: "Detalhe da sincronização" };
 
@@ -16,12 +17,17 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
   const run = await prisma.revenueSyncRun.findUnique({ where: { id } });
   if (!run) notFound();
 
-  const linhasParaRevisarRaw = await prisma.revenueCategorizedLine.findMany({
-    where: { ultimaRodadaId: id, proporcionado: { in: ["S", "SEM_LV"] } },
-    orderBy: { crConexaId: "asc" },
-    take: 200,
-    include: { revisadoPor: { select: { name: true } } },
-  });
+  // `valorRecebidoCat: { not: 0 }` pelo mesmo motivo de /revisar: linha zerada
+  // não soma em categoria nenhuma, então não há o que revisar nela.
+  const [linhasParaRevisarRaw, categorias] = await Promise.all([
+    prisma.revenueCategorizedLine.findMany({
+      where: { ultimaRodadaId: id, proporcionado: { in: ["S", "SEM_LV"] }, valorRecebidoCat: { not: 0 } },
+      orderBy: { crConexaId: "asc" },
+      take: 200,
+      include: { revisadoPor: { select: { name: true } } },
+    }),
+    listCategoriasConhecidas(),
+  ]);
 
   const linhasParaRevisar: LinhaRevisao[] = linhasParaRevisarRaw.map((l) => ({
     id: l.id,
@@ -101,7 +107,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
       </Card>
 
       <Card className="overflow-x-auto">
-        <SectionTitle hint='rateadas ("S") ou sem correspondência no Listar Vendas ("Sem LV"), tocadas pela última vez por ESTA sincronização'>
+        <SectionTitle hint='rateadas ("S") ou sem correspondência no Listar Vendas ("Sem LV") e com valor acima de R$ 0,00, tocadas pela última vez por ESTA sincronização'>
           Faturas para revisar
         </SectionTitle>
         <p className="mb-3 text-xs text-slate-500">
@@ -128,7 +134,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
           </thead>
           <tbody>
             {linhasParaRevisar.map((l) => (
-              <LinhaRevisaoRow key={l.id} linha={l} />
+              <LinhaRevisaoRow key={l.id} linha={l} categorias={categorias} />
             ))}
             {linhasParaRevisar.length === 0 ? (
               <tr>

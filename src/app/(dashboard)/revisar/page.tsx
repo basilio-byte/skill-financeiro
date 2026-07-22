@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { prisma } from "@/lib/db";
 import { Card, SectionTitle } from "@/components/ui";
 import { LinhaRevisaoRow, type LinhaRevisao } from "@/components/linha-revisao-row";
+import { listCategoriasConhecidas } from "@/lib/categorization/categorias";
 
 export const metadata: Metadata = { title: "Revisar" };
 
@@ -13,16 +14,28 @@ export default async function RevisarPage() {
   // não é mais um conceito por-rodada (ver /runs/[id], que só mostra o que a
   // ÚLTIMA rodada tocou). Aqui é o inverso: todo o sistema, sem filtro de
   // rodada — não-revisadas primeiro, para funcionar como fila de trabalho.
-  const [linhasRaw, totalPendentes] = await Promise.all([
+  // Linhas com valor R$ 0,00 ficam de fora: no rateio elas existem só para
+  // registrar que a categoria apareceu na fatura, não somam nada em lugar
+  // nenhum, e revisá-las não muda número nenhum. Ficam contabilizadas abaixo
+  // para a lista não parecer que perdeu linhas em silêncio.
+  const [linhasRaw, totalPendentes, totalZerados, categorias] = await Promise.all([
     prisma.revenueCategorizedLine.findMany({
-      where: { proporcionado: { in: ["S", "SEM_LV"] } },
+      where: { proporcionado: { in: ["S", "SEM_LV"] }, valorRecebidoCat: { not: 0 } },
       orderBy: [{ revisadoManualmente: "asc" }, { crConexaId: "asc" }],
       take: TAKE,
       include: { revisadoPor: { select: { name: true } } },
     }),
     prisma.revenueCategorizedLine.count({
-      where: { proporcionado: { in: ["S", "SEM_LV"] }, revisadoManualmente: false },
+      where: {
+        proporcionado: { in: ["S", "SEM_LV"] },
+        valorRecebidoCat: { not: 0 },
+        revisadoManualmente: false,
+      },
     }),
+    prisma.revenueCategorizedLine.count({
+      where: { proporcionado: { in: ["S", "SEM_LV"] }, valorRecebidoCat: 0 },
+    }),
+    listCategoriasConhecidas(),
   ]);
 
   const linhas: LinhaRevisao[] = linhasRaw.map((l) => ({
@@ -46,7 +59,7 @@ export default async function RevisarPage() {
         <h1 className="text-xl font-semibold text-slate-900">Revisar</h1>
         <p className="text-sm text-slate-500">
           Todas as faturas rateadas ("S") ou sem correspondência no Listar Vendas ("Sem LV") do sistema, sempre
-          atuais — não escopadas a uma rodada específica.
+          atuais — não escopadas a uma rodada específica. Linhas com valor R$ 0,00 não entram na fila.
         </p>
       </div>
 
@@ -71,7 +84,7 @@ export default async function RevisarPage() {
           </thead>
           <tbody>
             {linhas.map((l) => (
-              <LinhaRevisaoRow key={l.id} linha={l} />
+              <LinhaRevisaoRow key={l.id} linha={l} categorias={categorias} />
             ))}
             {linhas.length === 0 ? (
               <tr>
@@ -84,6 +97,12 @@ export default async function RevisarPage() {
         </table>
         {linhasRaw.length === TAKE ? (
           <p className="mt-3 text-xs text-slate-400">Mostrando os primeiros {TAKE} — refine cadastrando categorias em /categorias.</p>
+        ) : null}
+        {totalZerados > 0 ? (
+          <p className="mt-3 text-xs text-slate-400">
+            {totalZerados} linha(s) com valor R$ 0,00 fora da fila — não somam em nenhuma categoria, então não há o
+            que revisar nelas.
+          </p>
         ) : null}
       </Card>
     </div>

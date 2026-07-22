@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import { prisma } from "@/lib/db";
 import { formatBRL } from "@/lib/money";
 import { Card, SectionTitle } from "@/components/ui";
-import { createCategoryRuleAction, toggleCategoryRuleAction } from "@/lib/categorization/actions";
+import { NovaRegraForm, PendenciaForm } from "@/components/categoria-rule-form";
+import { listCategoriasConhecidas } from "@/lib/categorization/categorias";
+import { toggleCategoryRuleAction } from "@/lib/categorization/actions";
 
 export const metadata: Metadata = { title: "Categorias" };
 
@@ -62,9 +64,10 @@ function fmtDate(d: Date | null): string {
 }
 
 export default async function CategoriasPage() {
-  const [regras, pendencias] = await Promise.all([
+  const [regras, pendencias, categorias] = await Promise.all([
     prisma.revenueCategoryRule.findMany({ orderBy: { nome: "asc" } }),
     buildPendencias(),
+    listCategoriasConhecidas(),
   ]);
 
   return (
@@ -83,10 +86,12 @@ export default async function CategoriasPage() {
           </SectionTitle>
           <p className="mb-4 text-sm text-slate-600">
             Estes nomes não bateram com nenhuma regra em sincronizações já processadas. Cadastre a categoria correta
-            abaixo — a próxima sincronização que encontrar o mesmo nome já vem categorizada.
+            abaixo — a partir daí, toda sincronização que encontrar o mesmo nome já vem categorizada. As faturas que
+            já foram processadas <strong>não mudam sozinhas</strong>: a sincronização automática só reprocessa o mês
+            corrente, então para as de meses anteriores use o botão "Aplicar agora" que aparece depois de salvar.
           </p>
           <ul className="flex flex-col gap-4">
-            {pendencias.map((p) => (
+            {pendencias.map((p, i) => (
               <li key={p.nome} className="rounded-lg border border-amber-200 bg-white p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
@@ -122,18 +127,7 @@ export default async function CategoriasPage() {
                   </div>
                 ) : null}
 
-                <form action={createCategoryRuleAction} className="mt-3 flex flex-wrap items-end gap-3">
-                  <input type="hidden" name="nome" value={p.nome} />
-                  <div className="min-w-[240px] flex-1">
-                    <label className="label" htmlFor={`categoria-${p.nome}`}>
-                      Categoria para "{p.nome}"
-                    </label>
-                    <input className="input" id={`categoria-${p.nome}`} name="categoria" required />
-                  </div>
-                  <button className="btn" type="submit">
-                    Categorizar
-                  </button>
-                </form>
+                <PendenciaForm nome={p.nome} categorias={categorias} campoId={`categoria-${i}`} />
               </li>
             ))}
           </ul>
@@ -147,23 +141,7 @@ export default async function CategoriasPage() {
           Conexa. Serviços novos que ainda não apareceram nas sincronizações também podem ser cadastrados aqui, com
           antecedência.
         </p>
-        <form action={createCategoryRuleAction} className="flex flex-wrap items-end gap-4">
-          <div className="min-w-[240px] flex-1">
-            <label className="label" htmlFor="nome">
-              Nome do serviço/plano
-            </label>
-            <input className="input" id="nome" name="nome" required />
-          </div>
-          <div className="min-w-[240px] flex-1">
-            <label className="label" htmlFor="categoria">
-              Categoria
-            </label>
-            <input className="input" id="categoria" name="categoria" required />
-          </div>
-          <button className="btn" type="submit">
-            Adicionar
-          </button>
-        </form>
+        <NovaRegraForm categorias={categorias} />
       </Card>
 
       <Card className="overflow-x-auto">

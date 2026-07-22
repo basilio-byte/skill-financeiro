@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireUser } from "@/lib/auth/session";
+import { getSessionUser } from "@/lib/auth/session";
 import { startCategorizationRun } from "@/lib/categorization/run";
 
 const bodySchema = z.object({
@@ -10,7 +10,17 @@ const bodySchema = z.object({
 
 /** Disparo programático de uma rodada (mesma lógica do form em /runs). */
 export async function POST(req: Request) {
-  const user = await requireUser();
+  // ADMIN, igual ao form: sincronizar não é leitura — reescreve linhas já
+  // gravadas (upsert por fatura, ADR-0013). Aqui usamos getSessionUser direto,
+  // e não requireUser/requireRole: numa rota de API o certo é responder
+  // 401/403 em JSON, não redirecionar o cliente para uma página HTML.
+  const user = await getSessionUser();
+  if (!user) {
+    return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
+  }
+  if (user.role !== "ADMIN") {
+    return NextResponse.json({ error: "Apenas administradores podem disparar sincronizações." }, { status: 403 });
+  }
   const parsed = bodySchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: "Body inválido — esperado { periodoInicio, periodoFim } (YYYY-MM-DD)" }, { status: 400 });

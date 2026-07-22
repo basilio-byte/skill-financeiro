@@ -110,11 +110,32 @@ export async function requireUser(): Promise<User> {
   return user;
 }
 
-/** Exige um papel específico (ex.: ADMIN). */
+/** Exige um papel específico (ex.: ADMIN). Só para PÁGINAS — ver checkRole abaixo. */
 export async function requireRole(role: UserRole): Promise<User> {
   const user = await requireUser();
   if (user.role !== role) redirect("/");
   return user;
+}
+
+/**
+ * Mesma checagem de papel, mas para uso DENTRO de Server Actions.
+ *
+ * `requireRole` foi escrito para páginas, onde mandar o usuário para outra tela
+ * é a resposta certa. Dentro de uma action isso vira um bug de usabilidade:
+ * `redirect()` lança `NEXT_REDIRECT`, a action NUNCA retorna o seu estado, e o
+ * formulário fica sem `error` nem `ok` para renderizar — a pessoa clica em
+ * salvar, é jogada para outra tela e nada explica o porquê. Em action o certo é
+ * devolver o erro para a UI mostrar, então use `checkRole` aqui.
+ */
+export async function checkRole(
+  role: UserRole,
+): Promise<{ ok: true; user: User } | { ok: false; error: string }> {
+  const user = await getSessionUser();
+  if (!user) return { ok: false, error: "Sua sessão expirou — entre novamente." };
+  if (user.role !== role) {
+    return { ok: false, error: "Apenas administradores podem fazer isso." };
+  }
+  return { ok: true, user };
 }
 
 function clientIp(hdrs: Headers): string | null {

@@ -296,3 +296,46 @@
   (863 linhas categorizadas já no banco, composição do período ~45% N / ~48% S / ~7% Sem LV).
 - `next lint` não tem config de ESLint nenhuma no repo (gap pré-existente, não desta sessão —
   `next lint` pede setup interativo na primeira vez); não corrigido, fora de escopo.
+
+## 2026-07-22 — Fila de revisão sem linhas zeradas, "Aplicar agora" em /categorias, seletor de categoria, guardas de ADMIN
+- **Feedback da Duda (linhas de R$ 0,00):** a fila de `/revisar` mostrava linhas com valor
+  zero, que no rateio só registram que a categoria apareceu na fatura e não somam em lugar
+  nenhum — revisá-las não muda número nenhum. Filtradas com `valorRecebidoCat: { not: 0 }` na
+  listagem E na contagem de pendentes (senão o selo "N pendente(s)" não bateria com a tela),
+  nas duas telas que renderizam `LinhaRevisaoRow` (`/revisar` e `/runs/[id]`). Verificado
+  contra o Postgres real antes de dar por pronto: 370 → 221 linhas (40% da fila era ruído),
+  149 zeradas, 0 negativas, soma confere. Usado `not: 0` e não `gt: 0` de propósito: hoje dá
+  no mesmo, mas se um estorno gerar valor negativo, `gt: 0` esconderia justamente a linha que
+  mais precisa de olho humano. As zeradas ficam contabilizadas num rodapé, para a lista não
+  parecer que perdeu registros. Export `.xlsx` NÃO filtrado — segue sendo o registro completo.
+- **Investigação "a Duda clicou em categorizar e nada aconteceu" (ADR-0014).** Diagnóstico
+  correu por três hipóteses antes de fechar, e vale registrar o caminho porque duas estavam
+  erradas: (1) papel VIEWER — hipótese principal inicial, REFUTADA pelo usuário com print de
+  `/contas` mostrando "Administrador"/último acesso; (2) percepção/tempo (a regra funcionou,
+  ele só olhou depois do tick automático) — refutada quando o usuário esclareceu que para ele
+  o item SAIU da lista e para ela não; (3) a real: a lista de pendências lê outra tabela, e a
+  sincronização automática só cobre o mês corrente, então o resultado visível dependia da
+  DATA das faturas — coisa que a tela nunca mostrou. Um workflow de 30 agentes rodou em
+  paralelo e sua síntese apostou em (1); foi descartada por contradizer o print. Lição:
+  evidência do usuário vale mais que consenso de sub-agentes.
+- **`/categorias` agora responde ao clique:** `createCategoryRuleAction` virou action com
+  estado (confirma o que salvou) e oferece "Aplicar agora", que re-sincroniza o período exato
+  das faturas presas em "Sem Categoria". Ver ADR-0014 para o porquê de re-sincronizar em vez
+  de dar UPDATE nas linhas (fusão de buckets + rateio).
+- **Seletor de categoria (ADR-0015):** `<select>` nativo das categorias existentes +
+  "Outra… (digitar)", em `/categorias` (pendências e "Nova categoria") e no campo de categoria
+  de `LinhaRevisaoRow`. Fecha a porta para variantes do mesmo nome virarem categorias
+  distintas no Panorama.
+- **Permissões (ADR-0015):** regras de categoria e disparo de sincronização passam a exigir
+  ADMIN (UI e `POST /api/runs`). Novo `checkRole()` para Server Actions — `requireRole()` usa
+  `redirect()`, que deixa o formulário mudo; corrigido também nas quatro actions de conta.
+- **Validação:** `typecheck` + 58/58 testes limpos, e smoke test contra o dev stack real com
+  sessão descartável: `/categorias` renderizou 6 selects (5 pendências + 1 novo) e 102 options
+  = 6 × (15 categorias + placeholder + "Outra…"); guarda de permissão testada com um usuário
+  VIEWER de verdade → `403 {"error":"Apenas administradores..."}`, sem cookie → bloqueado pelo
+  middleware, ADMIN → `201`. **Efeito colateral não intencional:** o teste como ADMIN disparou
+  uma sincronização REAL no banco de dev (710 faturas CR, 32 linhas novas, 863 atualizadas) —
+  em dev, não em produção, e o upsert preservou revisões manuais, mas o dev ficou mais
+  atualizado do que estava. Usuário VIEWER e sessões de teste removidos depois.
+- Achado que vale saber: "Cliente Avulso" tem faturas de 2025-08 a 2026-07, então "Aplicar
+  agora" nele reprocessaria ~12 meses — por isso a UI avisa quando o período passa de 2 meses.

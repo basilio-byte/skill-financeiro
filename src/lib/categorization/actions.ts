@@ -4,8 +4,9 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { requireRole, requireUser } from "@/lib/auth/session";
+import { checkRole } from "@/lib/auth/session";
 import { startCategorizationRun } from "@/lib/categorization/run";
+import { SEM_CATEGORIA } from "@/lib/categorization/rules";
 import { money, roundMoney, toAmountString } from "@/lib/money";
 
 const periodoSchema = z.object({
@@ -18,7 +19,12 @@ export interface RunFormState {
 }
 
 export async function triggerRunAction(_prev: RunFormState, formData: FormData): Promise<RunFormState> {
-  const user = await requireUser();
+  // ADMIN: uma sincronização não é leitura — pelo upsert por fatura (ADR-0013)
+  // ela REESCREVE linhas já persistidas, e ainda bate no ERP Conexa com um
+  // período livre. Ver o comentário do enum UserRole em schema.prisma.
+  const auth = await checkRole("ADMIN");
+  if (!auth.ok) return { error: auth.error };
+  const user = auth.user;
   const parsed = periodoSchema.safeParse({
     periodoInicio: formData.get("periodoInicio"),
     periodoFim: formData.get("periodoFim"),
@@ -56,20 +62,75 @@ function normalizeRuleName(nome: string): string {
   return nome.trim().replace(/\s+/g, " ");
 }
 
-export async function createCategoryRuleAction(formData: FormData): Promise<void> {
-  await requireUser();
-  const parsed = ruleSchema.parse({ nome: formData.get("nome"), categoria: formData.get("categoria") });
-  const nome = normalizeRuleName(parsed.nome);
+export interface CategoryRuleState {
+  error?: string;
+  ok?: string;
+  /**
+   * Faturas JÁ gravadas como "Sem Categoria" com este nome. Cadastrar a regra
+   * não mexe nelas (tabelas diferentes), então a UI precisa oferecer o
+   * re-processamento do período — senão o item continua na lista de pendências
+   * e parece que o clique não fez nada.
+   */
+  pendentes?: { nome: string; linhas: number; inicio: string; fim: string };
+}
+
+function ymd(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Faturas já persistidas como "Sem Categoria" para este nome de serviço, e o
+ * intervalo de datas de crédito que elas cobrem — o período mínimo que precisa
+ * ser re-sincronizado para a regra recém-criada alcançá-las.
+ */
+async function pendenciasDoNome(nome: string): Promise<CategoryRuleState["pendentes"]> {
+  const linhas = await prisma.revenueCategorizedLine.findMany({
+    where: { categoria: SEM_CATEGORIA, servicoOuPlano: nome },
+    select: { dataCredito: true },
+  });
+  if (linhas.length === 0) return undefined;
+
+  const datas = linhas.map((l) => l.dataCredito).filter((d): d is Date => d !== null);
+  if (datas.length === 0) return undefined;
+
+  const ms = datas.map((d) => d.getTime());
+  return {
+    nome,
+    linhas: linhas.length,
+    inicio: ymd(new Date(Math.min(...ms))),
+    fim: ymd(new Date(Math.max(...ms))),
+  };
+}
+
+export async function createCategoryRuleAction(
+  _prev: CategoryRuleState,
+  formData: FormData,
+): Promise<CategoryRuleState> {
+  // ADMIN: a tabela de categorização governa TODOS os números financeiros do
+  // app, e o upsert abaixo sobrescreve a categoria de uma regra existente.
+  const auth = await checkRole("ADMIN");
+  if (!auth.ok) return { error: auth.error };
+
+  const parsed = ruleSchema.safeParse({ nome: formData.get("nome"), categoria: formData.get("categoria") });
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Dados inválidos" };
+
+  const nome = normalizeRuleName(parsed.data.nome);
   await prisma.revenueCategoryRule.upsert({
     where: { nome },
-    update: { categoria: parsed.categoria, ativo: true },
-    create: { nome, categoria: parsed.categoria },
+    update: { categoria: parsed.data.categoria, ativo: true },
+    create: { nome, categoria: parsed.data.categoria },
   });
   revalidatePath("/categorias");
+
+  // Busca pelo nome COMO VEIO do formulário (não o normalizado): é o valor
+  // exato de `servicoOuPlano` gravado nas linhas.
+  const pendentes = await pendenciasDoNome(parsed.data.nome);
+  return { ok: `Regra salva: "${nome}" → ${parsed.data.categoria}.`, pendentes };
 }
 
 export async function updateCategoryRuleAction(id: string, formData: FormData): Promise<void> {
-  await requireUser();
+  const auth = await checkRole("ADMIN");
+  if (!auth.ok) throw new Error(auth.error);
   const parsed = ruleSchema.parse({ nome: formData.get("nome"), categoria: formData.get("categoria") });
   await prisma.revenueCategoryRule.update({
     where: { id },
@@ -79,7 +140,8 @@ export async function updateCategoryRuleAction(id: string, formData: FormData): 
 }
 
 export async function toggleCategoryRuleAction(id: string, ativo: boolean): Promise<void> {
-  await requireUser();
+  const auth = await checkRole("ADMIN");
+  if (!auth.ok) throw new Error(auth.error);
   await prisma.revenueCategoryRule.update({ where: { id }, data: { ativo } });
   revalidatePath("/categorias");
 }
@@ -107,7 +169,9 @@ export interface LineEditState {
 }
 
 export async function updateCategorizedLineAction(_prev: LineEditState, formData: FormData): Promise<LineEditState> {
-  const admin = await requireRole("ADMIN");
+  const auth = await checkRole("ADMIN");
+  if (!auth.ok) return { error: auth.error };
+  const admin = auth.user;
   const parsed = lineEditSchema.safeParse({
     lineId: formData.get("lineId"),
     categoria: formData.get("categoria"),

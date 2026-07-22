@@ -3,6 +3,7 @@
 import { useActionState, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { formatBRL } from "@/lib/money";
+import { CategoriaField } from "@/components/categoria-field";
 import { updateCategorizedLineAction, type LineEditState } from "@/lib/categorization/actions";
 
 export interface LinhaRevisao {
@@ -37,7 +38,7 @@ function SubmitButton() {
   );
 }
 
-export function LinhaRevisaoRow({ linha }: { linha: LinhaRevisao }) {
+export function LinhaRevisaoRow({ linha, categorias }: { linha: LinhaRevisao; categorias: string[] }) {
   const [editing, setEditing] = useState(false);
   const [state, action] = useActionState<LineEditState, FormData>(updateCategorizedLineAction, initialState);
 
@@ -72,10 +73,13 @@ export function LinhaRevisaoRow({ linha }: { linha: LinhaRevisao }) {
           <td colSpan={7} className="px-3 py-3">
             <form action={action} className="flex flex-wrap items-end gap-3">
               <input type="hidden" name="lineId" value={linha.id} />
-              <label className="flex flex-col gap-1 text-xs font-medium text-slate-600">
-                Categoria
-                <input name="categoria" defaultValue={linha.categoria} required className="input" />
-              </label>
+              <div className="min-w-[240px]">
+                <CategoriaField
+                  categorias={categorias}
+                  id={`categoria-linha-${linha.id}`}
+                  defaultValue={linha.categoria}
+                />
+              </div>
               <label className="flex flex-col gap-1 text-xs font-medium text-slate-600">
                 Valor recebido (categoria)
                 <input
