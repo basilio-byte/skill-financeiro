@@ -1,9 +1,21 @@
 /**
- * Cria os escopos de meta iniciais (Serviços de Espaço por unidade).
+ * Cria os escopos de meta (Serviços de Espaço por unidade).
  *
- * IDEMPOTENTE: cria o que falta e completa as categorias de escopos que já
- * existem. NUNCA apaga escopo nem mexe em valor de meta já definido — metas
- * são dado financeiro, e este script roda em deploy.
+ * Roda AUTOMATICAMENTE a cada boot, pelo docker-entrypoint.sh — e a cada boot
+ * mesmo, diferente do seed de categorias, que só semeia quando a tabela está
+ * vazia. A diferença é de propósito: a tabela de categorias passa a ser
+ * gerenciada por /categorias depois do primeiro boot (reaplicar o CSV
+ * sobrescreveria o trabalho da Duda), enquanto os escopos de meta são
+ * ESTRUTURA definida no código — rodar sempre faz uma versão nova que
+ * acrescente um escopo valer no deploy, sem passo manual.
+ *
+ * IDEMPOTENTE e não-destrutivo: faz upsert do escopo e das categorias dele,
+ * NUNCA apaga escopo nem categoria, e NUNCA encosta em MetaPeriodo — os
+ * valores de meta definidos em /metas são dado financeiro e ficam intactos.
+ *
+ * Atenção para o futuro: o upsert do escopo atualiza `nome`/`ordem`, então se
+ * um dia existir tela para renomear escopo, este script passaria por cima no
+ * próximo deploy — nessa hora, trocar o `update` por `{}`.
  *
  * As strings de categoria são duplicadas de src/lib/metas/escopos.ts de
  * propósito: este script é .mjs e roda fora do build do Next (sem alias @/),

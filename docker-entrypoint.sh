@@ -32,5 +32,17 @@ fi
 echo "[entrypoint] Verificando tabela de categorias..."
 node ./scripts/seed-categories.mjs || echo "[entrypoint] AVISO: seed de categorias falhou — cadastre manualmente em /categorias ou rode 'npm run db:seed-categories' de novo."
 
+# Garante os escopos de meta (ADR-0016) a cada boot — ao contrário do seed de
+# categorias, este roda SEMPRE, não só na primeira vez. O motivo é que aqui o
+# código é a fonte de verdade da ESTRUTURA (quais escopos existem e quais
+# categorias cada um soma), então uma versão nova que acrescente um escopo passa
+# a valer no deploy, sem ninguém precisar rodar nada à mão.
+#
+# Seguro de repetir: só faz upsert de escopo e das categorias dele, e NUNCA
+# encosta em MetaPeriodo — os valores de meta definidos em /metas ficam
+# intactos. Também nunca remove escopo nem categoria.
+echo "[entrypoint] Verificando escopos de meta..."
+node ./scripts/seed-metas.mjs || echo "[entrypoint] AVISO: seed de metas falhou — o card de Metas fica vazio até rodar 'npm run db:seed-metas'."
+
 echo "[entrypoint] Iniciando aplicação: $*"
 exec "$@"

@@ -380,3 +380,26 @@
   (Supabase subindo em paralelo). Descoberto que o CLI do Prisma falha com P1001 em
   `localhost` mas conecta em `127.0.0.1` — o schema-engine resolve para IPv6. Usar
   `DATABASE_URL` com `127.0.0.1` ao rodar migrations localmente.
+
+## 2026-07-22 (cont. 2) — Seed de metas automático no deploy
+- `docker-entrypoint.sh` passa a rodar `scripts/seed-metas.mjs` a cada boot, junto do seed de
+  categorias e do bootstrap do admin. Pergunta do usuário ("esse comando não pode ser sempre
+  automático no deploy?") — pode, e o projeto já tinha o padrão.
+- **Diferença deliberada em relação ao seed de categorias:** aquele só semeia com a tabela
+  VAZIA (depois do primeiro boot a tabela é gerenciada por /categorias, e reaplicar o CSV
+  sobrescreveria o trabalho da Duda — ADR-0008). O de metas roda SEMPRE, porque aqui o código
+  é a fonte de verdade da ESTRUTURA (quais escopos existem e quais categorias cada um soma):
+  rodar todo boot faz uma versão nova que acrescente um escopo valer no deploy sem passo
+  manual. Valores de meta (MetaPeriodo) nunca são tocados — esses sim vêm da tela /metas.
+- Tolerante a falha, mesmo padrão do seed de categorias: `|| echo AVISO` para não derrubar o
+  container (subir com o card de Metas vazio é melhor que não subir).
+- Não precisou mexer no Dockerfile: `COPY --from=builder /app/scripts ./scripts` (linha 59) já
+  leva a pasta inteira.
+- **Verificado contra o Postgres real, não só por leitura:** (a) idempotência — 3 execuções
+  seguidas, estado idêntico antes e depois (3 escopos, 5 categorias, metas R$ 25.000 e
+  R$ 3.000 intactas, 2 eventos de log, sem poluir o log); (b) auto-cura — apaguei uma
+  categoria de escopo simulando banco vindo de versão anterior, rodei o seed, ela voltou e as
+  metas continuaram preservadas; (c) `sh -n docker-entrypoint.sh` limpo.
+- Anotado no cabeçalho do script: se um dia existir tela para renomear escopo, o `update`
+  do upsert (que hoje atualiza `nome`/`ordem`) precisa virar `{}`, senão o deploy passa por
+  cima da renomeação.
