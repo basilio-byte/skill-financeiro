@@ -1,8 +1,10 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { buildOverview } from "@/lib/reports/overview";
-import { PERIOD_KINDS, type PeriodKind } from "@/lib/dates";
-import { formatBRL } from "@/lib/money";
+import { buildMetas } from "@/lib/metas/metas";
+import { MetasPanel } from "@/components/metas-panel";
+import { PERIOD_KINDS, nowInAppTz, type PeriodKind } from "@/lib/dates";
+import { formatBRL, formatPercent } from "@/lib/money";
 import { Card, SectionTitle } from "@/components/ui";
 import { KpiCard } from "@/components/kpi-card";
 import { ChartCard } from "@/components/charts/chart-card";
@@ -30,6 +32,9 @@ export default async function PanoramaPage({
   const kind: PeriodKind = (VALID_KINDS as string[]).includes(sp.g ?? "") ? (sp.g as PeriodKind) : "month";
 
   const report = await buildOverview(kind, sp.ref);
+  // `nowInAppTz()` já devolve o instante ajustado ao fuso do app — passar adiante
+  // sem re-fusar (ver o bug crítico de fuso duplo em auto-sync-window.ts).
+  const metas = await buildMetas(report.periodo, nowInAppTz());
 
   return (
     <div className="flex flex-col gap-6">
@@ -53,12 +58,15 @@ export default async function PanoramaPage({
           label="Sem categoria no período"
           amount={report.totalSemCategoriaPeriodo}
           tone={report.percentualSemCategoria > 0 ? "negative" : "neutral"}
-          sublabel={`${report.percentualSemCategoria}% do período`}
+          sublabel={`${formatPercent(report.percentualSemCategoria)} do período`}
           hint="Revisar em /categorias"
         />
         <KpiCard label="Sincronizações concluídas" value={String(report.rodadasConcluidas)} hint="total do sistema" />
         <KpiCard label="Regras de categorização ativas" value={String(report.regrasCadastradas)} />
       </div>
+
+      {/* Metas do período — logo abaixo dos KPIs, antes dos detalhamentos */}
+      <MetasPanel metas={metas} />
 
       {/* Tendência — série única (uma matiz, sem legenda) */}
       <ChartCard

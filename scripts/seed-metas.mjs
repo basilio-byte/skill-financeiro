@@ -1,0 +1,61 @@
+/**
+ * Cria os escopos de meta iniciais (Serviços de Espaço por unidade).
+ *
+ * IDEMPOTENTE: cria o que falta e completa as categorias de escopos que já
+ * existem. NUNCA apaga escopo nem mexe em valor de meta já definido — metas
+ * são dado financeiro, e este script roda em deploy.
+ *
+ * As strings de categoria são duplicadas de src/lib/metas/escopos.ts de
+ * propósito: este script é .mjs e roda fora do build do Next (sem alias @/),
+ * e o teste em escopos.test.ts trava as grafias contra mudança acidental.
+ */
+import { PrismaClient } from "@prisma/client";
+
+const ESCOPOS = [
+  {
+    slug: "espaco-seaway",
+    nome: "Serviços de Espaço — Seaway Center",
+    ordem: 1,
+    categorias: ["Serviços de Espaço - Seaway Center"],
+  },
+  {
+    slug: "espaco-sebrae",
+    nome: "Serviços de Espaço — Sebrae",
+    ordem: 2,
+    // DOIS espaços (FIXED_FALLBACKS) + UM espaço (seed de categorias normalizado):
+    // as duas grafias da MESMA categoria existem no sistema. Ver escopos.ts.
+    categorias: ["Serviços de Espaço -  Sebrae", "Serviços de Espaço - Sebrae"],
+  },
+  {
+    slug: "espaco-ayrton-senna",
+    nome: "Serviços de Espaço — Ayrton Senna",
+    ordem: 3,
+    categorias: ["Serviços de Espaço -  Ayrton Senna", "Serviços de Espaço - Ayrton Senna"],
+  },
+];
+
+const prisma = new PrismaClient();
+try {
+  for (const e of ESCOPOS) {
+    const escopo = await prisma.metaEscopo.upsert({
+      where: { slug: e.slug },
+      update: { nome: e.nome, ordem: e.ordem },
+      create: { slug: e.slug, nome: e.nome, ordem: e.ordem },
+    });
+    for (const categoria of e.categorias) {
+      await prisma.metaEscopoCategoria.upsert({
+        where: { escopoId_categoria: { escopoId: escopo.id, categoria } },
+        update: {},
+        create: { escopoId: escopo.id, categoria },
+      });
+    }
+    console.log(`[seed-metas] ${e.slug}: ${e.categorias.length} categoria(s) garantida(s).`);
+  }
+  const total = await prisma.metaEscopo.count();
+  console.log(`[seed-metas] pronto — ${total} escopo(s) de meta no banco.`);
+} catch (err) {
+  console.error("[seed-metas] ERRO:", err instanceof Error ? err.message : err);
+  process.exit(1);
+} finally {
+  await prisma.$disconnect();
+}

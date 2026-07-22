@@ -69,6 +69,17 @@ export function formatBRL(value: Money | number | string | null | undefined): st
   return BRL.format(roundMoney(money(value)).toNumber());
 }
 
+/**
+ * Percentual em pt-BR: 91,5% — vírgula decimal, não ponto.
+ *
+ * Existe porque interpolar o número cru (`{pct}%`) renderiza "91.5%", que é a
+ * convenção inglesa. Some o decimal quando é inteiro ("88%", não "88,0%").
+ */
+export function formatPercent(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  return `${value.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
+}
+
 /** Formato compacto para eixos/KPIs: R$ 1,2 mil / R$ 3,4 mi */
 export function formatBRLCompact(value: Money | number | string | null | undefined): string {
   const n = roundMoney(money(value)).toNumber();

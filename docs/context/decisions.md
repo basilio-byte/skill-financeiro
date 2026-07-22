@@ -402,3 +402,103 @@ nas quatro actions de conta que tinham o mesmo defeito.
 campo (aceitável no volume atual, ~15 categorias distintas); a lista não tem paginação nem
 busca própria além da busca nativa do `<select>`.
 **Status:** aceito.
+
+## ADR-0016 — Metas de receita por escopo, mensais, exibidas no Panorama
+**Contexto:** pedido do usuário — "visualização de METAS" no Panorama, começando pelos
+serviços de espaço (Seaway, Sebrae, Ayrton Senna), com campo de configuração para admin e
+exibição da meta + percentual atingido, usando Data de Crédito como base. Decisões de produto
+tomadas pelo usuário nesta sessão: (a) escopo = SÓ as categorias "Serviços de Espaço - X",
+não a unidade inteira (as "Salas Privativas - X" das mesmas unidades, 4-12x maiores, ficam de
+fora); (b) meta mensal, com períodos maiores somando os meses; (c) exibir percentual da meta
+cheia mais um marcador de ritmo esperado.
+
+**Decisão — modelo em três tabelas + log** (`MetaEscopo` → `MetaEscopoCategoria` →
+`MetaPeriodo`, mais `MetaPeriodoEvent`). A meta NUNCA é amarrada a uma string de categoria:
+o escopo tem identidade estável (`slug`) e lista N categorias. Isso resolve de uma vez duas
+coisas — trocar o recorte (incluir "Salas Privativas" depois) vira linha filha em vez de
+migração, e o split de grafia da ADR-0017 é absorvido cadastrando as DUAS grafias no mesmo
+escopo desde o dia 1.
+
+**Decisão — granularidade única (mês), sem enum de período.** Verificado no código:
+`getPeriodBounds("quarter","2026-07-01").fromKey` e `getPeriodBounds("month","2026-07-01").fromKey`
+produzem A MESMA string ("2026-07-01"), e "2026-01-01" é simultaneamente chave de ano, de 1º
+trimestre e de janeiro (src/lib/dates.ts). Um schema `(periodoKind, periodoKey)` com resolver
+por soma dobraria a meta silenciosamente. Mês é o átomo; trimestre/semestre/ano são a SOMA dos
+meses contidos, calculada na leitura (`mesesDoPeriodo`, coberto por 15 testes justamente
+porque um mês a mais/a menos infla ou desinfla a meta sem dar erro visível).
+
+**Decisão — dia e semana não exibem meta.** Ratear meta mensal por dias assumiria receita
+uniforme, e `dataCredito` concentra nas datas de vencimento — o número pareceria apurado e
+seria inventado. O card explica e linka para a visão mensal. Note que `PeriodKind` tem SEIS
+valores (inclui "day"), não cinco.
+
+**Decisão — meta parcial recorta o realizado.** Quando só parte dos meses do período tem meta,
+o realizado exibido é restrito EXATAMENTE aos mesmos meses, com aviso na tela. Dividir 3 meses
+de receita por 1 mês de meta produziria "300% da meta" com aparência de número apurado.
+
+**Decisão — `realizado` e `%` nunca são persistidos**, sempre calculados ao vivo das linhas
+atuais. Persistir repetiria o erro que a ADR-0013 corrigiu (resumo congelado divergindo das
+linhas após revisão manual), agravado pela sincronização automática de 15 min.
+
+**Decisão — input numérico, não parser de moeda pt-BR.** Verificado com o Decimal real do
+projeto: um parser que só trata pt-BR quando há vírgula converte "25.000" (o jeito natural de
+escrever meta redonda) em **25**, silenciosamente e sem erro. `<input type="number" step="0.01">`
+elimina a classe inteira do problema, e é o padrão já usado em linha-revisao-row.tsx.
+
+**Decisão — /metas é página própria no padrão /categorias** (visível a todos, escrita
+protegida por `checkRole("ADMIN")` na action), não dentro de /contas, que é sobre usuários e
+acessos. Quem vê a meta no Panorama consegue conferir de onde ela saiu.
+
+**Bugs encontrados pelo smoke test com dado real** (typecheck e 79 testes passavam):
+ 1. No modo mensal aparecia "Nem todos os 1 meses deste período têm meta definida" — a lógica
+    tratava "escopo sem meta nenhuma" (Ayrton Senna) como "mês sem meta". Mensagem falsa.
+ 2. Percentuais renderizavam "91.5%" (ponto, convenção inglesa). Criado `formatPercent()` em
+    money.ts e aplicado também no KPI "Sem categoria", que tinha o mesmo defeito — senão a
+    mesma tela mostraria "91,5%" e "6.1%" lado a lado.
+
+**Riscos aceitos / fora desta versão:**
+- O marcador de ritmo é LINEAR (fração de dias decorridos) e rotulado como referência, não
+  previsão. A crítica adversarial defendeu usar o realizado do mesmo dia-do-mês em meses
+  anteriores (dado apurado em vez de reta); rejeitado por ora porque o histórico do banco é
+  quase todo de um mês só — voltaria a servir só em 2027. Decisão do usuário.
+- Gerenciar as categorias de um escopo pela UI ficou de fora (o schema suporta; hoje vem do
+  seed). Adicionar/remover categoria exige `npm run db:seed-metas` ou SQL.
+- Metas de escopos diferentes NUNCA podem ser somadas entre si se um dia existirem escopos
+  sobrepostos (ex.: "espaco-seaway" e "unidade-seaway") — hoje não existem, e o teste
+  `escopos.test.ts` falha se alguma categoria aparecer em dois escopos.
+- Ayrton Senna ficou deliberadamente SEM meta (fatura R$ 0,00 nessa categoria) — um card
+  cronicamente em 0% vira ruído que o time aprende a ignorar.
+**Status:** aceito.
+
+## ADR-0017 — Split de grafia: duas variantes vivas da mesma categoria (conhecido, NÃO resolvido)
+**Contexto:** descoberto ao implementar as metas (ADR-0016). Existem hoje DUAS grafias da
+mesma categoria, geradas por caminhos diferentes do próprio sistema:
+
+| | `RevenueCategoryRule` (regras) | `RevenueCategorizedLine` (linhas) |
+|---|---|---|
+| Sebrae | `"Serviços de Espaço - Sebrae"` (1 espaço) | `"Serviços de Espaço -  Sebrae"` (2 espaços) |
+| Ayrton Senna | `"Serviços de Espaço - Ayrton Senna"` (1) | `"Serviços de Espaço -  Ayrton Senna"` (2) |
+
+Origem: `prisma/seeds/categorizacao-inicial.csv` tem DOIS espaços, mas
+`scripts/seed-categories.mjs:57` aplica `normalize()` (trim + colapso) TAMBÉM na coluna
+categoria, gravando UM espaço nas regras; `src/lib/categorization/rules.ts` FIXED_FALLBACKS
+tem DOIS espaços hardcoded e é quem produz a categoria das linhas. Seaway não tem split (CSV e
+fallback concordam em um espaço).
+
+**Impacto latente:** hoje todas as linhas de Sebrae/Ayrton vieram do fallback, então só a
+grafia de dois espaços aparece nas linhas. Mas regra exata tem prioridade sobre fallback
+(rules.ts): **basta alguém cadastrar uma regra para um serviço "[SEBRAE] -" em /categorias**
+para a variante de um espaço começar a ser gravada, e a receita da unidade passar a se partir
+em duas categorias distintas no Panorama, que agrupa por string exata.
+
+**Decisão:** NÃO corrigir agora — decisão explícita do usuário nesta sessão. Unificar as
+grafias exige escolher a canônica (afeta as planilhas que a Duda usa) e atualizar linhas
+financeiras já gravadas, com backup. As metas foram desenhadas para serem IMUNES ao split
+(ADR-0016: o escopo soma as duas grafias), então a feature não fica bloqueada.
+**Blindagem colocada:** `src/lib/metas/escopos.test.ts` trava os três literais de fallback com
+strings HARDCODED — nunca importadas de `escopos.ts` nem de `rules.ts`. Um teste que lê a
+constante que pretende proteger é tautológico: quem "arrumar" o espaçamento editaria a
+constante, os dois lados mudariam juntos e o teste seguiria verde enquanto a meta parava de
+casar com as linhas gravadas.
+**Pendente:** decidir a grafia canônica com a Duda e migrar as linhas existentes.
+**Status:** conhecido, contornado, não resolvido.

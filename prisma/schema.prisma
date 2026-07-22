@@ -36,10 +36,12 @@ model User {
   updatedAt    DateTime  @updatedAt
   lastLoginAt  DateTime?
 
-  sessions       Session[]
-  loginEvents    LoginEvent[]
-  runs           RevenueSyncRun[]
+  sessions        Session[]
+  loginEvents     LoginEvent[]
+  runs            RevenueSyncRun[]
   linhasRevisadas RevenueCategorizedLine[]
+  metasDefinidas  MetaPeriodo[]
+  metasAlteradas  MetaPeriodoEvent[]
 
   @@map("users")
 }
@@ -120,21 +122,21 @@ enum OrigemRodada {
 // rodada calculou no momento — nunca recalculados depois (ex.: por uma
 // revisão manual posterior).
 model RevenueSyncRun {
-  id             String       @id @default(cuid())
-  periodoInicio  DateTime     @db.Date
-  periodoFim     DateTime     @db.Date
-  status         String // RUNNING | DONE | FAILED
-  origem         OrigemRodada @default(MANUAL)
-  iniciadoEm     DateTime     @default(now())
-  concluidoEm    DateTime?
+  id            String       @id @default(cuid())
+  periodoInicio DateTime     @db.Date
+  periodoFim    DateTime     @db.Date
+  status        String // RUNNING | DONE | FAILED
+  origem        OrigemRodada @default(MANUAL)
+  iniciadoEm    DateTime     @default(now())
+  concluidoEm   DateTime?
 
   executadoPorId String?
-  executadoPor   User?        @relation(fields: [executadoPorId], references: [id], onDelete: SetNull)
+  executadoPor   User?   @relation(fields: [executadoPorId], references: [id], onDelete: SetNull)
 
-  totalLinhasCR  Int      @default(0)
-  totalLinhasLV  Int      @default(0)
-  totalSemLV     Int      @default(0)
-  totalRecebido  Decimal  @default(0) @db.Decimal(14, 2)
+  totalLinhasCR Int     @default(0)
+  totalLinhasLV Int     @default(0)
+  totalSemLV    Int     @default(0)
+  totalRecebido Decimal @default(0) @db.Decimal(14, 2)
 
   // Quantas linhas esta rodada inseriu pela primeira vez / já existiam e
   // foram atualizadas via upsert / linhas revisadas manualmente cujo bucket
@@ -181,12 +183,12 @@ model RevenueCategorizedLine {
   razaoSocial     String?
   planoContratado String?
 
-  categoria     String
+  categoria      String
   // Nome exato usado na busca contra RevenueCategoryRule (Serviço/Item do LV,
   // ou Plano Contratado do CR quando SEM_LV) — guardado mesmo quando a busca
   // dá certo, para permitir auditoria de "Sem Categoria": ver /categorias.
-  servicoOuPlano String @default("")
-  proporcionado Proporcionado
+  servicoOuPlano String        @default("")
+  proporcionado  Proporcionado
 
   tipo    String?
   status  String?
@@ -203,9 +205,9 @@ model RevenueCategorizedLine {
   emissao     DateTime? @db.Date
   dataCredito DateTime? @db.Date
 
-  conta        String?
-  observacoes  String?
-  tags         String?
+  conta       String?
+  observacoes String?
+  tags        String?
 
   // Linha bruta de origem (CR + itens LV casados), para auditoria/reprocessamento.
   raw Json
@@ -220,17 +222,124 @@ model RevenueCategorizedLine {
   // cada rodada (src/lib/categorization/persist.ts) nunca sobrescreve
   // `categoria`/`valorRecebidoCat` quando `revisadoManualmente = true`.
   // ---------------------------------------------------------------------
-  revisadoManualmente Boolean   @default(false)
-  revisadoPorId       String?
-  revisadoPor         User?     @relation(fields: [revisadoPorId], references: [id], onDelete: SetNull)
-  revisadoEm          DateTime?
+  revisadoManualmente      Boolean   @default(false)
+  revisadoPorId            String?
+  revisadoPor              User?     @relation(fields: [revisadoPorId], references: [id], onDelete: SetNull)
+  revisadoEm               DateTime?
   // Snapshot do valor calculado pela skill ANTES da primeira revisão manual —
   // nunca sobrescrito em revisões seguintes, é a referência de "o que a skill disse".
   categoriaOriginal        String?
-  valorRecebidoCatOriginal Decimal? @db.Decimal(14, 2)
+  valorRecebidoCatOriginal Decimal?  @db.Decimal(14, 2)
 
   @@unique([crConexaId, chaveLinha])
   @@index([clienteConexaId])
   @@index([dataCredito])
   @@map("revenue_categorized_lines")
+}
+
+// ===========================================================================
+// Metas de receita — ver docs/context/decisions.md (ADR-0016)
+// ===========================================================================
+// Princípios aplicados aqui:
+//  - Dinheiro em Decimal(14,2), nunca float (financial-rigor #1).
+//  - `realizado` e `%` NUNCA são persistidos — sempre calculados ao vivo a
+//    partir das linhas atuais. Persistir repetiria o erro que a ADR-0013
+//    corrigiu (resumo congelado divergindo das linhas depois de revisão
+//    manual), agravado pela sincronização automática de 15 min.
+//  - Alterar meta é rastreado, nunca sobrescrita silenciosa (financial-rigor #9).
+
+/// Escopo de meta: identidade ESTÁVEL (slug), independente das strings de
+/// categoria. É a peça que resolve duas ambiguidades de uma vez:
+///
+///  (1) "Serviços de Espaço" vs "a unidade inteira": trocar o recorte é
+///      adicionar/remover uma linha filha, nunca migrar metas gravadas.
+///  (2) O SPLIT DE GRAFIA que existe hoje no projeto: scripts/seed-categories.mjs
+///      normaliza a coluna categoria do CSV e grava "Serviços de Espaço - Sebrae"
+///      (UM espaço) em RevenueCategoryRule, enquanto FIXED_FALLBACKS em
+///      src/lib/categorization/rules.ts grava "Serviços de Espaço -  Sebrae"
+///      (DOIS espaços) nas linhas. As DUAS grafias entram como filhas do mesmo
+///      escopo, então a meta soma as duas e nunca subconta.
+model MetaEscopo {
+  id    String  @id @default(cuid())
+  slug  String  @unique
+  nome  String
+  /// Desativar é o ÚNICO caminho de remoção pela UI. Não existe delete de
+  /// escopo: apagar destruiria metas históricas já definidas.
+  ativo Boolean @default(true)
+  ordem Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  categorias MetaEscopoCategoria[]
+  periodos   MetaPeriodo[]
+
+  @@index([ativo, ordem])
+  @@map("meta_escopos")
+}
+
+/// Categoria que compõe um escopo. `categoria` é a string EXATA gravada em
+/// RevenueCategorizedLine.categoria — INCLUSIVE o espaçamento inconsistente.
+/// Nunca normalizar (trim/colapso de espaços) aqui: normalizar faria a meta
+/// deixar de casar com as linhas já gravadas.
+model MetaEscopoCategoria {
+  id        String     @id @default(cuid())
+  escopoId  String
+  escopo    MetaEscopo @relation(fields: [escopoId], references: [id], onDelete: Cascade)
+  categoria String
+
+  createdAt DateTime @default(now())
+
+  @@unique([escopoId, categoria])
+  @@index([categoria])
+  @@map("meta_escopo_categorias")
+}
+
+/// O VALOR da meta: uma linha por MÊS. Granularidade única e deliberada.
+///
+/// Por que não um enum de granularidade (MONTH|QUARTER|YEAR) com uma chave de
+/// período: `getPeriodBounds("quarter", "2026-07-01").fromKey` e
+/// `getPeriodBounds("month", "2026-07-01").fromKey` produzem A MESMA string
+/// ("2026-07-01"), e "2026-01-01" é simultaneamente chave de ano, de trimestre
+/// e de janeiro (src/lib/dates.ts). Um resolver que somasse por chave dobraria
+/// a meta em silêncio. Mês é o átomo; trimestre/semestre/ano são a SOMA dos
+/// meses contidos, calculada na leitura.
+model MetaPeriodo {
+  id       String     @id @default(cuid())
+  escopoId String
+  escopo   MetaEscopo @relation(fields: [escopoId], references: [id], onDelete: Restrict)
+  /// "yyyy-MM". Formato validado na action e por CHECK constraint na migration —
+  /// um "2026-7" gravado por qualquer caminho nunca casaria com o resolver e a
+  /// meta sumiria da tela sem erro nenhum.
+  anoMes   String
+  valor    Decimal    @db.Decimal(14, 2)
+
+  definidoPorId String?
+  definidoPor   User?    @relation(fields: [definidoPorId], references: [id], onDelete: SetNull)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  eventos MetaPeriodoEvent[]
+
+  @@unique([escopoId, anoMes])
+  @@index([anoMes])
+  @@map("meta_periodos")
+}
+
+/// Log append-only de alteração de meta. Meta é o número contra o qual a
+/// equipe é avaliada — mudar de R$ 30.000 para R$ 20.000 no fim do mês não
+/// pode ser indistinguível de sempre ter sido R$ 20.000.
+model MetaPeriodoEvent {
+  id            String      @id @default(cuid())
+  metaPeriodoId String
+  metaPeriodo   MetaPeriodo @relation(fields: [metaPeriodoId], references: [id], onDelete: Cascade)
+  /// null = criação (não havia valor antes).
+  valorAnterior Decimal?    @db.Decimal(14, 2)
+  valorNovo     Decimal     @db.Decimal(14, 2)
+  alteradoPorId String?
+  alteradoPor   User?       @relation(fields: [alteradoPorId], references: [id], onDelete: SetNull)
+  criadoEm      DateTime    @default(now())
+
+  @@index([metaPeriodoId, criadoEm])
+  @@map("meta_periodo_events")
 }

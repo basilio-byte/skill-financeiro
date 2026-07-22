@@ -339,3 +339,44 @@
   atualizado do que estava. Usuário VIEWER e sessões de teste removidos depois.
 - Achado que vale saber: "Cliente Avulso" tem faturas de 2025-08 a 2026-07, então "Aplicar
   agora" nele reprocessaria ~12 meses — por isso a UI avisa quando o período passa de 2 meses.
+
+## 2026-07-22 (cont.) — Metas de receita no Panorama (ADR-0016) + split de grafia documentado (ADR-0017)
+- **Feature nova: metas por escopo**, começando por Serviços de Espaço (Seaway/Sebrae/Ayrton
+  Senna). Página `/metas` (nova aba no NAV) para configurar meta MENSAL por escopo; card no
+  Panorama exibindo meta, realizado, percentual e o que falta, apurado por `dataCredito`.
+  Ver ADR-0016 para as decisões (modelo de 3 tabelas, granularidade única, recorte de meta
+  parcial, input numérico em vez de parser pt-BR).
+- **Decisões de produto tomadas pelo usuário:** escopo = só as categorias "Serviços de
+  Espaço - X" (NÃO as "Salas Privativas - X", 4-12x maiores, mesmo eu tendo apontado que
+  Ayrton fatura R$ 0,00 e Sebrae só 7% do que a unidade gera); meta mensal com períodos
+  maiores somando os meses; percentual da meta cheia + marcador de ritmo linear.
+- **Achado que mudou o desenho: split de grafia (ADR-0017).** As regras têm
+  "Serviços de Espaço - Sebrae" (UM espaço, porque o seed normaliza o CSV) e as linhas têm
+  "Serviços de Espaço -  Sebrae" (DOIS, porque vêm de FIXED_FALLBACKS). Uma meta amarrada a
+  uma string nasceria subcontando. Por isso o escopo lista N categorias e cadastra as duas
+  grafias. Usuário decidiu não unificar as grafias agora (afeta histórico e as planilhas da
+  Duda) — registrado como pendência na ADR-0017.
+- **Verificações que mudaram decisão** (não confiar nas propostas sem conferir):
+  `getPeriodBounds("quarter", X).fromKey === getPeriodBounds("month", X).fromKey` — um schema
+  com (periodoKind, periodoKey) dobraria a meta em silêncio, daí a granularidade única;
+  `PeriodKind` tem SEIS valores (inclui "day"), não cinco; um parser pt-BR de moeda converteria
+  "25.000" em 25 sem erro, daí `<input type="number">`.
+- **CHECK constraints no banco** (não só validação na action): formato de `anoMes`
+  (`^\d{4}-(0[1-9]|1[0-2])$`) e valor não-negativo. Testados de verdade contra o Postgres —
+  o banco rejeitou "2026-7" e valor negativo.
+- **Dois bugs meus que só o smoke test com dado real pegou** (typecheck + 79 testes passavam):
+  (1) no modo mensal a tela dizia "Nem todos os 1 meses deste período têm meta definida" —
+  a lógica confundia "escopo sem meta" com "mês sem meta"; (2) percentuais renderizavam
+  "91.5%" em vez de "91,5%" — criado `formatPercent()` em money.ts, aplicado também no KPI
+  "Sem categoria", que tinha o mesmo defeito e ficaria inconsistente na mesma tela.
+- **Validação:** typecheck + 79/79 testes (21 novos: 6 de contrato de grafia, 15 de período),
+  e smoke test contra o Postgres real com metas de exemplo — Seaway R$ 22.872,23/25.000 =
+  91,5%, Sebrae R$ 1.757,27/3.000 = 58,6%, total 88%, Ayrton "sem meta definida", ritmo 70,2%
+  no dia 22/07. Conferido também que semana suprime o card e que trimestre exibe o aviso de
+  recorte.
+- Ficaram no banco de DEV duas metas de exemplo (julho/2026) para inspeção visual. Em
+  produção, rodar `npm run db:seed-metas` cria só os escopos; as metas são definidas na tela.
+- **Infra:** o Postgres de dev (`skill-financeiro-db-1`) ficou intermitente durante a sessão
+  (Supabase subindo em paralelo). Descoberto que o CLI do Prisma falha com P1001 em
+  `localhost` mas conecta em `127.0.0.1` — o schema-engine resolve para IPv6. Usar
+  `DATABASE_URL` com `127.0.0.1` ao rodar migrations localmente.

@@ -13,6 +13,7 @@ const NAV: Array<{ href: string; label: string; adminOnly?: boolean }> = [
   { href: "/revisar", label: "Revisar" },
   { href: "/runs", label: "Sincronizações" },
   { href: "/categorias", label: "Categorias" },
+  { href: "/metas", label: "Metas" },
   { href: "/contas", label: "Contas", adminOnly: true },
 ];
 
