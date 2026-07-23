@@ -105,6 +105,16 @@ describe("joinContasReceberComListarVendas", () => {
     expect(result.find((r) => r.cr.id === 11)!.itensLV.map((l) => l.id)).toEqual([1]);
   });
 
+  it("Cliente ID nulo TAMBÉM entra na chave e pode colidir — porta exata do dict do Python sem guarda contra None (decisão de fidelidade, auditoria 2026-07-23)", () => {
+    const crSemCliente = cr({ clienteId: null, competencia: new Date(Date.UTC(2026, 6, 1)) });
+    const lvSemCliente = lv({ clienteId: null, referenciaCobranca: new Date(Date.UTC(2026, 6, 15)) });
+
+    const result = joinContasReceberComListarVendas([crSemCliente], [lvSemCliente]);
+    // Antes desta decisão, isso caía em Sem LV incondicionalmente. Agora casa,
+    // igual ao Python (cliente_id=None em ambos os lados colide na chave).
+    expect(result[0]!.itensLV.map((l) => l.id)).toEqual([1]);
+  });
+
   it("tolerância de desempate é ESTRITA (< 0,02, não <=) — diferença exata de 2 centavos NÃO desempata", () => {
     const crA = cr({ id: 10, valorRecebido: money("100") });
     // Diferença EXATA de 2 centavos (não deve contar como match, pois é < 0.02, não <=).

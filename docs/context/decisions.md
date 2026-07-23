@@ -623,3 +623,117 @@ uso depois da reescrita de categorize-invoices.ts; removido por instrução expl
   anterior — não observado ativo no dado atual, mas pode aceitar status não previstos no futuro.
 - fix-categorias-espacamento.mjs ainda não rodou em produção.
 **Status:** aceito.
+
+## ADR-0019 — Auditoria multi-agente pós-ADR-0018: 10 divergências/riscos confirmados, 6 corrigidos
+
+**Contexto:** o usuário pediu para "estudar a fundo" o funcionamento da skill (o .py real,
+baixado em sessão anterior), o port TS e a arquitetura de sincronização já construída, e corrigir
+o que fosse encontrado — objetivo explícito: "um sistema estável e confiável". Motivado também
+por uma investigação de reconciliação (Conexa "Quitadas" R$388.368,37 vs nosso Total Recebido
+R$279.852,89 no mesmo período/campo): confirmado por fetch direto ao Conexa que **não há bug** —
+o Conexa soma Valor Bruto (inflado por contratos anuais) nessa tela, nosso Valor Recebido bate
+exato fatura a fatura contra o export cru.
+
+**Método:** workflow de 6 agentes em paralelo, cada um relendo o `.py` inteiro (511 linhas) e uma
+fatia do TS (matching de categoria, join CR×LV, rateio/arredondamento, filtros de status/data,
+arquitetura de sync/persist, precisão numérica), seguido de uma verificação ADVERSARIAL
+independente por achado (agente instruído a tentar REFUTAR, não confirmar) antes de qualquer
+correção ser aplicada. 12 achados candidatos → 10 confirmados, 2 refutados.
+
+**Corrigidos nesta sessão (bugs claros, sem trade-off de produto):**
+
+1. `normalizeRuleName()` (actions.ts) colapsava espaço interno duplo ao cadastrar/editar regra
+   via UI — o Python só faz `.strip()`. Quebrava silenciosamente o cadastro de regras para nomes
+   com espaço duplo real (padrão Sebrae/Ayrton Senna, mesma classe de bug do ADR-0017, só que
+   nesta função específica ninguém tinha corrigido ainda). Corrigido para `nome.trim()`.
+
+2. `bucket.nomes` (categorize-invoices.ts) deduplicava nomes de serviço idênticos dentro do
+   mesmo bucket — o Python concatena TODOS os itens, mesmo repetidos (`"; ".join(...)` sem
+   filtro). Não afeta o valor (a soma do bucket é independente do array de nomes), só o texto
+   auditável em `servicoOuPlano`. Corrigido: sempre concatena, sem dedup.
+
+3. `parseFlexibleDate` (parse-exports.ts) só cortava por ESPAÇO (pra remover hora), nunca por
+   VÍRGULA — o Python (`norm_comp`/`parse_date`) sempre corta por vírgula primeiro. Risco latente
+   para Competência/Referência Cobrança, caso algum dia venham como lista (Data Crédito já
+   demonstrou ter esse formato). Corrigido: corta por vírgula antes de espaço.
+
+4. Mesma função: exigia exatamente 2 dígitos para dia/mês (`\d{2}`), mas o `strptime` do Python
+   aceita 1 ou 2 (`"1/7/2026"` parseia normalmente). Sem evidência de ter ocorrido em export
+   real, mas fecha uma lacuna de aceitação de formato. Corrigido para `\d{1,2}`.
+
+5. **Export `/api/runs/[id]/export` ficava vazio para qualquer rodada que não fosse a mais
+   recente** (achado próprio, fora do workflow) — a query filtrava por `ultimaRodadaId`, que o
+   auto-sync (a cada 15 min, sempre reprocessando o mesmo período) recarimba em TODAS as linhas
+   a cada tick. Corrigido: filtra por `dataCredito` dentro do período da própria rodada, que é o
+   que o comentário do arquivo já dizia pretender.
+
+6. **Concorrência entre sincronizações** — o guard de "rodada travada" (30 min) marca a RUNNING
+   antiga como FAILED e libera uma nova, mas nada garantia que a antiga tivesse morrido de
+   verdade (fetches ao Conexa não tinham timeout). Duas rodadas podiam persistir o mesmo período
+   concorrentemente. Corrigido em duas frentes: `conexa-web/client.ts` ganhou
+   `AbortSignal.timeout(90_000)` nos fetches; `persistLinhasCategorizadas` agora rechecka DENTRO
+   da própria transação Serializable se a rodada ainda está RUNNING antes de tocar qualquer
+   linha (`RodadaSuperadaError` se não estiver — nunca persiste por engano).
+
+7. **P2034 (conflito de serialização) entre sync e revisão manual** não tinha tratamento
+   específico no lado do sync — colisão transitória e esperada (as duas transações são
+   Serializable exatamente para isso) marcava a rodada INTEIRA como FAILED, sem retry, gerando
+   ruído recorrente em /runs. `run.ts` ganhou `persistComRetry` (até 3 tentativas, backoff curto)
+   antes de desistir.
+
+**Achados 8-10 — decisão de produto do usuário: fidelidade total ao Python nos três, implementada:**
+
+8. **[CRÍTICO]** Data Crédito com hora anexada (ex. "13/07/2026 17:08:35"): o Python falha ao
+   parsear (strptime rígido, sem remover hora) e **exclui a fatura inteira** silenciosamente se
+   essa for a única data que bateria no período; o TS removia a hora deliberadamente e incluía a
+   fatura — o comentário alegava "mesma semântica... do script real", o que a verificação
+   adversarial provou falso por execução direta do Python. **Usuário escolheu replicar o Python**
+   mesmo sendo uma falha de parsing do original, não uma decisão intencional dele. Corrigido:
+   `parseFlexibleDate` não remove mais a hora — o regex ancorado (`^...$`) rejeita qualquer
+   sobra depois da data, igual ao `strptime` rígido. Efeito em cascata aceito conscientemente:
+   para Data Crédito, se a hora estiver grudada na ÚNICA data que bateria no período, a fatura
+   inteira passa a ser excluída da rodada.
+
+9. Arredondamento em empates exatos: `roundMoney` usava `Decimal.ROUND_HALF_UP` sobre aritmética
+   decimal exata; o Python usa `round()` (half-to-even) sobre float64 já impreciso. Em splits que
+   caem num empate exato (ex. 50/50, 1/8), os dois lados podiam arredondar o MESMO item para lados
+   opostos — o TOTAL da fatura sempre fecha (o resíduo corrige), mas a CATEGORIA que absorve o
+   centavo podia divergir. Verificado numericamente que trocar para ROUND_HALF_EVEN não garante
+   paridade total (o erro de representação binária do float é a causa real, não só o modo de
+   desempate) — **usuário escolheu aproximar mesmo assim**. Corrigido: nova `roundMoneyRateio`
+   (money.ts, HALF_EVEN) usada SÓ no arredondamento por item e no resíduo de ajuste do rateio
+   (categorize-invoices.ts) — o `roundMoney` genérico (HALF_UP) usado no resto do app não mudou.
+
+10. Join CR×LV: quando `ID Cliente` vem vazio em CR e LV do mesmo mês, o Python usa `None` como
+    componente de chave normalmente (podem colidir); o TS bloqueava esse casamento nos dois lados
+    incondicionalmente. Severidade baixa — nenhuma evidência de ter ocorrido em dado real.
+    **Usuário escolheu replicar o Python.** Corrigido: removidas as duas guardas de
+    `clienteId === null` em join.ts — a chave já é uma string (`clienteId + "|" + ym`), então
+    `null` vira o literal `"null"` na concatenação, mesmo efeito de colisão do dict Python, sem
+    precisar de tratamento especial. A guarda de `!cr.competencia` (motivo diferente, não
+    auditado) permanece intocada.
+
+**Refutados na verificação adversarial (não são achados válidos):**
+
+- Upserts sequenciais (sem batching) dentro da transação de 120s de `persistLinhasCategorizadas`
+  — já é um risco aceito e documentado explicitamente na ADR-0013 ("revisitar se crescer muito"),
+  com critério de revisita definido; os números usados pelo achado para alegar urgência (>1000
+  linhas, perto do limite) são contraditados pelos volumes reais já registrados no projeto
+  (684–895 faturas, "segundos a poucos minutos" a rodada inteira).
+- `parseMoneyCell` não remover prefixo "R$"/milhar-com-espaço como o Python faz — mecanismo real,
+  mas o cenário de gatilho já foi checado contra dado real (financial-rigor.md, 2026-07-21) e não
+  ocorre nas colunas em questão; e mesmo que ocorresse, o efeito seria uma falha VISÍVEL (rodada
+  marcada FAILED) em vez de um número errado silencioso — o comportamento que o projeto já
+  documenta como o correto (financial-rigor.md #2/#8).
+
+**Validado:** typecheck limpo, 105 testes (6 novos cobrindo especificamente os itens 2/3/4/8/9/10),
+e o pipeline real (`parseContasReceberRows`/`statusAceitoCR`/`parseFlexibleDate` já editados)
+rodado de novo contra o export ao vivo do Conexa (mesmo período testado antes das correções) —
+mesmíssimo resultado (758 faturas, R$279.852,89) em DUAS rodadas de verificação (antes e depois
+dos achados 8-10): nenhuma regressão no dado real, nem mesmo a mudança de fidelidade de Data
+Crédito (achado 8) excluiu alguma fatura real desse conjunto — nenhuma delas tem Data Crédito
+com hora anexada como única data do período nesta amostra.
+
+**Status:** aceito — todos os 10 achados confirmados corrigidos (itens 1-7 eram bugs sem
+ambiguidade; itens 8-10 envolviam trade-off e o usuário escolheu fidelidade total ao Python nos
+três, corrigidos em seguida).

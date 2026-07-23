@@ -443,3 +443,46 @@
   `diferencaConferencia` a cada rodada, grava no `RevenueSyncRun` (migration
   `20260723162405_conferencia_valor_recebido`), loga erro se não fechar, e mostra alerta em
   `/runs/[id]` no mesmo padrão de `totalFaturasComConflito`.
+
+## 2026-07-23 (continuação) — Reconciliação Conexa + auditoria ADR-0019
+
+- **Divergência Conexa "Quitadas" (R$388.368,37) vs nosso Total Recebido (R$279.852,89) para o
+  mesmo período/campo (Data Crédito 01/07-23/07) explicada e fechada, sem bug de nosso lado.**
+  Fetch direto ao Conexa (mesmas credenciais/filtro do `client.ts`) confirmou: nosso Valor
+  Recebido bate EXATO (R$279.852,89) contra o export cru, fatura a fatura; somando Valor Bruto
+  no mesmo conjunto dá R$390.172,08 — quase idêntico ao total que o Conexa mostra em "Quitadas"
+  (diferença de ~0,5%, explicável pelo instante do print). A tela do Conexa está somando Valor
+  Bruto (inflado por contratos anuais/bianuais repetindo o valor total do contrato em cada
+  fatura), não Valor Recebido — mesmo artefato já identificado 2 sessões atrás.
+- Um teste manual do usuário (soma de coluna no Google Sheets, export "Excel" do próprio Conexa)
+  bateu ainda mais baixo (R$107.104,36) — não é outro bug, é o mesmo problema de formato misto na
+  coluna Valor Recebido (`parseMoneyCell` já documenta isso: número solto abaixo de R$1.000, texto
+  BR completo acima) enganando a soma automática do Sheets, que trata parte das células como
+  texto e as exclui silenciosamente (confirmado pelo próprio usuário via `COUNT` < `COUNTA`).
+- **Achado à parte (fora da auditoria formal):** o botão "Baixar planilha" em `/runs/[id]` vinha
+  vazio para qualquer rodada que não fosse a mais recente — a query filtrava por
+  `ultimaRodadaId`, que o auto-sync de 15 min recarimba em todas as linhas a cada tick. Corrigido
+  para filtrar por `dataCredito` no período da própria rodada.
+- **Auditoria multi-agente (ADR-0019):** a pedido do usuário ("estude a fundo... corrija...
+  sistema estável e confiável"), workflow de 6 agentes releu o `.py` real inteiro contra cada
+  fatia do port TS + a arquitetura de sync/persist, com verificação adversarial (agente instruído
+  a REFUTAR, não confirmar) de cada achado antes de corrigir. 12 candidatos → 10 confirmados, 2
+  refutados. Corrigidos nesta sessão: `normalizeRuleName` colapsando espaço duplo (mesma classe
+  de bug do ADR-0017, numa função que tinha ficado de fora), dedup indevido de nomes de serviço
+  repetidos no bucket, `parseFlexibleDate` sem cortar por vírgula (Competência/Ref. Cobrança) e
+  exigindo 2 dígitos de dia/mês, timeout ausente nos fetches ao Conexa, falta de recheck do
+  status da rodada antes de persistir (risco de duas rodadas concorrentes escreverem o mesmo
+  período), e P2034 sem retry no lado do sync (colisão com revisão manual marcava a rodada
+  inteira como FAILED à toa). **3 achados envolviam trade-off de produto** (não bugs puros) e
+  foram apresentados ao usuário com o risco explícito de cada lado: Data Crédito com hora
+  anexada (Python exclui a fatura, TS incluía), arredondamento em empates exatos (HALF_UP decimal
+  exato vs round() do Python sobre float impreciso), e join com Cliente ID nulo (Python permite
+  colisão via `None`, TS bloqueava). **Usuário escolheu fidelidade total ao Python nos três**,
+  consistente com a diretriz já dada no ADR-0018 — implementado em seguida: `parseFlexibleDate`
+  agora rejeita data com hora anexada (regex ancorado, sem strip de hora); nova `roundMoneyRateio`
+  (HALF_EVEN, money.ts) usada só no rateio proporcional (categorize-invoices.ts), sem tocar o
+  `roundMoney` genérico; join.ts removeu as duas guardas de `clienteId === null`, deixando a
+  chave-string colidir em "null" igual ao dict do Python. Validado: typecheck limpo, 105 testes
+  (6 novos), e o pipeline real rodado de novo contra o export ao vivo do Conexa — mesmo resultado
+  de antes de qualquer correção (758 faturas, R$279.852,89) em duas rodadas de verificação,
+  confirmando ausência de regressão mesmo após a mudança de fidelidade de Data Crédito.

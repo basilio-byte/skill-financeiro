@@ -13,8 +13,17 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   // Como as linhas são upsert por fatura (ADR-0013), este export reflete o
   // que essas linhas são AGORA (incluindo revisões/sincronizações feitas
   // depois desta rodada) — não um snapshot congelado do que ela calculou.
+  //
+  // Filtra por `dataCredito` dentro do período da RODADA, não por
+  // `ultimaRodadaId` (bug encontrado em auditoria 2026-07-23): o auto-sync
+  // roda a cada 15 min sempre reprocessando o MESMO período (dia 1 até
+  // agora), e cada tick novo re-carimba `ultimaRodadaId` em TODAS as linhas
+  // que toca — na prática só a rodada mais recente teria `ultimaRodadaId`
+  // igual à sua própria, e o export de qualquer rodada mais antiga vinha
+  // sempre vazio (só a linha de totais). Filtrar por período é o que o
+  // comentário acima já dizia pretender.
   const linhas = await prisma.revenueCategorizedLine.findMany({
-    where: { ultimaRodadaId: id },
+    where: { dataCredito: { gte: run.periodoInicio, lte: run.periodoFim } },
     orderBy: { crConexaId: "asc" },
   });
 

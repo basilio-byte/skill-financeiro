@@ -11,6 +11,18 @@ export interface PersistResumo {
   totalFaturasComConflito: number;
 }
 
+// Achado de auditoria 2026-07-23: o guard de "rodada travada" em run.ts
+// (RODADA_TRAVADA_MS) assume que RUNNING há mais de 30 min só pode significar
+// processo morto — mas os fetches ao Conexa não têm timeout (antes desta
+// mesma auditoria), então uma rodada só "lenta" (rede degradada, export
+// grande) podia continuar viva depois de outra já ter marcado FAILED e
+// liberado uma rodada nova para o mesmo período. As duas persistiriam
+// concorrentemente sem nenhum sinal de qual é a válida. Rechecar o status
+// AQUI DENTRO da transação Serializable (não numa query separada antes —
+// seria o mesmo TOCTOU que o resto deste arquivo já evita) fecha essa janela:
+// se outra rodada já marcou esta como FAILED, aborta sem persistir nada.
+export class RodadaSuperadaError extends Error {}
+
 // Tolerância de arredondamento na conferência por fatura (rateio sempre fecha
 // exato — regra #6 — então qualquer diferença real aqui não é arredondamento).
 const TOLERANCIA_CONFERENCIA = money("0.02");
@@ -92,6 +104,14 @@ export async function persistLinhasCategorizadas(
 ): Promise<PersistResumo> {
   return prisma.$transaction(
     async (tx) => {
+      const rodada = await tx.revenueSyncRun.findUnique({ where: { id: syncRunId }, select: { status: true } });
+      if (rodada?.status !== "RUNNING") {
+        throw new RodadaSuperadaError(
+          `Rodada ${syncRunId} não está mais RUNNING (status atual: ${rodada?.status ?? "inexistente"}) — ` +
+            "provavelmente foi marcada FAILED por um guard de rodada travada enquanto esta ainda processava. Abortando sem persistir.",
+        );
+      }
+
       const crConexaIds = [...new Set(linhas.map((l) => l.crId))];
 
       const existentes = crConexaIds.length

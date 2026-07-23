@@ -32,8 +32,17 @@ describe("parseFlexibleDate", () => {
     expect(parseFlexibleDate("2026-07-13")).toEqual(new Date(Date.UTC(2026, 6, 13)));
   });
 
-  it("ignora hora anexada", () => {
-    expect(parseFlexibleDate("13/07/2026 17:08:35")).toEqual(new Date(Date.UTC(2026, 6, 13)));
+  it("rejeita data com hora anexada — porta exata do strptime rígido do Python (auditoria 2026-07-23)", () => {
+    expect(parseFlexibleDate("13/07/2026 17:08:35")).toBeNull();
+  });
+
+  it("corta por vírgula antes do parse (porta exata de norm_comp/parse_date, auditoria 2026-07-23)", () => {
+    expect(parseFlexibleDate("13/07/2026, 14/08/2026")).toEqual(new Date(Date.UTC(2026, 6, 13)));
+  });
+
+  it("aceita dia/mês com 1 dígito, igual ao strptime do Python", () => {
+    expect(parseFlexibleDate("1/7/2026")).toEqual(new Date(Date.UTC(2026, 6, 1)));
+    expect(parseFlexibleDate("2026-7-1")).toEqual(new Date(Date.UTC(2026, 6, 1)));
   });
 });
 
@@ -80,6 +89,15 @@ describe("parseContasReceberRows — Data Crédito como lista (ADR-0018, porta e
 
   it("sem Data Crédito nenhuma: null", () => {
     const [r] = parseContasReceberRows([linhaBase({ "Data Crédito": "" })], JULHO_INICIO, JULHO_FIM);
+    expect(r!.dataCredito).toBeNull();
+  });
+
+  it("única data do período vem com hora anexada: fatura fica de fora, igual ao strptime rígido do Python (auditoria 2026-07-23)", () => {
+    const [r] = parseContasReceberRows(
+      [linhaBase({ "Data Crédito": "13/07/2026 17:08:35" })],
+      JULHO_INICIO,
+      JULHO_FIM,
+    );
     expect(r!.dataCredito).toBeNull();
   });
 });

@@ -91,6 +91,30 @@ describe("categorizeInvoices", () => {
     expect(soma.toString()).toBe("100");
   });
 
+  it("empate exato de arredondamento (split 50/50) usa HALF_EVEN, igual ao round() do Python — decisão de fidelidade da auditoria 2026-07-23", () => {
+    // valorRecebido=5.35, dois itens de valor_bruto=10 cada (peso 0.5/0.5).
+    // Decimal exato: 5.35*0.5 = 2.675 — empate exato de centavo.
+    // HALF_EVEN arredonda pro dígito par: 2.68 (8 é par). Os dois itens saem
+    // iguais (2.68/2.68), soma=5.36, resíduo=-0.01 aplicado ao ÚLTIMO bucket
+    // (ordem de primeira aparição) -> A=2.68, B=2.67.
+    const resultado = categorizeInvoices(
+      [cr({ valorRecebido: money("5.35") })],
+      [
+        lv({ id: 1, servicoItem: "Sala A", valor: money("10") }),
+        lv({ id: 2, servicoItem: "Sala B", valor: money("10") }),
+      ],
+      [
+        { nome: "Sala A", categoria: "Categoria A" },
+        { nome: "Sala B", categoria: "Categoria B" },
+      ],
+    );
+    const porCategoria = new Map(resultado.linhas.map((l) => [l.categoria, l.valorRecebidoCategoria.toString()]));
+    expect(porCategoria.get("Categoria A")).toBe("2.68");
+    expect(porCategoria.get("Categoria B")).toBe("2.67");
+    const soma = resultado.linhas.reduce((acc, l) => acc.plus(l.valorRecebidoCategoria), money("0"));
+    expect(soma.toString()).toBe("5.35");
+  });
+
   it("registra serviços sem categoria em servicosNaoMapeados", () => {
     const resultado = categorizeInvoices([cr()], [lv({ servicoItem: "Serviço Desconhecido" })], []);
     expect(resultado.servicosNaoMapeados).toContain("Serviço Desconhecido");
@@ -131,6 +155,20 @@ describe("categorizeInvoices", () => {
       const resultado = categorizeInvoices([cr({ planoContratado: "" })], [], []);
       expect(resultado.linhas[0]!.servicoOuPlano).toBe("Sem item");
     });
+  });
+
+  it("dois itens com o MESMO nome de serviço na mesma fatura: nomes concatenados sem dedup (porta exata de '; '.join(...), auditoria 2026-07-23)", () => {
+    const resultado = categorizeInvoices(
+      [cr({ valorRecebido: money("100") })],
+      [
+        lv({ id: 1, servicoItem: "Sala de Reunião Avulsa - 2h", valor: money("50") }),
+        lv({ id: 2, servicoItem: "Sala de Reunião Avulsa - 2h", valor: money("50") }),
+      ],
+      [{ nome: "Sala de Reunião Avulsa - 2h", categoria: "Salas Privativas" }],
+    );
+    expect(resultado.linhas).toHaveLength(1);
+    expect(resultado.linhas[0]!.servicoOuPlano).toBe("Sala de Reunião Avulsa - 2h; Sala de Reunião Avulsa - 2h");
+    expect(resultado.linhas[0]!.valorRecebidoCategoria.toString()).toBe("100");
   });
 
   it("mistura de categorias mapeada + não-mapeada -> Proporcionado S (2 categorias distintas)", () => {

@@ -18,6 +18,15 @@ import { getEnv } from "@/lib/env";
 const USER_AGENT = "Mozilla/5.0 (compatible; skill-financeiro/1.0)";
 const LOGIN_PATH = "/index.php?r=site/login";
 
+// Sem isso, um fetch travado (rede degradada, export gigante no lado do
+// Conexa) nunca resolve nem rejeita — o processo Node fica "rodando" para
+// sempre, indistinguível de uma rodada saudável, e o guard de rodada
+// travada de run.ts (RODADA_TRAVADA_MS) não tem como saber que já passou
+// disso, já que ele só olha o relógio, não se o fetch em si ainda está vivo
+// (achado de auditoria 2026-07-23). 90s é folgado frente à duração real
+// observada (~684 faturas em segundos a poucos minutos, ver run.ts).
+const FETCH_TIMEOUT_MS = 90_000;
+
 export class ConexaWebError extends Error {}
 
 function formatDateBR(d: Date): string {
@@ -61,6 +70,7 @@ async function login(): Promise<string> {
     },
     body,
     redirect: "manual",
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
 
   const cookie = extractSessionCookie(res);

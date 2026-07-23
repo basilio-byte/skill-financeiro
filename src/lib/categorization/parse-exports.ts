@@ -11,18 +11,33 @@ import type { ContasReceberRow, ListarVendasRow } from "@/lib/categorization/typ
  * aceita os dois formatos.
  */
 
-/** Aceita "dd/mm/yyyy" ou "yyyy-mm-dd"; datas com hora (ex. "20/07/2026 17:08:35") usam só a parte de data. */
+/**
+ * Aceita "dd/mm/yyyy" ou "yyyy-mm-dd", dia/mês com 1 ou 2 dígitos (igual ao
+ * strptime do Python). Corta por VÍRGULA antes de tentar o parse — replica
+ * `norm_comp`/`parse_date` do categoriza_receita.py, que sempre fazem
+ * `str(s).strip().split(",")[0]` primeiro (relevante para colunas que podem
+ * vir como lista: Competência, Referência Cobrança, não só Data Crédito).
+ *
+ * PORTA EXATA (auditoria 2026-07-23, decisão explícita do usuário: fidelidade
+ * total ao Python): datas com HORA anexada (ex. "13/07/2026 17:08:35") NÃO
+ * são aceitas — retorna null, igual ao `datetime.strptime` do Python, que é
+ * rígido e falha (`ValueError: unconverted data remains`) quando sobra
+ * qualquer coisa depois do padrão dd/mm/yyyy ou yyyy-mm-dd. Isso é
+ * deliberado mesmo sendo "pior": para Data Crédito, se a hora estiver
+ * grudada na ÚNICA data que bateria no período, a fatura inteira é excluída
+ * da rodada — mesmo efeito (silencioso) que o script original teria.
+ */
 export function parseFlexibleDate(raw: string | null | undefined): Date | null {
   if (!raw) return null;
-  const s = raw.trim().split(" ")[0];
+  const s = raw.trim().split(",")[0]!.trim();
   if (!s) return null;
 
-  const br = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(s);
+  const br = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s);
   if (br) {
     const [, dd, mm, yyyy] = br;
     return new Date(Date.UTC(Number(yyyy), Number(mm) - 1, Number(dd)));
   }
-  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(s);
   if (iso) {
     const [, yyyy, mm, dd] = iso;
     return new Date(Date.UTC(Number(yyyy), Number(mm) - 1, Number(dd)));
@@ -34,8 +49,11 @@ export function parseFlexibleDate(raw: string | null | undefined): Date | null {
  * Extrai, de uma "Data Crédito" que pode vir como LISTA de datas separadas
  * por vírgula (faturas recorrentes/parceladas — confirmado em export real),
  * a PRIMEIRA que cai dentro de `[periodoInicio, periodoFim]` — ambos
- * inclusive, mesma semântica de comparação por data (sem hora) do script
- * real. PORTA EXATA da decisão de inclusão de `categoriza_receita.py`
+ * inclusive. Cada parte da lista passa por `parseFlexibleDate`, que agora
+ * (auditoria 2026-07-23) rejeita datas com hora anexada igual ao Python — se
+ * uma dessas partes tiver hora grudada, ela conta como "não bateu" aqui,
+ * mesmo que a data em si estivesse dentro do período. PORTA EXATA da decisão
+ * de inclusão de `categoriza_receita.py`
  * (variável `datas_no_periodo`, ver ADR-0018): uma fatura recorrente com uma
  * data por mês é "desta rodada" se QUALQUER uma das suas datas cair na
  * janela pedida — não só a primeira da lista, que era o comportamento

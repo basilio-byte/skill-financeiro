@@ -4,11 +4,35 @@ import { fetchBothExports } from "@/lib/conexa-web/client";
 import { readXlsxAsObjects } from "@/lib/xlsx/reader";
 import { parseContasReceberRows, parseListarVendasRows } from "@/lib/categorization/parse-exports";
 import { categorizeInvoices } from "@/lib/categorization/categorize-invoices";
-import { persistLinhasCategorizadas } from "@/lib/categorization/persist";
+import { persistLinhasCategorizadas, type PersistResumo } from "@/lib/categorization/persist";
 import { statusAceitoCR, STATUS_ACEITOS_LV } from "@/lib/categorization/types";
+import type { CategorizedLine } from "@/lib/categorization/types";
 import { roundMoney, sum, toAmountString } from "@/lib/money";
 
 export class SincronizacaoEmAndamentoError extends Error {}
+
+/**
+ * P2034 (conflito de serialização) entre esta rodada e uma revisão manual
+ * concorrente em /revisar (updateCategorizedLineAction, também Serializable —
+ * é exatamente para isso que as duas são Serializable, ver persist.ts) é
+ * transitório e ESPERADO sob uso normal, não uma falha real. Sem retry aqui,
+ * a rodada inteira virava FAILED com o texto cru do Postgres por uma colisão
+ * benigna (achado de auditoria 2026-07-23) — gerando ruído recorrente em
+ * /runs que mascara falhas de verdade por "alarm fatigue".
+ */
+async function persistComRetry(runId: string, linhas: CategorizedLine[]): Promise<PersistResumo> {
+  const MAX_TENTATIVAS = 3;
+  for (let tentativa = 1; tentativa <= MAX_TENTATIVAS; tentativa++) {
+    try {
+      return await persistLinhasCategorizadas(runId, linhas);
+    } catch (err) {
+      const isP2034 = (err as { code?: string })?.code === "P2034";
+      if (!isP2034 || tentativa === MAX_TENTATIVAS) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 200 * tentativa));
+    }
+  }
+  throw new Error("persistComRetry: inalcançável");
+}
 
 // Acima de qualquer duração real observada (~684 faturas processam em segundos a
 // poucos minutos) — só existe para destravar depois de um crash do processo (ver
@@ -120,7 +144,7 @@ export async function startCategorizationRun(params: {
       rules.map((r) => ({ nome: r.nome, categoria: r.categoria })),
     );
 
-    const persistResumo = await persistLinhasCategorizadas(run.id, resultado.linhas);
+    const persistResumo = await persistComRetry(run.id, resultado.linhas);
 
     // Conferência exigida pela skill original (ADR-0018): soma de "Valor
     // Recebido" do CR aceito deve bater com a soma de "Valor Recebido Cat."

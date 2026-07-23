@@ -1,4 +1,4 @@
-import { ZERO, sum, roundMoney, toAmountString, type Money } from "@/lib/money";
+import { ZERO, sum, roundMoney, roundMoneyRateio, toAmountString, type Money } from "@/lib/money";
 import { CategoryMatcher, type CategoryRule } from "@/lib/categorization/rules";
 import { joinContasReceberComListarVendas } from "@/lib/categorization/join";
 import type {
@@ -68,13 +68,16 @@ export function categorizeInvoices(
 
     // Fase 1 — peso e valor por ITEM, arredondado INDIVIDUALMENTE, sem
     // correção cruzada aqui. Replica `val = round(valor_recebido * peso, 2)`
-    // item a item, ANTES de agrupar por categoria.
+    // item a item, ANTES de agrupar por categoria. `roundMoneyRateio`
+    // (HALF_EVEN) em vez do `roundMoney` genérico (HALF_UP) — aproxima do
+    // modo de arredondamento do `round()` do Python nos empates exatos (ver
+    // comentário de roundMoneyRateio em money.ts para o limite dessa fidelidade).
     const somaBruto = itensLV.reduce<Money>((acc, lv) => acc.plus(lv.valor), ZERO);
     const valoresPorItem = itensLV.map((lv) => {
       const share = somaBruto.isZero()
         ? cr.valorRecebido.div(itensLV.length)
         : cr.valorRecebido.times(lv.valor.div(somaBruto));
-      return roundMoney(share);
+      return roundMoneyRateio(share);
     });
 
     // Fase 2 — agrupa por categoria (ordem de primeira aparição dos itens),
@@ -85,7 +88,10 @@ export function categorizeInvoices(
       const bucket = buckets.get(categoria);
       if (bucket) {
         bucket.valor = bucket.valor.plus(valoresPorItem[i]!);
-        if (!bucket.nomes.includes(lv.servicoItem)) bucket.nomes.push(lv.servicoItem);
+        // Sem dedup: replica `"; ".join(i["servico_item"] for i in itens ...)`
+        // do Python, que concatena todo item da categoria, mesmo repetido —
+        // 2 lançamentos idênticos na mesma fatura aparecem 2x (auditoria 2026-07-23).
+        bucket.nomes.push(lv.servicoItem);
       } else {
         buckets.set(categoria, { categoria, nomes: [lv.servicoItem], valor: valoresPorItem[i]! });
       }
@@ -98,7 +104,7 @@ export function categorizeInvoices(
     // sempre fecha esse bucket em exatamente `cr.valorRecebido`.
     const bucketList = [...buckets.values()];
     const somaBuckets = sum(bucketList.map((b) => b.valor));
-    const ajuste = roundMoney(cr.valorRecebido.minus(somaBuckets));
+    const ajuste = roundMoneyRateio(cr.valorRecebido.minus(somaBuckets));
 
     bucketList.forEach((b, i) => {
       const valorFinal = i === bucketList.length - 1 ? b.valor.plus(ajuste) : b.valor;

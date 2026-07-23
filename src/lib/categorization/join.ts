@@ -23,6 +23,14 @@ import { money, type Money } from "@/lib/money";
  * como salvaguarda contra dupla atribuição — mais conservadora que o
  * original, mas divergente dele. Removida de propósito: a Duda validou a
  * saída exatamente como o comportamento sem exclusividade produz.
+ *
+ * Cliente ID nulo TAMBÉM entra na chave, de propósito (auditoria 2026-07-23,
+ * decisão explícita do usuário: fidelidade total ao Python). O script real
+ * usa cliente_id como componente de chave de dict sem nenhuma guarda contra
+ * None — duas linhas (uma de CR, uma de LV) do mesmo mês com "ID Cliente"
+ * vazio podem colidir e se casar por esse acidente. Aqui a chave é uma
+ * string (clienteId + "|" + ym), e null vira o literal "null" na
+ * concatenação — mesmo efeito de colisão do dict Python, sem tratamento especial.
  */
 
 export interface JoinedInvoice {
@@ -43,7 +51,6 @@ export function joinContasReceberComListarVendas(
 ): JoinedInvoice[] {
   const lvByKey = new Map<string, ListarVendasRow[]>();
   for (const lv of lvRows) {
-    if (lv.clienteId === null) continue;
     const ym = yearMonthKey(lv.referenciaCobranca);
     if (!ym) continue;
     const key = `${lv.clienteId}|${ym}`;
@@ -54,7 +61,7 @@ export function joinContasReceberComListarVendas(
 
   const results: JoinedInvoice[] = [];
   for (const cr of crRows) {
-    if (cr.clienteId === null || !cr.competencia) {
+    if (!cr.competencia) {
       results.push({ cr, itensLV: [] });
       continue;
     }

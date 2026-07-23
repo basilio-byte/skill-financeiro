@@ -58,8 +58,13 @@ const ruleSchema = z.object({
   categoria: z.string().trim().min(1, "Informe a categoria"),
 });
 
+// Porta exata de `load_categorias` do categoriza_receita.py: só strip externo,
+// NUNCA colapsa espaço interno (auditoria 2026-07-23) — mesma regra de
+// scripts/seed-categories.mjs e rules.ts. Colapsar aqui quebraria o cadastro
+// de regras para nomes com espaço duplo real (ex. unidades Sebrae/Ayrton
+// Senna, ver ADR-0017), que o resto do app já preserva.
 function normalizeRuleName(nome: string): string {
-  return nome.trim().replace(/\s+/g, " ");
+  return nome.trim();
 }
 
 export interface CategoryRuleState {

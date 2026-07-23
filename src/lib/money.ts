@@ -43,6 +43,25 @@ export function roundMoney(value: Money): Money {
   return value.toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
 }
 
+/**
+ * Arredonda para 2 casas com HALF_EVEN — usar SÓ no rateio proporcional do
+ * motor de categorização (arredondamento por item + resíduo de ajuste em
+ * categorize-invoices.ts), nunca de forma genérica.
+ *
+ * Por quê: `round()` do Python é half-to-even, não half-up; a decisão
+ * (auditoria 2026-07-23) foi aproximar desse modo por fidelidade ao script
+ * original, sabendo que isso NÃO garante paridade total nos empates —
+ * `round()` do Python opera sobre float64 (que já carrega erro de
+ * representação binária antes mesmo de arredondar), enquanto aqui a
+ * aritmética é decimal exata; um "empate" visto aqui pode não ser um empate
+ * de verdade do lado do Python. Documentado como risco aceito em
+ * financial-rigor.md. O total da fatura sempre fecha nos dois lados (o
+ * resíduo corrige) — só a categoria que absorve o centavo pode divergir.
+ */
+export function roundMoneyRateio(value: Money): Money {
+  return value.toDecimalPlaces(2, Decimal.ROUND_HALF_EVEN);
+}
+
 export function isZero(value: Money): boolean {
   return value.isZero();
 }
