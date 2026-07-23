@@ -1,5 +1,5 @@
 import { ZERO, sum, roundMoney, toAmountString, type Money } from "@/lib/money";
-import { CategoryMatcher, SEM_CATEGORIA, type CategoryRule } from "@/lib/categorization/rules";
+import { CategoryMatcher, type CategoryRule } from "@/lib/categorization/rules";
 import { joinContasReceberComListarVendas } from "@/lib/categorization/join";
 import type {
   CategorizationRunResult,
@@ -8,25 +8,26 @@ import type {
   ListarVendasRow,
   ProporcionadoTipo,
 } from "@/lib/categorization/types";
-import { allocateProportionally } from "@/lib/categorization/rateio";
 
 /**
  * Identidade estável de um bucket de categoria dentro de uma fatura — usada
- * como chave de upsert entre rodadas (ADR-0013, `RevenueCategorizedLine.chaveLinha`).
- * Precisa ser calculada a partir da categoria que a SKILL atribuiu (nunca a
- * que uma revisão manual sobrescreveu depois), para que a mesma composição de
- * itens LV produza sempre a mesma chave em rodadas futuras. "Sem Categoria"
- * inclui o nome exato do serviço/plano porque dois serviços não mapeados na
- * MESMA fatura são buckets distintos.
+ * como chave de upsert entre rodadas (ADR-0013). Porta exata do script real
+ * (ADR-0018): o bucket é SEMPRE a categoria pura. O script agrupa TODOS os
+ * itens de uma fatura pela mesma string de categoria — inclusive quando são
+ * serviços "Sem Categoria" DIFERENTES entre si (nesse caso os nomes ficam
+ * concatenados com "; " numa única linha de saída, replicando
+ * `"; ".join(...)` do Python) — não separamos mais por serviço dentro de
+ * "Sem Categoria" como uma versão anterior deste arquivo fazia.
  */
-export function chaveLinhaDoBucket(categoria: string, servicoOuPlano: string): string {
-  return categoria === SEM_CATEGORIA ? `${categoria}::${servicoOuPlano}` : categoria;
+export function chaveLinhaDoBucket(categoria: string): string {
+  return categoria;
 }
 
 /**
- * Núcleo puro do motor de categorização: recebe as linhas já filtradas por
- * status aceito + a tabela de regras, devolve as linhas categorizadas e o
- * resumo da rodada. Sem I/O (sem Prisma, sem fetch) — testável com fixtures.
+ * Núcleo puro do motor de categorização — PORTA EXATA de
+ * `categorizar_faturas` do categoriza_receita.py, comparada linha a linha
+ * contra o script real em 2026-07-23 (ver docs/context/decisions.md,
+ * ADR-0018). Sem I/O (sem Prisma, sem fetch) — testável com fixtures.
  */
 export function categorizeInvoices(
   crRows: ContasReceberRow[],
@@ -45,43 +46,63 @@ export function categorizeInvoices(
       totalSemLV += 1;
       const match = matcher.match(cr.planoContratado);
       if (match.matchType === "sem_categoria" && cr.planoContratado) servicosNaoMapeados.add(cr.planoContratado);
-      linhas.push(buildLinha(cr, match.categoria, cr.planoContratado, "SEM_LV", cr.valorRecebido, cr.valorRecebido));
+      // Replica `fatura["plano"] or "Sem item"` do Python.
+      const servicoOuPlano = cr.planoContratado || "Sem item";
+      linhas.push(buildLinha(cr, match.categoria, servicoOuPlano, "SEM_LV", cr.valorRecebido, cr.valorRecebido));
       continue;
     }
 
+    // Categoriza cada item individualmente.
     const categoriasPorItem = itensLV.map((lv) => {
       const match = matcher.match(lv.servicoItem);
       if (match.matchType === "sem_categoria" && lv.servicoItem) servicosNaoMapeados.add(lv.servicoItem);
       return match.categoria;
     });
 
-    // Chave de agrupamento: categoria, EXCETO para "Sem Categoria" — aí agrupa
-    // por (categoria, nome exato do serviço), para que dois serviços diferentes
-    // e ambos não mapeados não sejam silenciosamente fundidos numa linha só
-    // (cada um precisa aparecer separado na auditoria de /categorias). Mesma
-    // fórmula usada como chaveLinha persistida (chaveLinhaDoBucket acima).
-    const buckets = new Map<string, { categoria: string; nome: string; itens: ListarVendasRow[] }>();
-    itensLV.forEach((lv, i) => {
-      const categoria = categoriasPorItem[i]!;
-      const key = chaveLinhaDoBucket(categoria, lv.servicoItem);
-      const bucket = buckets.get(key);
-      if (bucket) bucket.itens.push(lv);
-      else buckets.set(key, { categoria, nome: lv.servicoItem, itens: [lv] });
+    // Proporcionado: "S" quando há 2+ categorias DISTINTAS entre os itens da
+    // fatura (replica `len(set(categorias)) > 1`) — mesmo que dois deles
+    // sejam serviços "Sem Categoria" diferentes, contam como UMA categoria
+    // (a própria string "Sem Categoria"), não duas.
+    const categoriasDistintas = new Set(categoriasPorItem);
+    const proporcionado: ProporcionadoTipo = categoriasDistintas.size > 1 ? "S" : "N";
+
+    // Fase 1 — peso e valor por ITEM, arredondado INDIVIDUALMENTE, sem
+    // correção cruzada aqui. Replica `val = round(valor_recebido * peso, 2)`
+    // item a item, ANTES de agrupar por categoria.
+    const somaBruto = itensLV.reduce<Money>((acc, lv) => acc.plus(lv.valor), ZERO);
+    const valoresPorItem = itensLV.map((lv) => {
+      const share = somaBruto.isZero()
+        ? cr.valorRecebido.div(itensLV.length)
+        : cr.valorRecebido.times(lv.valor.div(somaBruto));
+      return roundMoney(share);
     });
 
-    if (buckets.size === 1) {
-      const only = [...buckets.values()][0]!;
-      linhas.push(buildLinha(cr, only.categoria, only.nome, "N", cr.valorRecebido, cr.valorRecebido));
-      continue;
-    }
+    // Fase 2 — agrupa por categoria (ordem de primeira aparição dos itens),
+    // somando os valores JÁ arredondados por item. Replica `by_cat[cat] += val`.
+    const buckets = new Map<string, { categoria: string; nomes: string[]; valor: Money }>();
+    itensLV.forEach((lv, i) => {
+      const categoria = categoriasPorItem[i]!;
+      const bucket = buckets.get(categoria);
+      if (bucket) {
+        bucket.valor = bucket.valor.plus(valoresPorItem[i]!);
+        if (!bucket.nomes.includes(lv.servicoItem)) bucket.nomes.push(lv.servicoItem);
+      } else {
+        buckets.set(categoria, { categoria, nomes: [lv.servicoItem], valor: valoresPorItem[i]! });
+      }
+    });
 
-    // Múltiplos buckets na mesma fatura -> rateio proporcional pelo peso (soma
-    // do valor dos itens LV) de cada bucket.
+    // Fase 3 — resíduo de arredondamento (fatura.valorRecebido menos a soma
+    // dos buckets já somados) vai INTEIRO para o ÚLTIMO bucket, na ordem de
+    // primeira aparição. Replica `ajuste` aplicado a `cats_list[-1]`. Isso
+    // também cobre o caso de categoria única: com 1 bucket só, o ajuste
+    // sempre fecha esse bucket em exatamente `cr.valorRecebido`.
     const bucketList = [...buckets.values()];
-    const pesos = bucketList.map((b) => b.itens.reduce<Money>((acc, lv) => acc.plus(lv.valor), ZERO));
-    const partes = allocateProportionally(cr.valorRecebido, pesos);
+    const somaBuckets = sum(bucketList.map((b) => b.valor));
+    const ajuste = roundMoney(cr.valorRecebido.minus(somaBuckets));
+
     bucketList.forEach((b, i) => {
-      linhas.push(buildLinha(cr, b.categoria, b.nome, "S", partes[i]!, cr.valorRecebido));
+      const valorFinal = i === bucketList.length - 1 ? b.valor.plus(ajuste) : b.valor;
+      linhas.push(buildLinha(cr, b.categoria, b.nomes.join("; "), proporcionado, valorFinal, cr.valorRecebido));
     });
   }
 
@@ -122,7 +143,7 @@ function buildLinha(
     planoContratado: cr.planoContratado,
     categoria,
     servicoOuPlano,
-    chaveLinha: chaveLinhaDoBucket(categoria, servicoOuPlano),
+    chaveLinha: chaveLinhaDoBucket(categoria),
     proporcionado,
     tipo: cr.tipo,
     status: cr.status,

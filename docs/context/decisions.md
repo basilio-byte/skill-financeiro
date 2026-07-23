@@ -502,3 +502,124 @@ constante, os dois lados mudariam juntos e o teste seguiria verde enquanto a met
 casar com as linhas gravadas.
 **Pendente:** decidir a grafia canônica com a Duda e migrar as linhas existentes.
 **Status:** conhecido, contornado, não resolvido.
+
+## ADR-0018 — Porta exata de categoriza_receita.py, linha por linha
+**Contexto:** o usuário pediu para investigar se o motor de categorização (portado para TS numa
+sessão anterior a partir só do SKILL.md — texto de orquestração, sem o código-fonte real) batia
+EXATAMENTE com a lógica do script Python original (categoriza_receita.py). O script nunca tinha
+sido fornecido ao projeto; a porta original foi uma reconstrução a partir de prosa. O usuário
+depois obteve o .py real de dentro do container OpenClaw na VPS (docker cp) e pediu paridade
+total: "quero tudo exatamente como o Openclaw executa. Duda já validou isso usando o OC, e foi
+isso que nos fez construir esse sistema de dashboard."
+
+**Método:** comparação linha a linha do .py real contra rules.ts/join.ts/categorize-invoices.ts/
+types.ts/parse-exports.ts/seed-categories.mjs, cada divergência verificada contra os exports
+reais do Conexa (não só fixtures) antes de decidir o que corrigir.
+
+**Divergências confirmadas e corrigidas:**
+
+1. Normalização de nome/categoria. O Python faz só str(x).strip() — nunca lowercase, nunca
+   colapsa espaço interno duplo. Uma normalização anterior em rules.ts era mais tolerante
+   (trim + colapso de espaço + lowercase), casando nomes que o Python deixaria cair para um
+   prefixo mais curto ou "Sem Categoria". Corrigido: case-sensitive, preserva espaço interno.
+
+2. Sufixo "(SEAHUB COWORKING)"/"(SEATECH)" com periodicidade OPCIONAL no regex real — uma
+   versão anterior exigia a palavra Mensal/Anual/Bianual. Verificado contra a Listar Vendas
+   real: 122 de 272 nomes distintos de serviço têm sufixo sem periodicidade — mas o impacto
+   prático na categoria final é pequeno, já que "maior prefixo" absorve a maioria desses casos.
+   Corrigido mesmo assim, para bater exatamente.
+
+3. "Maior prefixo": trocado o pré-sort por comprimento (dependia de estabilidade de sort e
+   ordem de chegada do array) pelo loop incremental do Python (comparação ESTRITA de
+   comprimento) — mesmo efeito, mas replicando o mecanismo real. run.ts ganhou
+   orderBy: {id:"asc"} na busca das regras, aproximação razoável de "ordem do arquivo" (cuid é
+   cronológico; não é garantia formal sem uma coluna de ordem explícita — risco residual aceito).
+
+4. Join CR×LV sem exclusividade entre faturas concorrentes. O Python NÃO reserva itens da
+   Listar Vendas já usados por uma fatura anterior que compartilha (cliente, mês) — cada fatura
+   tenta o desempate por valor independentemente contra o MESMO grupo compartilhado, e se não
+   resolver para exatamente 1 item, usa o GRUPO INTEIRO — nunca cai para "Sem LV" por
+   ambiguidade. Uma versão anterior de join.ts adicionava exclusividade como salvaguarda contra
+   dupla atribuição — mais conservadora que o original, mas divergente. Removida. Tolerância do
+   desempate corrigida de <=0,02 para <0,02 (estrita, como o Python).
+
+5. Agrupamento de "Sem Categoria" por fatura. O Python agrupa TODOS os itens de uma fatura pela
+   mesma categoria — mesmo quando são serviços "Sem Categoria" DIFERENTES entre si (nomes
+   concatenados com "; " numa única linha). Uma versão anterior separava cada serviço não
+   mapeado em uma linha própria, pensada para auditoria em /categorias, mas divergente do
+   original — inclusive mudava o próprio Proporcionado (Python conta "N" quando só há 1
+   categoria distinta, mesmo com serviços físicos diferentes por trás dela). Corrigido:
+   chaveLinhaDoBucket agora é sempre a categoria pura.
+
+6. Arredondamento por ITEM, não por bucket. O Python arredonda o valor de CADA item individual
+   da Listar Vendas primeiro (sem correção cruzada), DEPOIS soma os itens já-arredondados por
+   categoria, e só então aplica o resíduo de fechamento no ÚLTIMO bucket (ordem de primeira
+   aparição). A versão anterior calculava o peso agregado por categoria de uma vez e arredondava
+   uma única vez por bucket — podia fechar em valores diferentes por 1 centavo em faturas com
+   múltiplos itens na mesma categoria. categorize-invoices.ts reescrito para replicar as duas
+   fases exatamente.
+
+7. Filtro de status do CR por SUBSTRING, não lista fechada. Python aceita qualquer status
+   contendo "Quitada" OU "Negociação", não só as duas strings exatas do SKILL.md (que era uma
+   simplificação da prosa). types.ts ganhou statusAceitoCR() substituindo a lista fechada
+   STATUS_ACEITOS_CR. Verificado contra o export real: só existem os dois status exatos hoje
+   (divergência latente, não ativa nos dados atuais).
+
+8. Data Crédito: inclui a fatura se QUALQUER data da lista cair no período — decisão de produto
+   explícita do usuário, aceitando o trade-off. O Python filtra faturas recorrentes (Data
+   Crédito com lista de datas separadas por vírgula) checando se PELO MENOS UMA data cai no
+   período — não apenas a primeira, que era o comportamento anterior. Isso ancorava faturas
+   parceladas no mês da primeira parcela, mesmo quando o período pedido batia com uma parcela
+   posterior — causa raiz confirmada da divergência de R$10.296,11 encontrada 2 sessões atrás
+   entre o card "Quitadas" do Conexa e o Panorama. parseDataCreditoNoPeriodo (nova, em
+   parse-exports.ts) recebe periodoInicio/periodoFim e escolhe a data da lista que cai no
+   período (ou null se nenhuma cair — run.ts usa isso para EXCLUIR a fatura da rodada).
+   Trade-off aceito conscientemente: como persistimos só UMA data por linha (upsert por fatura,
+   ADR-0013), a MESMA fatura recorrente pode ficar "associada" a meses diferentes ao longo do
+   tempo, conforme sincronizações rodem para períodos diferentes e cada uma capture uma data
+   distinta da lista da mesma fatura. Isto NÃO é um risco introduzido pela sincronização
+   automática de 15 min: é uma propriedade do próprio script — se a Duda rodasse
+   categoriza_receita.py duas vezes para períodos sobrepostos, a mesma fatura apareceria inteira
+   nas duas planilhas resultado. O usuário decidiu explicitamente replicar isso em vez de manter
+   o comportamento anterior (mais estável entre sincronizações, porém divergente do original).
+
+9. Checagem de qualidade da skill, agora automatizada. O SKILL.md exige conferir que a soma de
+   "Valor Recebido Cat." bate com a soma de "Valor Recebido" no CR exportado. Não existia
+   nenhuma verificação equivalente no pipeline — run.ts agora calcula diferencaConferencia a
+   cada rodada, grava no RevenueSyncRun, loga erro no servidor se não fechar, e exibe alerta em
+   /runs/[id] no mesmo padrão visual de totalFaturasComConflito.
+
+**Correção de dado já persistido:** scripts/fix-categorias-espacamento.mjs (novo, standalone,
+não roda no boot) corrige RevenueCategoryRule.nome/categoria para linhas que a versão antiga
+(com bug) do seed colapsou espaço interno duplo — 74 regras no banco de dev (Ayrton
+Senna/Sebrae, "Serviços de Espaço" e "Salas Privativas", mais ~10 nomes com espaço duplo antes
+do hífen). IDEMPOTENTE e conservador: só corrige uma linha se o valor ATUAL bate EXATAMENTE com
+o que o bug de colapso produziria a partir do CSV — qualquer outro valor atual (inclusive uma
+correção manual real feita via /categorias) fica intocado e é reportado como "sem ação". Rodado
+e verificado contra o banco de dev (74 corrigidas, 0 casos ambíguos); pendente rodar contra
+produção.
+
+**Removido:** src/lib/categorization/rateio.ts (allocateProportionally) e seu teste — o
+algoritmo (resíduo no último peso agregado) não corresponde ao que o script real faz (resíduo
+no último BUCKET, após soma de itens já-arredondados individualmente, ver achado 6). Ficou sem
+uso depois da reescrita de categorize-invoices.ts; removido por instrução explícita do usuário.
+
+**Validado contra dado real (não só fixtures), em cada etapa:**
+- 102 testes unitários (12 novos cobrindo especificamente lista de datas em Data Crédito).
+- Motor completo rodado contra o export real do Conexa (01/07-22/07/2026) com as regras
+  corrigidas: Sebrae/Ayrton Senna aparecem com espaço duplo; conferência fecha exata ao centavo
+  (diferencaConferencia = 0); as 4 faturas parceladas identificadas na sessão anterior como
+  "vazadas" de julho agora ancoram em datas de julho; o total recuperado
+  (R$273.428,98 - R$263.132,87 = R$10.296,11) bate exatamente com a estimativa de vazamento
+  daquela investigação.
+- Sincronização real ponta a ponta via API (login no Conexa, download, categorização,
+  persistência): 743 faturas CR, 0 conflitos, 0 órfãs, diferencaConferencia = 0.
+
+**Riscos aceitos, documentados:**
+- Trade-off de Data Crédito (achado 8) — decisão de produto explícita, não um bug.
+- Ordem de desempate de "maior prefixo" depende de orderBy: {id:"asc"} como proxy de "ordem do
+  arquivo" — não é garantia formal (achado 3).
+- Filtro de status do CR por substring (achado 7) é mais permissivo que a lista fechada
+  anterior — não observado ativo no dado atual, mas pode aceitar status não previstos no futuro.
+- fix-categorias-espacamento.mjs ainda não rodou em produção.
+**Status:** aceito.

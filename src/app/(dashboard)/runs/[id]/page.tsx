@@ -69,6 +69,13 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
             regra de verdade depois). Requer revisão humana; não foi corrigido automaticamente.
           </p>
         ) : null}
+        {Number(run.diferencaConferencia) !== 0 ? (
+          <p className="mt-2 text-sm font-medium text-red-600">
+            ⚠ Conferência não fechou: soma de "Valor Recebido" das faturas aceitas difere da soma categorizada em{" "}
+            {formatBRL(run.diferencaConferencia.toString())} — verificar se alguma fatura tem valor não interpretado
+            (esta checagem é a mesma que a skill original exigia antes de entregar a planilha).
+          </p>
+        ) : null}
         {run.erro ? <p className="mt-2 text-sm text-red-600">Erro: {run.erro}</p> : null}
       </div>
 

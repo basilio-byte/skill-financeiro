@@ -151,6 +151,15 @@ model RevenueSyncRun {
   // corrigido sozinho (ver persist.ts, achado por verificação adversarial).
   totalFaturasComConflito     Int @default(0)
 
+  // Conferência exigida pela skill original (categoriza_receita.py, ver
+  // ADR-0018): soma de "Valor Recebido" das faturas do CR aceitas nesta
+  // rodada MENOS soma de "Valor Recebido Cat." das linhas produzidas. Zero
+  // significa que fechou exato (esperado sempre, já que o rateio garante
+  // fechamento por fatura). Diferente de zero é sinal de algo estrutural —
+  // ex.: uma linha cujo valor não pôde ser interpretado — nunca ignorado
+  // silenciosamente (regra #8).
+  diferencaConferencia Decimal @default(0) @db.Decimal(14, 2)
+
   // Resumo por categoria ({ categoria, total }[]) — espelha o output já usado
   // pela skill original, para exibir sem recalcular a partir das linhas.
   resumoPorCategoria Json?

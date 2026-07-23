@@ -3,24 +3,38 @@ import { yearMonthKey } from "@/lib/categorization/parse-exports";
 import { money, type Money } from "@/lib/money";
 
 /**
- * Cruza Contas a Receber × Listar Vendas pela chave `(Cliente ID, ano-mês)`.
+ * Cruza Contas a Receber × Listar Vendas — PORTA EXATA de
+ * `categorizar_faturas`/`build_vendas_lookup` do categoriza_receita.py,
+ * comparada linha a linha contra o script real em 2026-07-23 (ADR-0018).
  *
- * Por que ano-mês e não data exata: o CR guarda a competência com dia
- * variado, e o LV guarda a "Referência Cobrança" também com dias variados —
- * comparar só "YYYY-MM" garante o cruzamento correto independente do dia
- * (ver docs/context/decisions.md, porta fiel da lógica original da skill
- * categoriza-receita).
+ * Chave: `(Cliente ID, ano-mês)`. Por que ano-mês e não data exata: o CR
+ * guarda a competência com dia variado, e o LV guarda a "Referência
+ * Cobrança" também com dias variados — comparar só "YYYY-MM" garante o
+ * cruzamento correto independente do dia.
+ *
+ * IMPORTANTE — sem exclusividade entre faturas do mesmo cliente/mês: o
+ * script real NÃO reserva/remove itens já usados por uma fatura anterior.
+ * Cada fatura tenta o desempate por valor (ver `isCloseEnough`)
+ * independentemente contra o MESMO grupo compartilhado de itens LV daquele
+ * cliente/mês. Se o desempate não resolver para exatamente 1 item (zero ou 2+
+ * batem), a fatura usa o GRUPO INTEIRO — nunca cai para "Sem LV" por
+ * ambiguidade; só cai quando o grupo em si está vazio. Uma versão anterior
+ * deste arquivo adicionava exclusividade (marcando itens como "já usados")
+ * como salvaguarda contra dupla atribuição — mais conservadora que o
+ * original, mas divergente dele. Removida de propósito: a Duda validou a
+ * saída exatamente como o comportamento sem exclusividade produz.
  */
 
 export interface JoinedInvoice {
   cr: ContasReceberRow;
-  itensLV: ListarVendasRow[]; // vazio => "Sem LV"
+  itensLV: ListarVendasRow[];
 }
 
+// Replica `abs(valor_bruto - valor_recebido) < 0.02` — ESTRITO, não `<=`.
 const VALOR_TOLERANCIA: Money = money("0.02");
 
 function isCloseEnough(a: Money, b: Money): boolean {
-  return a.minus(b).abs().lessThanOrEqualTo(VALOR_TOLERANCIA);
+  return a.minus(b).abs().lessThan(VALOR_TOLERANCIA);
 }
 
 export function joinContasReceberComListarVendas(
@@ -38,56 +52,25 @@ export function joinContasReceberComListarVendas(
     lvByKey.set(key, arr);
   }
 
-  const crByKey = new Map<string, ContasReceberRow[]>();
-  for (const cr of crRows) {
-    if (cr.clienteId === null) continue;
-    const ym = yearMonthKey(cr.competencia);
-    if (!ym) continue;
-    const key = `${cr.clienteId}|${ym}`;
-    const arr = crByKey.get(key) ?? [];
-    arr.push(cr);
-    crByKey.set(key, arr);
-  }
-
-  const usedLvIds = new Set<number>();
   const results: JoinedInvoice[] = [];
-
   for (const cr of crRows) {
     if (cr.clienteId === null || !cr.competencia) {
       results.push({ cr, itensLV: [] });
       continue;
     }
+
     const key = `${cr.clienteId}|${yearMonthKey(cr.competencia)}`;
-    const lvGroup = lvByKey.get(key) ?? [];
-    const crGroup = crByKey.get(key) ?? [];
+    let itensLV = lvByKey.get(key) ?? [];
 
-    if (lvGroup.length === 0) {
-      results.push({ cr, itensLV: [] });
-      continue;
+    if (itensLV.length > 0) {
+      const candidatos = itensLV.filter((lv) => isCloseEnough(lv.valor, cr.valorRecebido));
+      if (candidatos.length === 1) {
+        itensLV = candidatos;
+      }
+      // 0 ou 2+ candidatos: mantém o grupo INTEIRO, sem filtrar — igual ao script real.
     }
 
-    if (crGroup.length === 1) {
-      // Único CR nesse cliente/mês: todos os itens LV do grupo pertencem a ele.
-      results.push({ cr, itensLV: lvGroup });
-      for (const lv of lvGroup) usedLvIds.add(lv.id);
-      continue;
-    }
-
-    // Múltiplos CRs no mesmo cliente/mês: desempate por valor. Um item de LV só
-    // é usado exclusivamente para este CR se houver exatamente UM item do grupo
-    // (ainda não usado por outro CR) cujo valor bate com o valor_recebido do CR
-    // (tolerância R$0,02) — mesma regra documentada na skill original.
-    const candidatos = lvGroup.filter(
-      (lv) => !usedLvIds.has(lv.id) && isCloseEnough(lv.valor, cr.valorRecebido),
-    );
-    if (candidatos.length === 1) {
-      results.push({ cr, itensLV: candidatos });
-      usedLvIds.add(candidatos[0]!.id);
-    } else {
-      // Ambiguidade não resolvida pelo desempate documentado -> "Sem LV"
-      // (conservador: evita atribuir itens de outra fatura por engano).
-      results.push({ cr, itensLV: [] });
-    }
+    results.push({ cr, itensLV });
   }
 
   return results;

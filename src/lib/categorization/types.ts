@@ -85,6 +85,16 @@ export interface CategorizationRunResult {
   servicosNaoMapeados: string[];
 }
 
-/** Status aceitos — faturas fora disso são ignoradas antes do join. Ver docs/context/decisions.md. */
-export const STATUS_ACEITOS_CR = ["Quitada", "Quitada (Gerada por Negociação)"];
+/**
+ * Filtro de status do CR — porta EXATA do script real (ADR-0018): substring,
+ * NÃO lista fechada. Python: `if "Quitada" not in status and "Negociação" not
+ * in status: continue` — aceita QUALQUER status que contenha "Quitada" OU
+ * "Negociação" como substring, não só as duas strings exatas documentadas no
+ * SKILL.md (que era uma simplificação da prosa, não o comportamento real).
+ */
+export function statusAceitoCR(status: string): boolean {
+  return status.includes("Quitada") || status.includes("Negociação");
+}
+
+/** Filtro de status do LV — lista fechada, confirmado igual ao script real. */
 export const STATUS_ACEITOS_LV = ["Quitada", "Quitada Parcialmente", "Descontada de Cota"];

@@ -13,9 +13,20 @@
  * extras — mesmo espírito do scripts/bootstrap-admin.mjs.
  *
  * Formato do CSV: 2 colunas, `Nome,Categoria do Serviço`, sem aspas/vírgulas
- * internas (confirmado inspecionando o arquivo real). Normaliza espaços
- * (trim + colapsa espaços duplos) — o arquivo original tem várias
- * inconsistências desse tipo (ex.: "Endereço Fiscal " com espaço à direita).
+ * internas (confirmado inspecionando o arquivo real).
+ *
+ * Normalização = SÓ trim (ADR-0018, porta exata de categoriza_receita.py):
+ * `load_categorias()` do script real faz `str(nome).strip()`/`str(cat).strip()`
+ * — NUNCA colapsa espaço interno duplo. Uma versão anterior deste script
+ * colapsava espaços duplos nas duas colunas, o que parecia "corrigir" uma
+ * inconsistência de digitação, mas na verdade GRAVAVA UMA STRING DIFERENTE da
+ * que a Duda validou: a tabela real tem, de forma 100% consistente (não é
+ * ruído), espaço duplo em "Serviços de Espaço -  Sebrae"/"-  Ayrton Senna" e
+ * "Salas Privativas -  Sebrae"/"-  Ayrton Senna" — o script Python preserva
+ * esse espaço duplo exatamente, e o fallback fixo em rules.ts também usa essa
+ * mesma grafia. Colapsar aqui produzia uma SEGUNDA grafia (espaço único) para
+ * a mesma categoria real, fatiando a receita dessas duas unidades em duas
+ * strings de categoria diferentes no Panorama.
  */
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -25,7 +36,7 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 
 function normalize(s) {
-  return s.trim().replace(/\s+/g, " ");
+  return s.trim();
 }
 
 async function main() {

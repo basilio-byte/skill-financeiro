@@ -81,13 +81,39 @@ describe("joinContasReceberComListarVendas", () => {
     expect(forB.itensLV.map((l) => l.id)).toEqual([2]);
   });
 
-  it("cai para Sem LV quando o desempate por valor é ambíguo (nenhum item bate)", () => {
+  it("usa o grupo INTEIRO (sem exclusividade) quando o desempate por valor não resolve para exatamente 1 — porta exata do script real, não cai para Sem LV por ambiguidade", () => {
     const crA = cr({ id: 10, valorRecebido: money("100") });
     const crB = cr({ id: 11, valorRecebido: money("250") });
     const lvA = lv({ id: 1, valor: money("999") }); // não bate com nenhum dos dois CRs
 
     const result = joinContasReceberComListarVendas([crA, crB], [lvA]);
-    expect(result.find((r) => r.cr.id === 10)!.itensLV).toEqual([]);
-    expect(result.find((r) => r.cr.id === 11)!.itensLV).toEqual([]);
+    // Nenhum desempate único: AMBAS as faturas usam o item compartilhado inteiro.
+    expect(result.find((r) => r.cr.id === 10)!.itensLV.map((l) => l.id)).toEqual([1]);
+    expect(result.find((r) => r.cr.id === 11)!.itensLV.map((l) => l.id)).toEqual([1]);
+  });
+
+  it("sem exclusividade: um item já usado por uma fatura pode ser usado por outra também, se ambas desempatarem para o mesmo item", () => {
+    // Duas faturas do mesmo cliente/mês, ambas com valor_recebido dentro da
+    // tolerância do MESMO item LV — o script real não impede que as duas
+    // "peguem" o mesmo item de forma exclusiva.
+    const crA = cr({ id: 10, valorRecebido: money("100") });
+    const crB = cr({ id: 11, valorRecebido: money("100.01") });
+    const lvUnico = lv({ id: 1, valor: money("100") });
+
+    const result = joinContasReceberComListarVendas([crA, crB], [lvUnico]);
+    expect(result.find((r) => r.cr.id === 10)!.itensLV.map((l) => l.id)).toEqual([1]);
+    expect(result.find((r) => r.cr.id === 11)!.itensLV.map((l) => l.id)).toEqual([1]);
+  });
+
+  it("tolerância de desempate é ESTRITA (< 0,02, não <=) — diferença exata de 2 centavos NÃO desempata", () => {
+    const crA = cr({ id: 10, valorRecebido: money("100") });
+    // Diferença EXATA de 2 centavos (não deve contar como match, pois é < 0.02, não <=).
+    const lvNaBorda = lv({ id: 1, valor: money("100.02") });
+    const lvOutro = lv({ id: 2, valor: money("500") });
+
+    const result = joinContasReceberComListarVendas([crA], [lvNaBorda, lvOutro]);
+    // Se a tolerância fosse <=, desempataria para [1] só. Sendo estrita (<),
+    // nenhum item bate sozinho -> usa o grupo INTEIRO (os dois itens).
+    expect(result[0]!.itensLV.map((l) => l.id).sort()).toEqual([1, 2]);
   });
 });

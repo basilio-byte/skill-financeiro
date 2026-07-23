@@ -403,3 +403,43 @@
 - Anotado no cabeçalho do script: se um dia existir tela para renomear escopo, o `update`
   do upsert (que hoje atualiza `nome`/`ordem`) precisa virar `{}`, senão o deploy passa por
   cima da renomeação.
+
+## 2026-07-23 — Porta exata de categoriza_receita.py (ADR-0018)
+- Usuário pediu para investigar se o motor de categorização batia EXATAMENTE com a skill
+  OpenClaw original. Buscas confirmaram que o `.py` real nunca tinha sido fornecido ao
+  projeto — só o `SKILL.md` (texto de orquestração) — e a porta TS de uma sessão anterior foi
+  reconstruída a partir de prosa, não de código-fonte. Usuário depois extraiu o `.py` real de
+  dentro do container OpenClaw na VPS (`docker cp`) e colou no chat.
+- Comparação linha a linha revelou 9 divergências reais (ver ADR-0018 para detalhe completo):
+  normalização case-sensitive sem colapso de espaço, sufixo com periodicidade opcional,
+  algoritmo de "maior prefixo" reescrito para o loop incremental do Python, join sem
+  exclusividade entre faturas concorrentes (usa o grupo inteiro quando o desempate não
+  resolve, em vez de cair pra "Sem LV"), tolerância de desempate estrita (`<0,02`), Sem
+  Categoria agrupado por fatura (não por serviço), arredondamento por item antes de agrupar
+  por bucket, filtro de status do CR por substring, e o achado mais grave — Data Crédito
+  incluindo a fatura se QUALQUER data da lista bater no período (não só a primeira).
+- **Decisão de produto do usuário, com trade-off explícito:** o novo comportamento de Data
+  Crédito significa que a mesma fatura recorrente pode "migrar" de mês conforme sincronizações
+  diferentes capturem datas diferentes da sua lista — usuário esclareceu que isso não é um
+  risco novo da automação de 15 min, é uma propriedade do próprio script (Duda já teria esse
+  mesmo efeito rodando o script duas vezes pra períodos sobrepostos) e pediu para implementar
+  exatamente assim mesmo assim.
+- Verificação em cada etapa contra dado real (não só fixtures): 102 testes (12 novos), motor
+  completo rodado contra o export real do Conexa com as regras de categoria corrigidas —
+  conferência fecha exata ao centavo, as 4 faturas parceladas identificadas na sessão anterior
+  como "vazadas" de julho agora ancoram certo, e o total recuperado bateu EXATO com a
+  estimativa de vazamento de duas sessões atrás (R$10.296,11). Sincronização real ponta a
+  ponta via API confirmou: 743 faturas, 0 conflitos, 0 órfãs, conferência = 0.
+- **Correção de dado já persistido:** `scripts/fix-categorias-espacamento.mjs` (novo) corrigiu
+  74 regras no banco de dev cuja categoria tinha sido colapsada por um bug do seed antigo
+  (Ayrton Senna/Sebrae com espaço duplo, mais ~10 nomes de sala com espaço duplo antes do
+  hífen) — idempotente, só corrige quando o valor atual bate exatamente com o que o bug
+  produziria, nunca sobrescreve possível edição manual. **Pendente rodar contra produção.**
+- **Removido** `src/lib/categorization/rateio.ts`/`allocateProportionally` — algoritmo não
+  batia com o que o script real faz (resíduo no último bucket agregado, não no último peso);
+  ficou sem uso após a reescrita, removido por instrução explícita do usuário.
+- **Automatizada** a checagem de qualidade que a skill exige (soma Valor Recebido Cat. = soma
+  Valor Recebido do CR) — antes só rodada manualmente num smoke test; agora `run.ts` calcula
+  `diferencaConferencia` a cada rodada, grava no `RevenueSyncRun` (migration
+  `20260723162405_conferencia_valor_recebido`), loga erro se não fechar, e mostra alerta em
+  `/runs/[id]` no mesmo padrão de `totalFaturasComConflito`.

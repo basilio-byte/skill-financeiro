@@ -5,8 +5,8 @@ import { readXlsxAsObjects } from "@/lib/xlsx/reader";
 import { parseContasReceberRows, parseListarVendasRows } from "@/lib/categorization/parse-exports";
 import { categorizeInvoices } from "@/lib/categorization/categorize-invoices";
 import { persistLinhasCategorizadas } from "@/lib/categorization/persist";
-import { STATUS_ACEITOS_CR, STATUS_ACEITOS_LV } from "@/lib/categorization/types";
-import { toAmountString } from "@/lib/money";
+import { statusAceitoCR, STATUS_ACEITOS_LV } from "@/lib/categorization/types";
+import { roundMoney, sum, toAmountString } from "@/lib/money";
 
 export class SincronizacaoEmAndamentoError extends Error {}
 
@@ -91,13 +91,29 @@ export async function startCategorizationRun(params: {
   try {
     const { listarVendas, contasReceber } = await fetchBothExports(params.periodoInicio, params.periodoFim);
 
-    const crRowsAll = parseContasReceberRows(readXlsxAsObjects(contasReceber));
+    const crRowsAll = parseContasReceberRows(
+      readXlsxAsObjects(contasReceber),
+      params.periodoInicio,
+      params.periodoFim,
+    );
     const lvRowsAll = parseListarVendasRows(readXlsxAsObjects(listarVendas));
 
-    const crRows = crRowsAll.filter((r) => STATUS_ACEITOS_CR.includes(r.status));
+    // dataCredito === null aqui significa "nenhuma data da lista de Data
+    // Crédito cai neste período" (ver parseDataCreditoNoPeriodo) — replica
+    // `if not datas_no_periodo: continue` do script real.
+    const crRows = crRowsAll.filter((r) => statusAceitoCR(r.status) && r.dataCredito !== null);
     const lvRows = lvRowsAll.filter((r) => STATUS_ACEITOS_LV.includes(r.status));
 
-    const rules = await prisma.revenueCategoryRule.findMany({ where: { ativo: true } });
+    // orderBy explícito: o desempate de "maior prefixo" (rules.ts) precisa da
+    // MESMA ordem de chegada que o script real tem (ordem das linhas na
+    // planilha de categorias) para empates de mesmo comprimento resolverem
+    // igual. `id` (cuid) é aproximadamente cronológico — não é uma garantia
+    // formal de ordem-de-arquivo, mas é o melhor proxy disponível sem migrar
+    // o schema para uma coluna de ordem explícita (ver ADR-0018).
+    const rules = await prisma.revenueCategoryRule.findMany({
+      where: { ativo: true },
+      orderBy: { id: "asc" },
+    });
     const resultado = categorizeInvoices(
       crRows,
       lvRows,
@@ -105,6 +121,21 @@ export async function startCategorizationRun(params: {
     );
 
     const persistResumo = await persistLinhasCategorizadas(run.id, resultado.linhas);
+
+    // Conferência exigida pela skill original (ADR-0018): soma de "Valor
+    // Recebido" do CR aceito deve bater com a soma de "Valor Recebido Cat."
+    // das linhas produzidas. O rateio garante fechamento por fatura, então
+    // isto deve dar zero sempre — diferente de zero é sinal de algo
+    // estrutural (nunca ignorado silenciosamente, regra #8).
+    const somaValorRecebidoCR = roundMoney(sum(crRows.map((r) => r.valorRecebido)));
+    const diferencaConferencia = roundMoney(somaValorRecebidoCR.minus(resultado.totalRecebido));
+    if (!diferencaConferencia.isZero()) {
+      console.error(
+        `[run] CONFERÊNCIA NÃO FECHOU: soma Valor Recebido do CR aceito (${somaValorRecebidoCR.toString()}) ` +
+          `difere da soma Valor Recebido Cat. das linhas (${resultado.totalRecebido.toString()}) em ` +
+          `${diferencaConferencia.toString()} — ver /runs/${run.id}. Verificar se alguma fatura tem valor não interpretado.`,
+      );
+    }
 
     await prisma.revenueSyncRun.update({
       where: { id: run.id },
@@ -115,6 +146,7 @@ export async function startCategorizationRun(params: {
         totalLinhasLV: resultado.totalLinhasLV,
         totalSemLV: resultado.totalSemLV,
         totalRecebido: toAmountString(resultado.totalRecebido),
+        diferencaConferencia: toAmountString(diferencaConferencia),
         resumoPorCategoria: resultado.resumoPorCategoria as unknown as Prisma.InputJsonValue,
         totalLinhasNovas: persistResumo.totalLinhasNovas,
         totalLinhasAtualizadas: persistResumo.totalLinhasAtualizadas,
