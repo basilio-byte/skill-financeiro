@@ -786,3 +786,54 @@ no banco, 28 só no banco). Verificação pós-deploy pendente: rodar o mesmo di
 próximo tick do auto-sync e confirmar "0 faturas no banco que o Conexa não aceita mais".
 
 **Status:** aceito.
+
+## ADR-0021 — Data Crédito no futuro sendo aceita como já recebida
+
+**Contexto:** depois da ADR-0020, o usuário confirmou 3 rodadas automáticas "Concluída" já
+calculando o total certo (782 faturas, R$286.220,65 — bate exato com o Conexa), mas
+`diagnostico-residuo-motor.mjs` continuou mostrando as MESMAS 28 faturas obsoletas, idênticas.
+Investigado com `scripts/inspecionar-linha.mjs` (estendido para mostrar `dataCredito` exato e a
+origem/período da última rodada que tocou cada linha).
+
+**Causa raiz confirmada:** as 28 faturas têm `dataCredito` **no futuro** (27, 28, 29/07 — "hoje"
+é 24/07), todas gravadas pela mesma `RevenueSyncRun` — `origem: MANUAL`, período
+**28/06/2026 a 31/07/2026**, rodada em 23/07 às 16:52 (quando "hoje" ainda era 23/07, então
+31/07 já era 8 dias no futuro). "Endereço Fiscal" (serviço recorrente/Contratual) domina a
+lista — esse tipo de fatura tem uma LISTA de datas de crédito, incluindo parcelas agendadas
+ainda não realizadas. A regra de aceitação "qualquer data da lista que caia no período pedido"
+(fidelidade total ao Python, ADR-0018/0019) aceitou uma dessas datas FUTURAS como se já fosse
+dinheiro recebido, simplesmente porque alguém pediu manualmente um período que ia além de hoje.
+**Isto NÃO é o bug da ADR-0020** (aquela correção está certa e funcionando — as 3 rodadas
+automáticas provam que o cálculo do dia está correto); é um problema diferente e anterior: dado
+já persistido com uma data que ainda não aconteceu.
+
+**Por que o automático nunca causaria isso:** `computeAutoSyncWindow()` sempre usa
+`periodoFim = agora` — nunca o fim do mês. Só uma chamada manual (form em `/runs` ou
+`POST /api/runs`, ambos aceitando qualquer `periodoInicio`/`periodoFim` sem validação contra
+"hoje") pode pedir um período que ultrapasse o dia real.
+
+**Corrigido em `run.ts`:** "Data Crédito" representa dinheiro JÁ creditado — não faz sentido
+aceitar uma data além de hoje de verdade, não importa qual período foi pedido (nem automático,
+que já nunca pede além de agora por construção, nem manual/API, que pode pedir errado). Calculado
+`periodoFimEfetivo = min(params.periodoFim, nowInAppTz())` e usado esse valor (não
+`params.periodoFim` direto) como limite superior passado para `parseContasReceberRows` —
+`fetchBothExports` (o que é pedido ao Conexa) continua usando o período original, sem problema,
+já que buscar um conjunto mais largo é inofensivo; só a ACEITAÇÃO de uma data como "dentro do
+período" é que precisa do limite real. A chamada a `persistLinhasCategorizadas` continua usando
+`params.periodoFim` original (não o clampado) de propósito: isso faz a checagem de linha órfã
+enxergar (e limpar sozinha) qualquer dataCredito futura remanescente dentro do período pedido,
+como efeito colateral positivo, caso isto se repita.
+
+**Limpeza do dado já persistido:** `scripts/limpar-datacredito-futuro.mjs` (novo, standalone) — 
+apaga toda `RevenueCategorizedLine` com `dataCredito` além de hoje, EXCETO se
+`revisadoManualmente` (nesse caso preserva e reporta, nunca deveria acontecer dado o mecanismo,
+mas checado por segurança). Idempotente. Quando a data real chegar, a sincronização automática
+recria a fatura corretamente, se ainda válida — apagar agora não perde informação real, só
+remove o que foi contado cedo demais.
+
+**Validado:** typecheck limpo, 111 testes (sem teste dedicado para o clamp em si — depende de
+`nowInAppTz()`/hora real, mesmo padrão de não-teste-unitário-direto de todo o resto de `run.ts`).
+Achado confirmado com dado real de produção (`scripts/inspecionar-linha.mjs`) antes da correção,
+não apenas hipótese.
+
+**Status:** aceito.

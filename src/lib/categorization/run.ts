@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { nowInAppTz } from "@/lib/dates";
 import { fetchBothExports } from "@/lib/conexa-web/client";
 import { readXlsxAsObjects } from "@/lib/xlsx/reader";
 import { parseContasReceberRows, parseListarVendasRows } from "@/lib/categorization/parse-exports";
@@ -120,10 +121,24 @@ export async function startCategorizationRun(params: {
   try {
     const { listarVendas, contasReceber } = await fetchBothExports(params.periodoInicio, params.periodoFim);
 
+    // Achado real (2026-07-24): uma sincronização MANUAL pediu período até
+    // 31/07 quando "hoje" ainda era 23/07 — "Data Crédito" é uma LISTA de
+    // datas em faturas recorrentes (Contratual), e a regra de aceitação
+    // ("qualquer data da lista que caia no período", fidelidade ao Python,
+    // ADR-0018/0019) aceitou uma data agendada pro futuro (ainda não
+    // realizada) como se já fosse dinheiro recebido — 28 faturas, R$6.029,12.
+    // "Data Crédito" só faz sentido no passado/presente: nunca aceitar uma
+    // data além de HOJE de verdade, não importa qual período foi pedido (nem
+    // o automático — que nunca pede além de agora por construção — nem um
+    // manual/API que peça um período mal calculado). O fetch em si pode ser
+    // mais largo que isso (inofensivo); só a ACEITAÇÃO da data é limitada.
+    const agora = nowInAppTz();
+    const periodoFimEfetivo = params.periodoFim.getTime() < agora.getTime() ? params.periodoFim : agora;
+
     const crRowsAll = parseContasReceberRows(
       readXlsxAsObjects(contasReceber),
       params.periodoInicio,
-      params.periodoFim,
+      periodoFimEfetivo,
     );
     const lvRowsAll = parseListarVendasRows(readXlsxAsObjects(listarVendas));
 

@@ -618,5 +618,16 @@
     "qualquer data da lista que bater no período" (fidelidade total ao Python, ADR-0018/0019)
     pegou uma data futura agendada, ainda não realizada, como se já tivesse sido recebida.
     Atualizado `scripts/inspecionar-linha.mjs` pra também mostrar origem/período exato da
-    `ultimaRodada`, pra confirmar a hipótese antes de decidir a correção. **Aguardando
-    confirmação do usuário.**
+    `ultimaRodada`, pra confirmar a hipótese antes de decidir a correção. **Confirmado**: origem
+    MANUAL, período 28/06 a 31/07/2026, rodada de 23/07 (quando "hoje" ainda era 23/07 — 31/07
+    já era 8 dias no futuro).
+  - **Corrigido (ADR-0021).** "Data Crédito" representa dinheiro JÁ creditado — `run.ts` agora
+    calcula `periodoFimEfetivo = min(params.periodoFim, nowInAppTz())` e usa esse valor (não o
+    período pedido direto) como limite pra decidir se uma data "está no período" — nunca mais
+    aceita uma Data Crédito além de hoje de verdade, nem em sincronização manual/API mal
+    configurada. O fetch ao Conexa continua usando o período original (inofensivo buscar mais
+    largo; só a aceitação da data é limitada). Criado `scripts/limpar-datacredito-futuro.mjs`
+    (idempotente) pra apagar o que já ficou persistido errado antes desta correção — preserva e
+    reporta qualquer linha revisada manualmente (não deveria acontecer, mas checado por
+    segurança). Quando a data real chegar, a sincronização automática recria a fatura
+    corretamente, se ainda válida. Validado: typecheck limpo, 111 testes.
