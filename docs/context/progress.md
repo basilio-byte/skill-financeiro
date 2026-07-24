@@ -600,3 +600,11 @@
     sintoma, não a causa). Validado: typecheck limpo, 111 testes (sem teste dedicado — persist.ts
     é server-only/Prisma, mesmo padrão do resto do arquivo). **Pendente:** confirmar pós-deploy
     rodando `diagnostico-residuo-motor.mjs` de novo depois do próximo tick do auto-sync.
+  - **Inesperado pós-deploy:** usuário confirmou 3 rodadas automáticas "Concluída" após o deploy
+    do fix, cada uma já calculando certo (782 faturas, R$286.220,65 — bate exato com o Conexa
+    fresco), mas rodando `diagnostico-residuo-motor.mjs` de novo mostrou as MESMAS 28 faturas,
+    valores e categorias idênticos byte a byte — ou seja, a rodada em si está correta, mas a
+    limpeza das linhas obsoletas não está acontecendo. Criado `scripts/inspecionar-linha.mjs`
+    (só leitura) para olhar os campos exatos (dataCredito, revisadoManualmente, ultimaRodadaId,
+    atualizadoEm) de faturas específicas e descobrir se a causa é a query não pegar essas linhas,
+    ou pegar e mesmo assim não apagar. **Investigação em andamento, sem conclusão ainda.**
