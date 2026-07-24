@@ -486,3 +486,21 @@
   (6 novos), e o pipeline real rodado de novo contra o export ao vivo do Conexa — mesmo resultado
   de antes de qualquer correção (758 faturas, R$279.852,89) em duas rodadas de verificação,
   confirmando ausência de regressão mesmo após a mudança de fidelidade de Data Crédito.
+- **Nova divergência investigada (2026-07-24):** usuário reportou planilha baixada do Conexa
+  (Contas a Receber, sem filtro) somando R$282.946,43 de Valor Recebido, contra R$290.323,15 no
+  Panorama pro mesmo mês. Aplicando o filtro exato do nosso motor (status aceito + Data Crédito,
+  "qualquer data da lista") na própria planilha do usuário deu o mesmo valor dela — não é bug de
+  filtro. Um fetch novo direto no Conexa, feito na hora, mostrou crescimento normal (~R$1.560 em
+  algumas horas, atividade real do dia) mas ainda deixou ~R$5.816,85 sem explicação. Causa
+  identificada: a própria tela de `/runs/[id]` já mostrava "12 fatura(s) com possível dupla
+  contagem" (mecanismo documentado na ADR-0013 — linha revisada manualmente preservada + bucket
+  novo criado depois que uma regra de verdade passou a existir, contando o mesmo dinheiro duas
+  vezes), usuário confirmou que o alerta persiste. **Não corrigido ainda** — requer decisão
+  humana por fatura (qual linha é a certa), não dá pra automatizar às cegas. Criado
+  `scripts/diagnostico-conflitos.mjs` (só leitura, não corrige nada) que lista, fatura por
+  fatura, o valor real, a soma atual das linhas, e o detalhe de cada linha (categoria/valor,
+  se foi revisada manualmente, por quem/quando, e o que a skill tinha calculado antes da
+  revisão) — para rodar em produção via Console do Easypanel e decidir caso a caso. Depois de
+  rodado, o plano é: (1) corrigir as 12 faturas atuais com base no diagnóstico, (2) considerar
+  construir uma tela própria de "conflitos" no admin para resolver casos futuros sem precisar de
+  acesso direto ao banco (ideia levantada, ainda não confirmada pelo usuário).
