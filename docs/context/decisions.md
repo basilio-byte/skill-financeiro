@@ -330,7 +330,7 @@ antes do commit:
   intencionalmente removido por esta ADR. Corrigido o texto da regra #9.
 **Riscos aceitos, não resolvidos aqui:**
 - Tombstone de fatura cancelada/estornada continua em aberto (mesma limitação da ADR-0012 —
-  não resolvida, só não piorada).
+  não resolvida, só não piorada). **[RESOLVIDO 2026-07-24, ver ADR-0020]**
 - Lock entre múltiplas réplicas do container é só o guard "já existe RUNNING" — suficiente
   para o deploy de réplica única já decidido, não um lock distribuído de verdade.
 - `persistLinhasCategorizadas` usa upserts em série via Prisma (não SQL em lote) — aceitável
@@ -737,3 +737,52 @@ com hora anexada como única data do período nesta amostra.
 **Status:** aceito — todos os 10 achados confirmados corrigidos (itens 1-7 eram bugs sem
 ambiguidade; itens 8-10 envolviam trade-off e o usuário escolheu fidelidade total ao Python nos
 três, corrigidos em seguida).
+
+## ADR-0020 — Tombstone de fatura que some por completo (risco aceito desde a ADR-0012, resolvido)
+
+**Contexto:** depois de resolver as 12 faturas com dupla contagem (ADR anterior desta sessão) via
+`/conflitos`, o usuário perguntou por que o Total Recebido do Panorama ainda não batia com o
+total que a própria sincronização mais recente reportava. Construída uma conferência completa
+(`scripts/conferencia-completa.mjs`) que compara três números pro mesmo período: (1) verdade no
+Conexa agora, (2) o que está no banco, (3) o que a skill diria sem revisão manual. (2) e (3)
+bateram entre si (0 revisão manual com valor alterado) — descartando revisão manual como causa —
+mas (3) divergiu de (1) em R$5.229,40.
+
+**Causa raiz confirmada com dado real** (`scripts/diagnostico-residuo-motor.mjs`, comparação
+fatura a fatura contra um fetch fresco do Conexa): 28 faturas somando R$6.029,12 estavam
+persistidas no banco (a maioria "Endereço Fiscal", `status` "Quitada") mas o Conexa não as aceita
+mais para este período. `persistLinhasCategorizadas` (persist.ts) só reavaliava "esta linha ainda
+deveria existir?" para faturas presentes no RESULTADO da sincronização atual (`existentes`
+buscado por `crConexaId IN (ids de linhas)`) — uma fatura que foi aceita numa rodada antiga e
+depois SOME por completo do resultado (status mudou pra algo não aceito, ou a Data Crédito foi
+corrigida/mudou de mês no Conexa) nunca aparecia nessa busca, então sua linha nunca era
+reavaliada — ficava no banco para sempre. Isto é DIFERENTE de uma órfã comum (tratada desde a
+ADR-0013): órfã é quando a fatura CONTINUA aparecendo mas muda de bucket; aqui a fatura
+desaparece inteira. Era exatamente o risco documentado como aceito, não resolvido, na ADR-0012
+("tombstone de fatura cancelada/estornada").
+
+**Corrigido:** `existentes` agora busca por `crConexaId IN (...)` **OU** `dataCredito` dentro do
+período da própria rodada (`persistLinhasCategorizadas` ganhou os parâmetros `periodoInicio`/
+`periodoFim`, passados por `run.ts` a partir de `params`). O resto da lógica de órfã (preservar se
+`revisadoManualmente`, apagar senão; conferir conflito de dupla contagem) já lidava corretamente
+com "linha não reproduzida nesta rodada" — só faltava a query trazer essas linhas para dentro do
+laço. Autocorretivo: a partir do próximo tick do auto-sync (15 em 15 min), as 28 linhas
+confirmadas como obsoletas são automaticamente apagadas (nenhuma era revisada manualmente) —
+nenhum script de limpeza pontual foi necessário.
+
+**Decisão explícita tomada com o usuário:** perguntado se não seria mais simples apagar todo o
+histórico e resincronizar do zero agora que a sincronização está correta — recomendado NÃO fazer
+isso: (a) um wipe apagaria qualquer revisão manual com categoria diferente mas valor igual ao
+calculado pela skill, que a conferência de hoje não detecta (só compara valor, não categoria) e
+por isso não se tinha certeza de que não existia nenhuma; (b) resolveria o sintoma, não a causa —
+a mesma sujeira voltaria a se acumular com o tempo sem o fix em `persist.ts`. Usuário concordou
+com a investigação antes da correção.
+
+**Validado:** typecheck limpo, 111 testes (sem teste dedicado para este fix — `persist.ts` é
+`server-only`, depende de Prisma, mesmo padrão de não-teste-unitário-direto já usado para todo o
+resto deste arquivo). Confirmado com dado real de produção via
+`scripts/diagnostico-residuo-motor.mjs` antes da correção (782 faturas aceitas no Conexa vs 810
+no banco, 28 só no banco). Verificação pós-deploy pendente: rodar o mesmo diagnóstico depois do
+próximo tick do auto-sync e confirmar "0 faturas no banco que o Conexa não aceita mais".
+
+**Status:** aceito.

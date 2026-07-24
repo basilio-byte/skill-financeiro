@@ -84,6 +84,19 @@ const chaveExistente = (crConexaId: number, chaveLinha: string) => `${crConexaId
  * mesma receita) — contado em `totalFaturasComConflito` e logado alto, nunca
  * corrigido sozinho (só um humano decide qual versão é a certa).
  *
+ * Faturas que SOMEM por completo (achado real, 2026-07-24 — R$6.029,12 em 28
+ * faturas): o `existentes` abaixo busca por `dataCredito` dentro do período
+ * da PRÓPRIA rodada, não só por `crConexaId` das faturas que `linhas` ainda
+ * contém. Sem isso, uma fatura que foi aceita numa rodada antiga e depois
+ * desaparece por completo do resultado (status mudou pra algo não aceito, ou
+ * a Data Crédito foi corrigida/mudou de mês no Conexa) nunca entrava em
+ * `existentes` — sua linha ficava no banco pra sempre, nunca reavaliada,
+ * contando dinheiro que o Conexa não reconhece mais pra este período. Isso é
+ * DIFERENTE de uma órfã comum (a fatura continua aparecendo, só muda de
+ * bucket) — aqui a fatura some inteira. O resto da lógica de órfã (preservar
+ * se revisada manualmente, apagar senão) já cobre esse caso corretamente
+ * assim que a linha é encontrada — só faltava buscá-la.
+ *
  * TUDO isso (leitura do estado atual, delete de órfãs, upserts) roda numa
  * ÚNICA transação Serializable — achado real por verificação adversarial: ler
  * `revisadoManualmente` numa query separada e só decidir/gravar depois (como
@@ -101,6 +114,8 @@ const chaveExistente = (crConexaId: number, chaveLinha: string) => `${crConexaId
 export async function persistLinhasCategorizadas(
   syncRunId: string,
   linhas: CategorizedLine[],
+  periodoInicio: Date,
+  periodoFim: Date,
 ): Promise<PersistResumo> {
   return prisma.$transaction(
     async (tx) => {
@@ -114,12 +129,17 @@ export async function persistLinhasCategorizadas(
 
       const crConexaIds = [...new Set(linhas.map((l) => l.crId))];
 
-      const existentes = crConexaIds.length
-        ? await tx.revenueCategorizedLine.findMany({
-            where: { crConexaId: { in: crConexaIds } },
-            select: { id: true, crConexaId: true, chaveLinha: true, revisadoManualmente: true },
-          })
-        : [];
+      // OR com dataCredito no período: pega também faturas que sumiram por
+      // completo do resultado desta rodada (ver comentário do arquivo acima).
+      const existentes = await tx.revenueCategorizedLine.findMany({
+        where: {
+          OR: [
+            ...(crConexaIds.length ? [{ crConexaId: { in: crConexaIds } }] : []),
+            { dataCredito: { gte: periodoInicio, lte: periodoFim } },
+          ],
+        },
+        select: { id: true, crConexaId: true, chaveLinha: true, revisadoManualmente: true },
+      });
 
       const revisadaAntes = new Map<string, boolean>();
       for (const e of existentes) {

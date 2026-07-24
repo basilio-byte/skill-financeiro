@@ -586,3 +586,17 @@
     decidir a correção exata em `persist.ts` (ampliar a query de `existentes` pra incluir
     qualquer linha com `dataCredito` dentro do período da rodada, não só as faturas que aparecem
     no resultado atual) e a limpeza cirúrgica das linhas confirmadas como obsoletas.
+  - **Confirmado e corrigido (ADR-0020).** Rodado em produção: 28 faturas (R$6.029,12, quase
+    todas "Endereço Fiscal") persistidas no banco mas que o Conexa não aceita mais pro período —
+    confirma a hipótese. `persistLinhasCategorizadas` (persist.ts) ganhou os parâmetros
+    `periodoInicio`/`periodoFim`; a busca de `existentes` agora inclui `dataCredito` dentro do
+    período da própria rodada, não só `crConexaId` das faturas que ainda aparecem no resultado —
+    o resto da lógica de órfã (preservar se revisada manualmente, apagar senão) já cobria esse
+    caso corretamente, só faltava a query trazer essas linhas pro laço. Autocorretivo: a partir
+    do próximo tick do auto-sync, as 28 linhas (nenhuma revisada manualmente) são apagadas
+    sozinhas — nenhum script de limpeza pontual necessário. Usuário sugeriu apagar todo o
+    histórico e resincronizar do zero; recomendado não fazer isso (perderia revisão manual com
+    categoria diferente mas valor igual, que a conferência não detecta; e só resolveria o
+    sintoma, não a causa). Validado: typecheck limpo, 111 testes (sem teste dedicado — persist.ts
+    é server-only/Prisma, mesmo padrão do resto do arquivo). **Pendente:** confirmar pós-deploy
+    rodando `diagnostico-residuo-motor.mjs` de novo depois do próximo tick do auto-sync.

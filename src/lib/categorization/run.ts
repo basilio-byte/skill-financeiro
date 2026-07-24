@@ -20,11 +20,16 @@ export class SincronizacaoEmAndamentoError extends Error {}
  * benigna (achado de auditoria 2026-07-23) — gerando ruído recorrente em
  * /runs que mascara falhas de verdade por "alarm fatigue".
  */
-async function persistComRetry(runId: string, linhas: CategorizedLine[]): Promise<PersistResumo> {
+async function persistComRetry(
+  runId: string,
+  linhas: CategorizedLine[],
+  periodoInicio: Date,
+  periodoFim: Date,
+): Promise<PersistResumo> {
   const MAX_TENTATIVAS = 3;
   for (let tentativa = 1; tentativa <= MAX_TENTATIVAS; tentativa++) {
     try {
-      return await persistLinhasCategorizadas(runId, linhas);
+      return await persistLinhasCategorizadas(runId, linhas, periodoInicio, periodoFim);
     } catch (err) {
       const isP2034 = (err as { code?: string })?.code === "P2034";
       if (!isP2034 || tentativa === MAX_TENTATIVAS) throw err;
@@ -144,7 +149,7 @@ export async function startCategorizationRun(params: {
       rules.map((r) => ({ nome: r.nome, categoria: r.categoria })),
     );
 
-    const persistResumo = await persistComRetry(run.id, resultado.linhas);
+    const persistResumo = await persistComRetry(run.id, resultado.linhas, params.periodoInicio, params.periodoFim);
 
     // Conferência exigida pela skill original (ADR-0018): soma de "Valor
     // Recebido" do CR aceito deve bater com a soma de "Valor Recebido Cat."
