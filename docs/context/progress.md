@@ -562,3 +562,27 @@
     (igual a `conexa-web/client.ts`), com erro claro se alguma variável estiver ausente.
     Confirmado que os outros dois scripts (`diagnostico-conflitos.mjs`, `resolver-conflitos.mjs`)
     não tinham esse problema — só usam Prisma, que já lê `DATABASE_URL` do ambiente sozinho.
+  - **Rodado em produção:** conferência (2) e (3) batem entre si (R$291.450,05, 0 revisão manual
+    com valor alterado neste período) — descarta revisão manual como causa. Mas (3) vs (1) (banco
+    vs Conexa fresco) diverge em **R$5.229,40** — banco tem mais dinheiro do que o Conexa aceita
+    agora pro mesmo filtro. **Hipótese levantada, ainda não confirmada com dado real:**
+    `persistLinhasCategorizadas` só reavalia "esta linha ainda deveria existir?" para faturas que
+    aparecem no resultado da sincronização ATUAL — uma fatura aceita e persistida numa rodada
+    antiga, que depois SOME inteira do resultado de rodadas seguintes (status mudou pra algo não
+    aceito, ou a Data Crédito foi corrigida/mudou de mês no Conexa), nunca é reavaliada: sua linha
+    fica no banco pra sempre. Diferente de "órfã" (já tratado) — órfã é quando a fatura CONTINUA
+    aparecendo mas muda de bucket; este caso é a fatura sumir do resultado por completo, sem
+    nenhum tombstone (risco já flagado, sem solução, desde a ADR-0012: "no tombstone mechanism
+    for cancelled/reversed invoices"). Usuário perguntou se não seria mais simples apagar tudo e
+    resincronizar do zero — recomendei NÃO fazer isso: (a) apagaria revisões manuais com valor
+    igual ao calculado pela skill mas categoria diferente, que a conferência de hoje não detecta
+    (só compara valor, não categoria) e por isso não temos certeza de que não existem; (b) resolve
+    o sintoma, não a causa raiz — a mesma sujeira voltaria a se acumular com o tempo. Criado
+    `scripts/diagnostico-residuo-motor.mjs` (só leitura) para confirmar a hipótese com dado real
+    antes de qualquer correção: busca o export fresco do Conexa e compara fatura por fatura
+    (`crConexaId`) contra o banco, listando quem está de um lado e não do outro. Testada a parte
+    do Conexa localmente (782 faturas, bate com o resultado do usuário); parte do banco não
+    testável aqui (sem Postgres de dev). **Pendente:** rodar em produção e, com o resultado,
+    decidir a correção exata em `persist.ts` (ampliar a query de `existentes` pra incluir
+    qualquer linha com `dataCredito` dentro do período da rodada, não só as faturas que aparecem
+    no resultado atual) e a limpeza cirúrgica das linhas confirmadas como obsoletas.
