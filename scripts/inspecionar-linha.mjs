@@ -19,7 +19,11 @@ async function main() {
 
   const linhas = await prisma.revenueCategorizedLine.findMany({
     where: { crConexaId: { in: ids } },
-    include: { ultimaRodada: { select: { id: true, iniciadoEm: true, status: true } } },
+    include: {
+      ultimaRodada: {
+        select: { id: true, iniciadoEm: true, status: true, origem: true, periodoInicio: true, periodoFim: true },
+      },
+    },
   });
 
   const rodadaAtual = await prisma.revenueSyncRun.findFirst({
@@ -47,7 +51,11 @@ async function main() {
     console.log(`  dataCredito: ${l.dataCredito ? l.dataCredito.toISOString() : "null"}`);
     console.log(`  valorRecebidoCat: ${l.valorRecebidoCat.toString()}`);
     console.log(`  revisadoManualmente: ${l.revisadoManualmente}`);
-    console.log(`  ultimaRodadaId: ${l.ultimaRodadaId} (status: ${l.ultimaRodada?.status}, iniciada: ${l.ultimaRodada?.iniciadoEm?.toISOString()})`);
+    console.log(
+      `  ultimaRodadaId: ${l.ultimaRodadaId} (status: ${l.ultimaRodada?.status}, origem: ${l.ultimaRodada?.origem}, ` +
+        `período: ${l.ultimaRodada?.periodoInicio?.toISOString()} a ${l.ultimaRodada?.periodoFim?.toISOString()}, ` +
+        `iniciada: ${l.ultimaRodada?.iniciadoEm?.toISOString()})`,
+    );
     console.log(`  atualizadoEm: ${l.atualizadoEm.toISOString()}`);
     console.log("");
   }

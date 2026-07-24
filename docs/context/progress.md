@@ -608,3 +608,15 @@
     (só leitura) para olhar os campos exatos (dataCredito, revisadoManualmente, ultimaRodadaId,
     atualizadoEm) de faturas específicas e descobrir se a causa é a query não pegar essas linhas,
     ou pegar e mesmo assim não apagar. **Investigação em andamento, sem conclusão ainda.**
+  - **Achado real (revisão da hipótese):** as 4 faturas inspecionadas têm `dataCredito` no
+    FUTURO (27, 28, 29/07 — hoje é 24/07), todas tocadas pela mesma `ultimaRodadaId`
+    (`cmrxr1cqb01d0og01yr81qwan`, iniciada 2026-07-23T16:52). Isso **não é** o bug do tombstone
+    corrigido na ADR-0020 (aquela correção está certa) — é outra coisa: o auto-sync nunca pede
+    período além de "agora", então uma rodada com `dataCredito` persistido no futuro só pode vir
+    de uma sincronização manual/validação que usou um período estendido além de hoje. Faturas
+    recorrentes (ex. "Endereço Fiscal", maioria dos 28) têm LISTA de datas de crédito, e a regra
+    "qualquer data da lista que bater no período" (fidelidade total ao Python, ADR-0018/0019)
+    pegou uma data futura agendada, ainda não realizada, como se já tivesse sido recebida.
+    Atualizado `scripts/inspecionar-linha.mjs` pra também mostrar origem/período exato da
+    `ultimaRodada`, pra confirmar a hipótese antes de decidir a correção. **Aguardando
+    confirmação do usuário.**
