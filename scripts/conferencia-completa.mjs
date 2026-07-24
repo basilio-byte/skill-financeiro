@@ -26,7 +26,6 @@
  * Padrão: mês corrente.
  * Rodar em produção via Console do Easypanel.
  */
-import { readFileSync } from "node:fs";
 import { inflateRawSync } from "node:zlib";
 import { PrismaClient } from "@prisma/client";
 
@@ -46,16 +45,16 @@ const periodoFimBanco = new Date(Date.UTC(ano, mes, 1)); // exclusivo, igual ao 
 console.log(`Período: ${periodoInicio.toISOString().slice(0, 10)} a ${periodoFimIngestao.toISOString().slice(0, 10)} (ingestão) / até ${periodoFimBanco.toISOString().slice(0, 10)} exclusivo (banco)\n`);
 
 // --- 1) Conexa, agora ---
-function loadEnv(path) {
-  const txt = readFileSync(path, "utf8");
-  const env = {};
-  for (const line of txt.split("\n")) {
-    const m = /^([A-Z_]+)=(.*)$/.exec(line.trim());
-    if (m) env[m[1]] = m[2];
-  }
-  return env;
+// Em produção as variáveis vêm injetadas direto no ambiente pelo Easypanel
+// (Secrets), não de um arquivo `.env` no disco — usar process.env direto,
+// igual a conexa-web/client.ts.
+const env = process.env;
+if (!env.CONEXA_BASE_URL || !env.CONEXA_WEB_USERNAME || !env.CONEXA_WEB_PASSWORD) {
+  console.error(
+    "[conferencia-completa] ERRO: CONEXA_BASE_URL/CONEXA_WEB_USERNAME/CONEXA_WEB_PASSWORD não configurados no ambiente.",
+  );
+  process.exit(1);
 }
-const env = loadEnv(".env");
 
 function formatDateBR(d) {
   const dd = String(d.getUTCDate()).padStart(2, "0");

@@ -555,3 +555,10 @@
     filtra certo); o lado do banco não pôde ser testado localmente (sem Postgres de dev rodando
     nesta sessão) — falha de conexão esperada e clara (`Can't reach database server`), não uma
     resposta errada silenciosa.
+  - **Bug encontrado ao rodar em produção:** o script tentava ler um arquivo `.env` do disco
+    (`loadEnv(".env")`, copiado sem ajuste do padrão usado nos testes locais desta sessão) — mas
+    em produção as credenciais do Conexa vêm injetadas direto no ambiente pelo Easypanel
+    (Secrets), sem arquivo `.env` no container. Corrigido para usar `process.env` diretamente
+    (igual a `conexa-web/client.ts`), com erro claro se alguma variável estiver ausente.
+    Confirmado que os outros dois scripts (`diagnostico-conflitos.mjs`, `resolver-conflitos.mjs`)
+    não tinham esse problema — só usam Prisma, que já lê `DATABASE_URL` do ambiente sozinho.
