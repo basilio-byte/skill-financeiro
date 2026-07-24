@@ -14,6 +14,7 @@ const NAV: Array<{ href: string; label: string; adminOnly?: boolean }> = [
   { href: "/runs", label: "Sincronizações" },
   { href: "/categorias", label: "Categorias" },
   { href: "/metas", label: "Metas" },
+  { href: "/conflitos", label: "Conflitos", adminOnly: true },
   { href: "/contas", label: "Contas", adminOnly: true },
 ];
 

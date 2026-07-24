@@ -500,7 +500,40 @@
   `scripts/diagnostico-conflitos.mjs` (só leitura, não corrige nada) que lista, fatura por
   fatura, o valor real, a soma atual das linhas, e o detalhe de cada linha (categoria/valor,
   se foi revisada manualmente, por quem/quando, e o que a skill tinha calculado antes da
-  revisão) — para rodar em produção via Console do Easypanel e decidir caso a caso. Depois de
-  rodado, o plano é: (1) corrigir as 12 faturas atuais com base no diagnóstico, (2) considerar
-  construir uma tela própria de "conflitos" no admin para resolver casos futuros sem precisar de
-  acesso direto ao banco (ideia levantada, ainda não confirmada pelo usuário).
+  revisão) — para rodar em produção via Console do Easypanel e decidir caso a caso.
+
+- **Tela `/conflitos` + resolução automática dos padrões conhecidos (2026-07-24).** Rodado
+  `diagnostico-conflitos.mjs` em produção: as 12 faturas se encaixam em exatamente 2 padrões,
+  ambos com regra segura e determinística (nenhum caso ambíguo entre as 12):
+  - **`duplicata_sem_categoria`** (4 casos, ex. CR 15476): a fatura tem plano genérico ("Cliente
+    Avulso"), que o motor nunca vai conseguir categorizar sozinho (cai em "Sem Categoria" toda
+    rodada); a linha manual tem a categoria real que alguém identificou olhando a fatura. Excluir
+    só a automática NÃO basta — o motor recria em até 15 min, já que continua gerando "Sem
+    Categoria" pra esse plano. Resolução: apaga a automática E re-chaveia a manual para a MESMA
+    chave que o motor produz agora (`chaveLinha = "Sem Categoria"`) — dali em diante, o upsert da
+    sincronização encontra essa linha (não cria uma nova) e a protege por `revisadoManualmente`,
+    sem nunca mais duplicar.
+  - **`manual_superada`** (8 casos, ex. CR 26553): uma `RevenueCategoryRule` real passou a existir
+    depois da revisão manual (via nome do item no Listar Vendas), e o motor já categoriza sozinho
+    na MESMA categoria que a revisão manual já dizia. A linha manual (chave antiga, do esquema
+    pré-ADR-0018 — `"Sem Categoria::Cliente Avulso"`, que o motor não gera mais) é redundante.
+    Resolução: só apaga a linha manual; nunca é recriada.
+  - Excesso total das 12 faturas: R$2.445,52 — explica a maior parte do resíduo de ~R$5.816,85
+    encontrado na investigação anterior (o resto é atividade normal do dia, dinheiro chegando
+    entre uma sincronização e outra).
+  - **Construído:** `src/lib/categorization/classificar-conflito.ts` (função pura,
+    `classificarConflito`, testável sem banco — 6 testes cobrindo os 2 padrões + 4 formatos
+    ambíguos que devem ficar de fora), `src/lib/categorization/conflitos.ts` (`listarConflitos`,
+    server-only, agrega linhas por fatura e aplica a classificação), `conflitos-actions.ts`
+    (`resolverAutomaticamenteAction` — reclassifica com dado FRESCO dentro da própria transação
+    Serializable antes de agir, nunca confia na classificação já renderizada; `excluirLinhaConflitoAction`
+    — exclusão manual genérica pros casos ambíguos, ADMIN-only). Nova página `/conflitos` (nav
+    item ADMIN-only) lista todas as faturas em conflito com o detalhe de cada linha e um botão
+    "Resolver automaticamente" quando o padrão é reconhecido, ou "Excluir esta linha" com
+    confirmação quando é ambíguo. `scripts/resolver-conflitos.mjs` (novo) aplica a MESMA lógica
+    direto em produção via Easypanel, sem precisar abrir a tela — a lógica de classificação está
+    duplicada em JS puro ali (mesmo motivo de `fix-categorias-espacamento.mjs`: scripts standalone
+    não passam pelo bundler/alias do Next), com o comentário deixando explícito que as duas cópias
+    precisam ficar em sincronia. Validado: typecheck limpo, 111 testes (6 novos). Smoke test de
+    navegador NÃO foi feito nesta sessão (sem stack de dev local rodando) — recomendação: testar
+    contra dado real assim que possível.
