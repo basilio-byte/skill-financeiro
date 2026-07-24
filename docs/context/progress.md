@@ -537,3 +537,21 @@
     precisam ficar em sincronia. Validado: typecheck limpo, 111 testes (6 novos). Smoke test de
     navegador NÃO foi feito nesta sessão (sem stack de dev local rodando) — recomendação: testar
     contra dado real assim que possível.
+  - **Confirmado no dia seguinte:** usuário resolveu as 12 faturas pela tela `/conflitos`. `"Sem
+    Categoria no período"` caiu de R$1.097,92 para R$0,00 — bate EXATO com a soma das 4 faturas do
+    padrão `duplicata_sem_categoria` (933,42+64,50+75,00+25,00), confirmando que a resolução
+    funcionou como esperado. Usuário então perguntou por que o Total Recebido do Panorama não
+    bate com o total que a própria sincronização reporta, mesmo com 0 conflitos — resposta: são
+    consultas estruturalmente diferentes (`RevenueSyncRun.totalRecebido` é uma FOTO do que o
+    motor calculou naquele instante, sem nunca refletir revisão manual; o Panorama soma o estado
+    ATUAL persistido, que inclui revisões de propósito). Para nunca deixar "diferença sem
+    explicação" de novo, criado `scripts/conferencia-completa.mjs`: busca o export real do Conexa
+    agora, soma com o filtro exato do motor (verdade), compara com a soma atual do banco (o que o
+    Panorama mostra) e com "o que a skill diria sem revisão manual" (banco trocando o valor de
+    toda linha `revisadoManualmente` pelo `valorRecebidoCatOriginal`) — reporta as duas diferenças
+    separadamente (motor vs Conexa; revisão manual vs skill) e LISTA cada revisão manual que
+    contribui pro segundo número (fatura, categoria antes/depois, valor antes/depois, quem,
+    quando), pra nunca sobrar resíduo sem dono. Testado o lado do fetch/parse do Conexa (roda e
+    filtra certo); o lado do banco não pôde ser testado localmente (sem Postgres de dev rodando
+    nesta sessão) — falha de conexão esperada e clara (`Can't reach database server`), não uma
+    resposta errada silenciosa.
