@@ -754,4 +754,14 @@
   achou 75 linhas / **65 clientes distintos** / R$ 12.323,25 — confirma o comportamento pretendido.
   Isolamento (push sem token, sem log, sem rede) re-testado com o novo schema, continua correto.
   Typecheck limpo, 135 testes (7 novos em `filtro-padroes.test.ts`). Detalhes na ADR-0024
-  (decisions.md). Nada commitado ainda.
+  (decisions.md). Commitado e enviado (8575c1b).
+- **Bug real reportado pelo usuário logo após usar a tela:** "Pré-visualizar" e "Vincular"
+  dividiam o mesmo `<form>` (action padrão + `formAction`) — o React reseta os campos não
+  controlados assim que a ação do clique termina, então clicar em "Pré-visualizar" limpava
+  categoria/lista/tarefa/padrões antes de "Vincular" poder usar os mesmos valores. Corrigido em
+  `clickup-vinculo-form.tsx`: "Pré-visualizar" virou um botão comum (`type="button"`) que lê o
+  `FormData` via `ref` e chama `previsualizarVinculoAction` direto (fora do mecanismo de
+  `<form>`/`formAction`), sem resetar nada. Validado com `next build` (compila, type-checa e
+  linta a produção inteira) + suite completa (135 testes) — sem acesso a navegador real neste
+  ambiente pra clicar de fato, então a verificação ficou no nível de build/lint/testes, não de
+  clique-a-clique.

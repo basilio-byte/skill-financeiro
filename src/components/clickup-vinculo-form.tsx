@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useRef, useState, useTransition } from "react";
 import { useFormStatus } from "react-dom";
 import { CategoriaField } from "@/components/categoria-field";
 import { formatBRL } from "@/lib/money";
@@ -22,15 +22,6 @@ function BotaoSalvar({ children }: { children: React.ReactNode }) {
   return (
     <button className="btn disabled:opacity-60" type="submit" disabled={pending}>
       {pending ? "Salvando…" : children}
-    </button>
-  );
-}
-
-function BotaoPreVisualizar({ formAction }: { formAction: (formData: FormData) => void }) {
-  const { pending } = useFormStatus();
-  return (
-    <button className="btn-secondary disabled:opacity-60" type="submit" formAction={formAction} disabled={pending}>
-      {pending ? "Consultando…" : "Pré-visualizar"}
     </button>
   );
 }
@@ -84,17 +75,33 @@ function TabelaPreview({ preview }: { preview: PreviewState }) {
  * do ClickUp. Um vínculo NUNCA aponta pra um cliente específico — soma todos
  * os clientes cujo Serviço/Plano contém algum dos padrões (achado real
  * 2026-07-27: cada tarefa do ClickUp representa um produto/variante, não um
- * cliente). "Pré-visualizar" e "Vincular" são dois `formAction` diferentes no
- * MESMO formulário (mesmo categoria/padrões preenchidos), pra nunca salvar
- * um padrão sem antes conferir o que ele realmente casa.
+ * cliente).
+ *
+ * "Pré-visualizar" é um botão `type="button"` comum (chama a Server Action
+ * direto, sem passar por `<form action>`) — nunca um `formAction` no mesmo
+ * `<form>` do "Vincular". Achado real (usuário testou e reportou): depois que
+ * uma Server Action ligada a um `<form>`/`formAction` termina, o React reseta
+ * os campos não controlados do formulário (mesmo comportamento de um form
+ * nativo pós-submit) — como os dois botões dividiam o mesmo form, a prévia
+ * apagava tudo antes do "Vincular" poder usar os mesmos valores.
  */
 export function NovoVinculoForm({ categorias }: { categorias: string[] }) {
-  const [previewState, previewAction] = useActionState<PreviewState, FormData>(previsualizarVinculoAction, estadoInicialPreview);
+  const formRef = useRef<HTMLFormElement>(null);
+  const [previewState, setPreviewState] = useState<PreviewState>(estadoInicialPreview);
+  const [previewPending, startPreviewTransition] = useTransition();
   const [vinculoState, vinculoAction] = useActionState<VinculoFormState, FormData>(criarVinculoAction, estadoInicialVinculo);
+
+  function handlePreVisualizar() {
+    if (!formRef.current) return;
+    const dados = new FormData(formRef.current);
+    startPreviewTransition(async () => {
+      setPreviewState(await previsualizarVinculoAction(estadoInicialPreview, dados));
+    });
+  }
 
   return (
     <div>
-      <form action={vinculoAction} className="flex flex-col gap-4">
+      <form ref={formRef} action={vinculoAction} className="flex flex-col gap-4">
         <div className="flex flex-wrap items-end gap-4">
           <div className="min-w-[220px] flex-1">
             <CategoriaField categorias={categorias} id="clickup-categoria" />
@@ -132,7 +139,14 @@ export function NovoVinculoForm({ categorias }: { categorias: string[] }) {
         </div>
 
         <div className="flex items-center gap-3">
-          <BotaoPreVisualizar formAction={previewAction} />
+          <button
+            type="button"
+            className="btn-secondary disabled:opacity-60"
+            onClick={handlePreVisualizar}
+            disabled={previewPending}
+          >
+            {previewPending ? "Consultando…" : "Pré-visualizar"}
+          </button>
           <BotaoSalvar>Vincular</BotaoSalvar>
         </div>
       </form>
