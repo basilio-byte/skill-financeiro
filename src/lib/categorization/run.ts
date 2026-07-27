@@ -9,6 +9,7 @@ import { persistLinhasCategorizadas, type PersistResumo } from "@/lib/categoriza
 import { statusAceitoCR, STATUS_ACEITOS_LV } from "@/lib/categorization/types";
 import type { CategorizedLine } from "@/lib/categorization/types";
 import { roundMoney, sum, toAmountString } from "@/lib/money";
+import { pushValoresDoMesCorrente } from "@/lib/clickup/push";
 
 export class SincronizacaoEmAndamentoError extends Error {}
 
@@ -198,6 +199,17 @@ export async function startCategorizationRun(params: {
         totalFaturasComConflito: persistResumo.totalFaturasComConflito,
       },
     });
+
+    // Integração ClickUp (ADR-0023) — espelha os totais recém-persistidos nas
+    // tarefas vinculadas. Isolada de propósito: o ClickUp é só um espelho, e
+    // uma falha aqui (token inválido, API fora do ar, rate limit) NUNCA pode
+    // marcar esta rodada como FAILED nem reverter a categorização de receita,
+    // que é o que importa de verdade.
+    try {
+      await pushValoresDoMesCorrente();
+    } catch (err) {
+      console.error("[run] push para o ClickUp falhou (rodada em si concluiu normalmente):", err);
+    }
 
     return run.id;
   } catch (err) {

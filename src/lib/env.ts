@@ -33,6 +33,13 @@ const envSchema = z.object({
     .default("true")
     .transform((v) => v === "true"),
   SYNC_INTERVAL_MINUTES: z.coerce.number().int().positive().default(15),
+
+  // Integração ClickUp (ADR-0023) — token pessoal (`pk_...`), enviado como
+  // header Authorization cru (sem "Bearer"). Opcional: sem ele, o push some
+  // silenciosamente do log em vez de derrubar o boot do app (ver
+  // src/lib/clickup/push.ts) — a sincronização de receita não pode depender
+  // desta integração para funcionar.
+  CLICKUP_API_TOKEN: z.string().default(""),
 });
 
 type Env = z.infer<typeof envSchema>;
@@ -56,4 +63,9 @@ export function getEnv(): Env {
 export function hasConexaWebCredentials(): boolean {
   const env = getEnv();
   return env.CONEXA_WEB_USERNAME.length > 0 && env.CONEXA_WEB_PASSWORD.length > 0;
+}
+
+/** true quando há token configurado para a integração ClickUp. */
+export function hasClickUpToken(): boolean {
+  return getEnv().CLICKUP_API_TOKEN.length > 0;
 }

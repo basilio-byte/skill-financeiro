@@ -886,3 +886,163 @@ seletores de Ano/Trimestre e as 5 categorias somadas. Meta de teste e sessão re
 dev DB parado ao final, sem deixar resíduo.
 
 **Status:** aceito.
+
+## ADR-0023 — Integração ClickUp: espelhar receita categorizada nos campos de mês de "Eficiência"
+
+**Contexto:** o ClickUp tem tarefas (lista "Eficiência", pasta "Gestão de clientes") com um campo
+customizado Currency por mês (Janeiro..Dezembro) guardando o faturamento de um cliente/serviço —
+hoje preenchido à mão. Pedido do usuário: alimentar esses campos a partir do skill-financeiro, a
+cada sincronização (mesmo ritmo do auto-sync de 15 em 15 min), não só no fechamento do mês.
+
+**Explorado ao vivo contra a API real antes de desenhar o modelo** (2026-07-27, token pessoal do
+usuário): lista "Eficiência" (id `901326339447`) tem 100 tarefas e 29 campos customizados
+compartilhados por TODAS elas (schema de lista, não por tarefa — a preocupação do usuário de que
+"tarefas diferentes podem ter campos diferentes" não se confirmou: o que varia é só QUAIS campos
+vêm preenchidos, não o conjunto de campos existentes). Achado real que mudou o desenho do
+matching: o campo de novembro está gravado como **"Novembo"** (sem o R) — um typo de produção que
+provaria qualquer casamento por nome EXATO errado. `resolverCamposPorMes` (mes-fields.ts) casa
+contra uma lista EXPLÍCITA de variantes exatas por mês (normalizado sem acento/caixa) — "novembro"
+e "novembo" ambos aceitos para o mês 11, qualquer nome diferente é ignorado. A primeira versão
+tentava casar por PREFIXO de 3 letras em vez disso; foi trocada depois que a revisão adversarial
+abaixo mostrou que isso colidia com nomes de campo plausíveis e não relacionados ("Novidades",
+"Setor Comercial", "Margem de Lucro" batiam em novembro/setembro/março só pelo prefixo).
+
+**Achado que reduziu o escopo do v1:** as 100 tarefas da lista são de dois tipos bem diferentes —
+tarefas por CLIENTE (ex. "Endereço Fiscal Batial", 1 serviço + 1 cliente, casa direto com
+`(categoria, clienteConexaId)` de `RevenueCategorizedLine`) e tarefas por SALA/espaço físico (ex.
+"Sala 05 - Loja 30", ligadas a um espaço que pode trocar de inquilino, sem chave equivalente no
+nosso schema hoje). Perguntado ao usuário; decisão: **v1 cobre só categorias por cliente**
+(Endereço Fiscal, SeaBox etc.) — Salas Privativas/Serviços de Espaço ficam de fora até existir uma
+chave de correspondência por sala, sem código nenhum forçando isso (o admin simplesmente não
+cadastra vínculo pras categorias de sala).
+
+**Modelo de dados** (`ClickUpVinculo`/`ClickUpListaCache`/`ClickUpPushLog`, prisma/schema.prisma):
+vínculo explícito 1 tarefa ↔ 1 `(categoria, clienteConexaId)`, cadastrado por um admin — nunca por
+nome parecido (é dinheiro). `ClickUpListaCache` guarda os fieldIds dos 12 meses por lista (evita
+bater em "get list fields" a cada push; refaz sozinho se um push não achar o campo do mês). Toda
+tentativa (sucesso ou falha) vira `ClickUpPushLog` — nunca falha em silêncio.
+
+**Corpo do POST de campo Currency confirmado na documentação oficial** (`{ "value": <number> }`,
+sem wrapper) antes de escrever `setTaskFieldValue` — dispensou uma escrita de teste contra a lista
+real só pra descobrir o formato.
+
+**Isolamento (não negociável):** o push roda dentro de `startCategorizationRun` (run.ts), logo
+após persistir com sucesso, mas embrulhado no seu PRÓPRIO try/catch — uma falha do ClickUp (token
+errado, API fora do ar, rate limit) nunca marca a rodada como FAILED nem impede a sincronização de
+receita, que é o que importa de verdade. Dentro do push, cada vínculo também é isolado: a falha de
+um nunca impede os demais. `devePush` (decisao-push.ts) pula o envio quando o valor não mudou —
+poupa cota (100 req/min) e não polui o histórico de alteração do campo no ClickUp; a tela admin
+(`/integracoes/clickup`, ADMIN-only) tem um botão "Empurrar agora" que ignora essa checagem, para
+testar um vínculo sem esperar a próxima rodada.
+
+**Revisão adversarial (multi-agente, 4 dimensões: isolamento, dinheiro/precisão, segurança,
+matching/schema) rodada antes do commit, 2026-07-27 — 10 achados confirmados, todos corrigidos:**
+
+- **CRÍTICO — fuso duplo em `periodoCorrente()`:** `nowInAppTz()` já devolve um Date ajustado ao
+  fuso; repassá-lo como segundo argumento de `getPeriodBounds` fusava DUAS vezes — nas primeiras
+  ~3h de todo mês, o período calculado caía no mês ANTERIOR (mesmo bug já achado e corrigido em
+  `scheduler/auto-sync-window.ts`, reintroduzido aqui). Resultado sem o fix: receita de julho
+  sendo escrita no campo de agosto do ClickUp, todo santo mês, com `sucesso: true` no log. Extraído
+  para `src/lib/clickup/periodo-corrente.ts` (puro, testável) com teste de regressão dedicado
+  (`periodo-corrente.test.ts`, fake timers no exato instante do achado).
+- **CRÍTICO — matching por prefixo colidia com campos reais:** ver acima; trocado por lista
+  explícita de variantes exatas (`VARIANTES_MES`).
+- **ALTO — CHECK `valorEnviado >= 0` impedia logar push de valor negativo:**
+  `RevenueCategorizedLine.valorRecebidoCat` pode ser negativo (estorno/reembolso do cliente no
+  mês) sem constraint nenhuma; o CHECK na migration fazia o INSERT do log falhar justo nesse caso
+  — inclusive o insert de fallback do `catch`, que ficava silenciosamente engolido pelo
+  `.catch(() => {})`. Push realmente aconteceu, zero rastro no banco. Constraint removida da
+  migration (nunca tinha sido aplicada fora do dev DB local — editada em vez de nova migration).
+- **ALTO — cache de campo nunca se autocurava:** o comentário do model `ClickUpListaCache`
+  prometia refresh "por um botão na UI" que nunca existiu. Trocado por autocura de verdade: se a
+  ESCRITA de um campo falhar, `escreverComAutoCura` atualiza o cache e tenta de novo uma vez antes
+  de desistir.
+- **MÉDIO — `res.json()` sem checar corpo vazio:** uma resposta 2xx sem corpo (204, ou 200 vazio)
+  faria `JSON.parse` explodir mesmo com o campo já escrito com sucesso no ClickUp. `api()` agora
+  trata corpo vazio como sucesso sem dado.
+- **MÉDIO — thrash de rede quando um mês genuinamente não tem campo:** sem cache negativo, todo
+  push de todo vínculo daquela lista batia na API de novo. Agora só refaz a busca depois de
+  `CACHE_MAX_AGE_MS` (1h).
+- **MÉDIO — path traversal via `clickUpListId`/`clickUpTaskId`:** um valor tipo
+  `86ahe39fe/../../../../list/999888777` colado no formulário (sem ser uma URL válida, então a
+  extração de ID não filtrava) virava parte literal do path da chamada HTTP, redirecionando pra
+  outro endpoint da mesma API do ClickUp com o token do servidor. Validado em duas camadas: zod na
+  action (`ID_CLICKUP_RE`) e de novo em `client.ts` antes de montar a URL (defesa em profundidade).
+- **MÉDIO — vínculo sem nenhuma linha histórica correspondente:** criar um vínculo pra uma
+  combinação `(categoria, clienteConexaId)` que nunca apareceu em `RevenueCategorizedLine` (typo na
+  categoria, por exemplo) empurraria R$ 0,00 todo mês, indistinguível de um mês real sem receita.
+  `criarVinculoAction` agora AVISA (não bloqueia) quando isso acontece.
+- **MÉDIO (aceito, não corrigido) — push sequencial pode esticar o ciclo de sincronização:** com
+  ClickUp lento/degradado (não fora do ar, só lento), cada vínculo pode levar até ~15s (timeout) e
+  o loop é sequencial de propósito (respeitar o limite de 100 req/min). Para o volume esperado do
+  v1 (poucos vínculos, só categorias por cliente) isso é aceitável; documentado como risco
+  conhecido, não construída uma solução (ex.: orçamento de tempo global pro loop) fora de escopo
+  do v1.
+- **MÉDIO (aceito, não corrigido) — `categoria` é texto livre sem enumeração de variantes:**
+  diferente de `MetaEscopoCategoria` (que enumera toda grafia viva da mesma categoria), um
+  `ClickUpVinculo` fica preso a UMA string exata; se a grafia da categoria mudar depois (mesmo
+  problema documentado na ADR-0017), o vínculo para de casar silenciosamente. O aviso de "sem
+  histórico" acima cobre o caso do typo na criação; drift POSTERIOR à criação não é coberto — risco
+  aceito dado o escopo do v1 (poucas categorias, admins cientes).
+
+**Status:** aceito, corrigido pós-revisão. Migration `20260727000000_clickup_integracao` aplicada
+contra o dev DB local; typecheck limpo, 128 testes; push real contra a API do ClickUp ainda não
+testado (nenhum vínculo real cadastrado ainda, e nenhuma chamada de rede foi feita nesta sessão por
+pedido explícito do usuário) — ver progress.md para o estado exato da validação.
+
+**Superado pela ADR-0024 abaixo** na única decisão que importava de verdade: a chave de
+correspondência do vínculo. Tudo o mais desta ADR (modelo de isolamento, cache de campos,
+matching de mês, revisão adversarial) continua valendo.
+
+## ADR-0024 — ClickUpVinculo por PADRÃO de texto, não por cliente (corrige premissa da ADR-0023)
+
+**O que estava errado:** a ADR-0023 modelou `ClickUpVinculo` como `(categoria, clienteConexaId)`
+— um vínculo, um cliente específico. O usuário apontou o erro direto: "Endereço Fiscal Batial" não
+é um cliente, é a SOMA de todos os clientes que usam aquele produto. Eu tinha assumido isso a
+partir do NOME da tarefa no ClickUp, sem checar os dados de verdade.
+
+**Confirmado com investigação real (pedida pelo usuário: "quero que analise tudo"):**
+
+- Na API do ClickUp, as tarefas "Endereço Fiscal Batial/Litoral/Abissal" têm os campos `Clientes` e
+  `LOCATÁRIO` (relacionamento) **vazios** — nenhum cliente específico ligado. Já as tarefas de sala
+  física (ex. "Sala 02 - Loja 26") têm `LOCATÁRIO` preenchido com o inquilino atual. Ou seja: nem
+  todas as tarefas seguem o mesmo padrão de "1 cliente", e as que pareciam mais óbvias (Endereço
+  Fiscal) são justamente as que somam TODOS.
+- No banco real: a categoria "Endereço Fiscal" tem **555 linhas de 519 clientes distintos**;
+  "Serviços de Espaço - Seaway Center" tem 163 linhas de 133 clientes; "SeaBox" tem 14 linhas de 11
+  clientes. TODA categoria do sistema tem dezenas a centenas de clientes diferentes — não existe
+  categoria genuinamente "de 1 cliente só".
+- O que de fato distingue "Batial" de "Litoral" de "Abissal" é um SUBSTRING dentro do texto livre
+  de `servicoOuPlano` (o "Serviço/Plano" da fatura no Conexa), não a categoria nem o cliente: ex.
+  `"Seatech - EV - Endereço Fiscal Batial Mensal (SEATECH)"`, `"Endereço Fiscal Batial Mensal
+  (SEAHUB COWORKING)"`, `"EV - Endereço Fiscal Batial Anual (SEAHUB COWORKING)"` — nomes bagunçados,
+  mas todos contêm "Batial". O MESMO mecanismo cobre tarefas de sala física: o padrão vira o nome
+  da sala (ex. "[SEAWAY] - SALA DE ATENDIMENTO 02"), eliminando de vez a divisão "categoria por
+  cliente vs. categoria por sala" que a ADR-0023 tinha inventado — não existe essa divisão, é tudo
+  a mesma coisa (categoria + padrão de texto, soma quem bater).
+
+**Modelo corrigido:** `ClickUpVinculo.clienteConexaId`/`razaoSocialCache` removidos;
+`ClickUpVinculo.padroes` (Json, `string[]`) no lugar — um vínculo soma toda
+`RevenueCategorizedLine` cuja `categoria` bate E cujo `servicoOuPlano` contém QUALQUER UM dos
+padrões (`contains`, case-insensitive; OR entre padrões). `src/lib/clickup/filtro-padroes.ts` (puro,
+testado) monta esse filtro e é reaproveitado tanto pelo push real quanto pela prévia da tela admin.
+Unique constraint antiga (`categoria` + `clienteConexaId`) removida — não existe mais um par
+natural para travar; duplicidade de padrão entre vínculos é responsabilidade do admin, mitigada
+pela prévia abaixo, não por uma constraint de banco (padrão é substring, não dá pra travar
+sobreposição via SQL de forma confiável).
+
+**Nunca por nome parecido inferido às cegas (é dinheiro):** a tela admin (`NovoVinculoForm`) tem um
+botão "Pré-visualizar" (`previsualizarVinculoAction`) que roda ANTES de salvar — mostra, pra
+categoria + padrões digitados, cada `servicoOuPlano` real que bate (com ocorrências e clientes
+distintos) e o total do MÊS CORRENTE exato que seria empurrado. Só depois de conferir isso o admin
+clica em "Vincular". `criarVinculoAction` ainda avisa (não bloqueia) se nenhuma linha histórica
+bate com a combinação, mesma rede de segurança de antes, agora aplicada ao padrão em vez de ao
+cliente.
+
+**Validado com dado real:** `filtroPorPadroes("Endereço Fiscal", ["Batial"])` contra o dev DB real
+achou 75 linhas / **65 clientes distintos** / R$ 12.323,25 — confirma exatamente o comportamento
+pretendido (soma de múltiplos clientes por um padrão só). Isolamento (push sem token, sem log, sem
+rede) re-testado com o novo schema e continua correto. Typecheck limpo, 135 testes (7 novos em
+`filtro-padroes.test.ts`).
+
+**Status:** aceito. Mesmas pendências da ADR-0023 (push real de teste contra a API ainda não feito).

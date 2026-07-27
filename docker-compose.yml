@@ -37,6 +37,7 @@ services:
       CONEXA_BASE_URL: https://seahubcoworking.conexa.app
       CONEXA_WEB_USERNAME: ${CONEXA_WEB_USERNAME:-}
       CONEXA_WEB_PASSWORD: ${CONEXA_WEB_PASSWORD:-}
+      CLICKUP_API_TOKEN: ${CLICKUP_API_TOKEN:-}
     ports:
       - "3001:3000"
 

@@ -16,6 +16,7 @@ const NAV: Array<{ href: string; label: string; adminOnly?: boolean }> = [
   { href: "/metas", label: "Metas" },
   { href: "/conflitos", label: "Conflitos", adminOnly: true },
   { href: "/contas", label: "Contas", adminOnly: true },
+  { href: "/integracoes/clickup", label: "ClickUp", adminOnly: true },
 ];
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {

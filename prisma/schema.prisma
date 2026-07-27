@@ -36,12 +36,13 @@ model User {
   updatedAt    DateTime  @updatedAt
   lastLoginAt  DateTime?
 
-  sessions        Session[]
-  loginEvents     LoginEvent[]
-  runs            RevenueSyncRun[]
-  linhasRevisadas RevenueCategorizedLine[]
-  metasDefinidas  MetaPeriodo[]
-  metasAlteradas  MetaPeriodoEvent[]
+  sessions               Session[]
+  loginEvents            LoginEvent[]
+  runs                   RevenueSyncRun[]
+  linhasRevisadas        RevenueCategorizedLine[]
+  metasDefinidas         MetaPeriodo[]
+  metasAlteradas         MetaPeriodoEvent[]
+  clickUpVinculosCriados ClickUpVinculo[]
 
   @@map("users")
 }
@@ -315,15 +316,15 @@ model MetaEscopoCategoria {
 /// a meta em silêncio. Trimestre é o átomo; semestre/ano são a SOMA dos
 /// trimestres contidos, calculada na leitura.
 model MetaPeriodo {
-  id       String     @id @default(cuid())
-  escopoId String
-  escopo   MetaEscopo @relation(fields: [escopoId], references: [id], onDelete: Restrict)
+  id           String     @id @default(cuid())
+  escopoId     String
+  escopo       MetaEscopo @relation(fields: [escopoId], references: [id], onDelete: Restrict)
   /// "yyyy-Q#" (Q1..Q4, trimestre civil — Q1 jan-mar, Q2 abr-jun, Q3 jul-set,
   /// Q4 out-dez). Formato validado na action e por CHECK constraint na
   /// migration — um "2026-7" ou "2026-Q5" gravado por qualquer caminho nunca
   /// casaria com o resolver e a meta sumiria da tela sem erro nenhum.
   anoTrimestre String
-  valor        Decimal @db.Decimal(14, 2)
+  valor        Decimal    @db.Decimal(14, 2)
 
   definidoPorId String?
   definidoPor   User?    @relation(fields: [definidoPorId], references: [id], onDelete: SetNull)
@@ -353,4 +354,88 @@ model MetaPeriodoEvent {
 
   @@index([metaPeriodoId, criadoEm])
   @@map("meta_periodo_events")
+}
+
+// ===========================================================================
+// Integração ClickUp — ver docs/context/decisions.md (ADR-0023)
+// ===========================================================================
+// O ClickUp NÃO é fonte de verdade nenhuma: é um espelho, alimentado a partir
+// de RevenueCategorizedLine a cada sincronização (mesmo ritmo do auto-sync,
+// ver src/lib/clickup/push.ts). Uma falha ao empurrar para o ClickUp nunca
+// pode reverter ou impedir a sincronização de receita em si.
+
+/// Liga UMA tarefa do ClickUp a UMA categoria + um ou mais PADRÕES de texto
+/// contra `RevenueCategorizedLine.servicoOuPlano` — nunca a um cliente
+/// específico. Achado real (2026-07-27, investigação pedida pelo usuário
+/// após ele notar que o desenho original estava errado): cada tarefa do
+/// ClickUp representa um PRODUTO/variante (ex. "Endereço Fiscal Batial", uma
+/// sala física específica), somando TODOS os clientes que usam aquele
+/// produto — nunca um cliente só. Confirmado contra dado real: a categoria
+/// "Endereço Fiscal" tem 519 clientes distintos, divididos entre variantes
+/// como "Batial"/"Litoral"/"Abissal" que aparecem como substring dentro do
+/// texto de `servicoOuPlano` (ex. "Seatech - EV - Endereço Fiscal Batial
+/// Mensal (SEATECH)"). O MESMO mecanismo cobre salas físicas (padrão = nome
+/// da sala, ex. "[SEAWAY] - SALA DE ATENDIMENTO 02"), então não existe mais
+/// a divisão "categoria por cliente vs. categoria por sala" do desenho
+/// anterior — é tudo (categoria, padrões) somando quem bater.
+///
+/// Cadastro explícito mantido por um admin — nunca por nome parecido
+/// inferido automaticamente (é dinheiro, ver financial-rigor.md): a tela
+/// admin mostra uma prévia de quais `servicoOuPlano` reais e qual soma um
+/// padrão vai casar ANTES de salvar.
+model ClickUpVinculo {
+  id            String  @id @default(cuid())
+  categoria     String // string EXATA de RevenueCategorizedLine.categoria
+  /// string[] — cada padrão é um substring (contains, case-insensitive) contra
+  /// `servicoOuPlano`; um vínculo soma TODAS as linhas cuja categoria bate E
+  /// cujo servicoOuPlano contém QUALQUER UM dos padrões (OR entre padrões).
+  padroes       Json
+  clickUpListId String
+  clickUpTaskId String  @unique
+  ativo         Boolean @default(true)
+
+  criadoPorId  String?
+  criadoPor    User?    @relation(fields: [criadoPorId], references: [id], onDelete: SetNull)
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  pushes ClickUpPushLog[]
+
+  @@index([clickUpListId])
+  @@index([categoria])
+  @@map("clickup_vinculos")
+}
+
+/// Cache dos IDs dos 12 campos de mês de uma lista do ClickUp (evita chamar
+/// "get list fields" a cada push). Não existe botão manual de refresh na UI —
+/// o auto-cura é automático (ver src/lib/clickup/push.ts): se a ESCRITA de um
+/// campo falhar, o cache é atualizado e a escrita tentada de novo uma vez
+/// antes de desistir; se o MÊS simplesmente não está no cache, só refaz a
+/// busca depois de `CACHE_MAX_AGE_MS` (evita martelar a rede a cada push
+/// quando o mês genuinamente não tem campo correspondente na lista). `camposPorMes`
+/// é `{ "1": "<fieldId janeiro>", ..., "12": "<fieldId dezembro>" }`.
+model ClickUpListaCache {
+  id            String   @id @default(cuid())
+  clickUpListId String   @unique
+  camposPorMes  Json
+  atualizadoEm  DateTime @updatedAt
+
+  @@map("clickup_lista_cache")
+}
+
+/// Auditoria de todo envio — nunca falhar em silêncio (mesma regra do resto
+/// do projeto, ver financial-rigor.md #8).
+model ClickUpPushLog {
+  id           String         @id @default(cuid())
+  vinculoId    String
+  vinculo      ClickUpVinculo @relation(fields: [vinculoId], references: [id], onDelete: Cascade)
+  ano          Int
+  mes          Int
+  valorEnviado Decimal        @db.Decimal(14, 2)
+  sucesso      Boolean
+  erro         String?
+  enviadoEm    DateTime       @default(now())
+
+  @@index([vinculoId, enviadoEm])
+  @@map("clickup_push_logs")
 }
