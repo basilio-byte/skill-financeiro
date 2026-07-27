@@ -654,3 +654,9 @@
   limpo ao final (meta de teste, sessão, dev DB parado).
 - Typecheck limpo, 114 testes (3 novos em `periodo.test.ts`, `escopos.test.ts` reescrito pro
   escopo único).
+- **Seletor de Ano em `/metas` era uma janela fixa `[hoje-1, hoje, hoje+1]`** — usuário notou que
+  não dava pra navegar além de 2027 e pediu algo durável ("vamos usar esse sistema por anos").
+  Trocado por setas ‹/› (mesmo padrão do `PeriodControls` do Panorama) que deslizam a janela de
+  3 anos CENTRADA no ano visto agora, não no ano real — sem limite de navegação em nenhuma
+  direção, e sem precisar de código novo daqui a 5 ou 50 anos. Link "Ano atual" aparece só quando
+  o ano visto diverge do real.

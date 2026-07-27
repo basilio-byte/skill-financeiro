@@ -48,7 +48,10 @@ export default async function MetasPage({ searchParams }: { searchParams: Promis
   });
 
   const podeEditar = user.role === "ADMIN";
-  const anos = [anoCorrente - 1, anoCorrente, anoCorrente + 1];
+  // Janela de 3 anos CENTRADA no ano visto agora (não no ano real) — clicar
+  // ‹/› desliza a janela inteira pra frente/trás, sem limite. Um sistema
+  // pensado pra durar anos não pode ter um teto de navegação fixo no código.
+  const anosProximos = [ano - 1, ano, ano + 1];
 
   return (
     <div className="flex flex-col gap-6">
@@ -71,7 +74,14 @@ export default async function MetasPage({ searchParams }: { searchParams: Promis
 
       <div className="flex items-center gap-2">
         <span className="text-sm text-slate-500">Ano:</span>
-        {anos.map((a) => (
+        <Link
+          href={`/metas?ano=${ano - 1}`}
+          className="rounded-lg border border-slate-300 px-2 py-1 text-sm text-slate-600 hover:bg-slate-50"
+          aria-label="Ano anterior"
+        >
+          ‹
+        </Link>
+        {anosProximos.map((a) => (
           <Link
             key={a}
             href={`/metas?ano=${a}`}
@@ -82,6 +92,18 @@ export default async function MetasPage({ searchParams }: { searchParams: Promis
             {a}
           </Link>
         ))}
+        <Link
+          href={`/metas?ano=${ano + 1}`}
+          className="rounded-lg border border-slate-300 px-2 py-1 text-sm text-slate-600 hover:bg-slate-50"
+          aria-label="Próximo ano"
+        >
+          ›
+        </Link>
+        {ano !== anoCorrente ? (
+          <Link href="/metas" className="text-xs text-seahub-600 hover:underline">
+            Ano atual
+          </Link>
+        ) : null}
       </div>
 
       {escopos.map((escopo) => (
