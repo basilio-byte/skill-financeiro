@@ -29,7 +29,15 @@ export default async function MetasPage({ searchParams }: { searchParams: Promis
   const agora = nowInAppTz();
   const anoCorrente = agora.getUTCFullYear();
   const ano = /^\d{4}$/.test(sp.ano ?? "") ? Number(sp.ano) : anoCorrente;
-  const anoTrimestrePadrao = trimestreDaData(agora);
+  // O padrão do formulário "Definir meta" segue o ANO QUE ESTÁ SENDO VISTO
+  // (não o ano real de hoje) — mesmo motivo da janela de navegação abaixo:
+  // um admin navegando pra 2028 e abrindo o formulário esperava poder
+  // escolher 2028 direto, não ficar preso a um seletor sempre ancorado em
+  // hoje. O trimestre-padrão só reflete o trimestre real quando o ano visto
+  // é o ano corrente; para qualquer outro ano não existe "trimestre atual",
+  // então cai em Q1.
+  const trimestreNumeroPadrao = ano === anoCorrente ? trimestreDaData(agora).split("-Q")[1] : "1";
+  const anoTrimestrePadrao = `${ano}-Q${trimestreNumeroPadrao}`;
 
   const escopos = await prisma.metaEscopo.findMany({
     where: { ativo: true },

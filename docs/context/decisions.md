@@ -1045,4 +1045,24 @@ pretendido (soma de múltiplos clientes por um padrão só). Isolamento (push se
 rede) re-testado com o novo schema e continua correto. Typecheck limpo, 135 testes (7 novos em
 `filtro-padroes.test.ts`).
 
+**Correção seguinte, mesmo dia — matching precisa ignorar acento, não só caixa.** Usuário: "temos
+as duas escritas (Comercio e Comércio)... não consegui mapear as duas de uma vez só na tarefa."
+Confirmado no dev DB real: a categoria "Endereço Fiscal" tem 5 linhas reais de "Comércio"/
+"Comercio" convivendo (3 com acento, 2 sem — `SEAHUB COWORKING` e `SEATECH` escrevem diferente),
+mesmo padrão de variação já visto em espaçamento (ADR-0017). O filtro original
+(`servicoOuPlano: { contains, mode: "insensitive" }` do Postgres) só ignora maiúscula/minúscula —
+acento é outra colação, e o Postgres não dobra as duas por padrão. **Corrigido: o casamento saiu
+da query do Postgres e passou a acontecer em JS.** `filtroPorPadroes` (que montava o `where` do
+Prisma) foi substituído por `bateAlgumPadrao` (puro) em `filtro-padroes.ts`, usando um
+`normalizarTexto` compartilhado (NFD + descarta marca diacrítica + lowercase — extraído para
+`src/lib/text-normalize.ts`, o mesmo algoritmo que já existia isolado dentro de `mes-fields.ts`
+para o nome dos campos do ClickUp, agora reaproveitado nos dois lugares). `push.ts`/`actions.ts`
+agora buscam as linhas só por `categoria` (+ `dataCredito` quando for o caso) e filtram por
+padrão em memória — categoria isolada raramente passa de algumas centenas de linhas, então o
+custo é desprezível tanto no push periódico quanto na prévia da tela. Validado contra o dado real:
+um único padrão "Comércio" (ou "Comercio", indiferente) agora bate nas 5 linhas reais (3 com
+acento + 2 sem), somando R$ 3.099,60 — antes exigiria dois padrões cadastrados à mão pro admin
+cobrir as duas grafias. Typecheck limpo, 142 testes (novo `text-normalize.test.ts` + 6 novos em
+`filtro-padroes.test.ts` cobrindo o caso Comércio/Comercio nos dois sentidos).
+
 **Status:** aceito. Mesmas pendências da ADR-0023 (push real de teste contra a API ainda não feito).

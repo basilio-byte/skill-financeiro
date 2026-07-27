@@ -1,3 +1,5 @@
+import { normalizarTexto } from "@/lib/text-normalize";
+
 /**
  * Resolve quais campos customizados de uma lista do ClickUp são os 12 campos
  * de mês (Janeiro..Dezembro) — sem depender de rede, para ser testável.
@@ -34,20 +36,6 @@ const VARIANTES_MES: readonly string[][] = [
   ["dezembro"],
 ];
 
-const MARCA_DIACRITICA_MIN = 0x0300;
-const MARCA_DIACRITICA_MAX = 0x036f;
-
-/** Remove acentos (decompondo em NFD e descartando as marcas combinantes) e caixa. */
-function normalizarNome(nome: string): string {
-  const semAcento = Array.from(nome.normalize("NFD"))
-    .filter((ch) => {
-      const code = ch.codePointAt(0) ?? 0;
-      return code < MARCA_DIACRITICA_MIN || code > MARCA_DIACRITICA_MAX;
-    })
-    .join("");
-  return semAcento.trim().toLowerCase();
-}
-
 /**
  * Casa por NOME EXATO (após normalizar acento/caixa) contra uma das variantes
  * conhecidas de cada mês — nunca por prefixo nem por posição na lista de
@@ -59,7 +47,7 @@ export function resolverCamposPorMes(fields: ClickUpField[]): Record<number, str
   const camposPorMes: Record<number, string> = {};
   for (const field of fields) {
     if (field.type !== "currency") continue;
-    const nome = normalizarNome(field.name);
+    const nome = normalizarTexto(field.name);
     const mesIndex = VARIANTES_MES.findIndex((variantes) => variantes.includes(nome));
     if (mesIndex === -1) continue;
     const mes = mesIndex + 1;

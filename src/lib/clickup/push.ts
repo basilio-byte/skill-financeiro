@@ -6,7 +6,7 @@ import { hasClickUpToken } from "@/lib/env";
 import { getListFields, setTaskFieldValue, ClickUpApiError } from "@/lib/clickup/client";
 import { devePush } from "@/lib/clickup/decisao-push";
 import { periodoCorrente } from "@/lib/clickup/periodo-corrente";
-import { filtroPorPadroes } from "@/lib/clickup/filtro-padroes";
+import { bateAlgumPadrao } from "@/lib/clickup/filtro-padroes";
 
 /**
  * Alimenta os campos de mês do ClickUp a partir de RevenueCategorizedLine
@@ -93,14 +93,16 @@ async function pushUmVinculo(
 ): Promise<ResultadoPush> {
   let total = ZERO;
   try {
+    // Busca só por categoria+data no Postgres; o casamento por padrão
+    // acontece em JS (bateAlgumPadrao), não numa query `contains` — precisa
+    // ignorar acento (ex. "Comércio"/"Comercio" convivem no servicoOuPlano
+    // real), e o Postgres só ignora maiúscula/minúscula por padrão.
     const padroes = vinculo.padroes as string[];
-    const linhas = await prisma.revenueCategorizedLine.findMany({
-      where: {
-        ...filtroPorPadroes(vinculo.categoria, padroes),
-        dataCredito: { gte: fromDate, lt: toDateExclusive },
-      },
-      select: { valorRecebidoCat: true },
+    const linhasDaCategoria = await prisma.revenueCategorizedLine.findMany({
+      where: { categoria: vinculo.categoria, dataCredito: { gte: fromDate, lt: toDateExclusive } },
+      select: { valorRecebidoCat: true, servicoOuPlano: true },
     });
+    const linhas = linhasDaCategoria.filter((l) => bateAlgumPadrao(l.servicoOuPlano, padroes));
     total = roundMoney(sum(linhas.map((l) => l.valorRecebidoCat)));
 
     if (!forcar) {

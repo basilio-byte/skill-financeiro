@@ -4,9 +4,9 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { checkRole } from "@/lib/auth/session";
-import { formatBRL, roundMoney, sum, toAmountString } from "@/lib/money";
+import { formatBRL, money, roundMoney, sum, toAmountString, ZERO, type Money } from "@/lib/money";
 import { pushVinculoAgora } from "@/lib/clickup/push";
-import { normalizarPadroes, filtroPorPadroes } from "@/lib/clickup/filtro-padroes";
+import { normalizarPadroes, bateAlgumPadrao } from "@/lib/clickup/filtro-padroes";
 import { periodoCorrente } from "@/lib/clickup/periodo-corrente";
 
 const CLICKUP_ADMIN_PATH = "/integracoes/clickup";
@@ -65,40 +65,42 @@ export async function previsualizarVinculoAction(_prev: PreviewState, formData: 
   if (!categoria) return { error: "Informe a categoria." };
   if (padroes.length === 0) return { error: "Informe ao menos um padrão (um por linha)." };
 
-  const filtro = filtroPorPadroes(categoria, padroes);
-
-  const agg = await prisma.revenueCategorizedLine.groupBy({
-    by: ["servicoOuPlano"],
-    where: filtro,
-    _count: { _all: true },
-    _sum: { valorRecebidoCat: true },
-    orderBy: { _sum: { valorRecebidoCat: "desc" } },
+  // Busca só por categoria — o casamento por padrão é feito em JS logo
+  // abaixo (bateAlgumPadrao), não numa query `contains` do Postgres, porque
+  // precisa ignorar acento (ex. "Comércio"/"Comercio" convivem no
+  // `servicoOuPlano` real da Conexa) e o Postgres só ignora maiúscula/
+  // minúscula por padrão.
+  const linhasDaCategoria = await prisma.revenueCategorizedLine.findMany({
+    where: { categoria },
+    select: { servicoOuPlano: true, valorRecebidoCat: true, clienteConexaId: true, dataCredito: true },
   });
+  const linhasQueBatem = linhasDaCategoria.filter((l) => bateAlgumPadrao(l.servicoOuPlano, padroes));
 
-  const itens: PreviewItem[] = [];
-  for (const a of agg) {
-    // groupBy não dá "clientes distintos" de outro campo diretamente — uma
-    // consulta auxiliar por grupo. Só roda quando o admin pede a prévia
-    // (nunca no caminho de sincronização), então o custo é aceitável.
-    const distintos = await prisma.revenueCategorizedLine.findMany({
-      where: { ...filtro, servicoOuPlano: a.servicoOuPlano },
-      distinct: ["clienteConexaId"],
-      select: { clienteConexaId: true },
-    });
-    itens.push({
-      servicoOuPlano: a.servicoOuPlano,
-      ocorrencias: a._count._all,
-      totalHistorico: (a._sum.valorRecebidoCat ?? 0).toString(),
-      clientesDistintos: distintos.length,
-    });
+  const grupos = new Map<string, { total: Money; ocorrencias: number; clientes: Set<number | null> }>();
+  for (const l of linhasQueBatem) {
+    const g = grupos.get(l.servicoOuPlano) ?? { total: ZERO, ocorrencias: 0, clientes: new Set<number | null>() };
+    g.total = g.total.plus(money(l.valorRecebidoCat));
+    g.ocorrencias += 1;
+    g.clientes.add(l.clienteConexaId);
+    grupos.set(l.servicoOuPlano, g);
   }
+  const itens: PreviewItem[] = [...grupos.entries()]
+    .map(([servicoOuPlano, g]) => ({
+      servicoOuPlano,
+      ocorrencias: g.ocorrencias,
+      totalHistorico: toAmountString(roundMoney(g.total)),
+      clientesDistintos: g.clientes.size,
+    }))
+    .sort((a, b) => Number(b.totalHistorico) - Number(a.totalHistorico));
 
   const { fromDate, toDateExclusive } = periodoCorrente();
-  const linhasMesCorrente = await prisma.revenueCategorizedLine.findMany({
-    where: { ...filtro, dataCredito: { gte: fromDate, lt: toDateExclusive } },
-    select: { valorRecebidoCat: true },
-  });
-  const totalMesCorrente = roundMoney(sum(linhasMesCorrente.map((l) => l.valorRecebidoCat)));
+  const totalMesCorrente = roundMoney(
+    sum(
+      linhasQueBatem
+        .filter((l) => l.dataCredito && l.dataCredito >= fromDate && l.dataCredito < toDateExclusive)
+        .map((l) => l.valorRecebidoCat),
+    ),
+  );
 
   return { itens, totalMesCorrente: toAmountString(totalMesCorrente) };
 }
@@ -141,10 +143,11 @@ export async function criarVinculoAction(_prev: VinculoFormState, formData: Form
   // errado; não bloqueia (pode passar a bater no futuro), mas avisa, senão o
   // vínculo empurraria R$ 0,00 todo mês, indistinguível de um mês real sem
   // receita (achado de revisão adversarial 2026-07-27).
-  const temHistorico = await prisma.revenueCategorizedLine.findFirst({
-    where: filtroPorPadroes(parsed.data.categoria, parsed.data.padroes),
-    select: { id: true },
+  const linhasDaCategoria = await prisma.revenueCategorizedLine.findMany({
+    where: { categoria: parsed.data.categoria },
+    select: { servicoOuPlano: true },
   });
+  const temHistorico = linhasDaCategoria.some((l) => bateAlgumPadrao(l.servicoOuPlano, parsed.data.padroes));
 
   try {
     await prisma.clickUpVinculo.create({

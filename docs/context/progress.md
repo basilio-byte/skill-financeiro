@@ -765,3 +765,36 @@
   linta a produção inteira) + suite completa (135 testes) — sem acesso a navegador real neste
   ambiente pra clicar de fato, então a verificação ficou no nível de build/lint/testes, não de
   clique-a-clique.
+
+## 2026-07-27 (continuação) — Metas: seletor de Ano do formulário ainda tinha teto fixo
+
+- **Usuário reportou (print de `/metas?ano=2028`):** o formulário "Definir meta" mostrava só
+  2025/2026/2027 no seletor de Ano, mesmo navegando pela tela pra 2028 — apesar da navegação por
+  setas (já corrigida antes) ser ilimitada. Causa: `anoTrimestrePadrao` (passado pro formulário)
+  vinha de `trimestreDaData(agora)` — sempre o ANO REAL de hoje, nunca o ano que a página estava
+  de fato exibindo (`?ano=` na URL). O formulário e a navegação eram duas fontes de "ano" agindo
+  de forma independente.
+- **Corrigido em `metas/page.tsx`:** o padrão do formulário agora deriva do `ano` visto na URL
+  (mesma variável que já alimenta a navegação), não de `agora`. O trimestre-padrão só usa o
+  trimestre real quando `ano === anoCorrente`; pra qualquer outro ano (sem "trimestre atual" que
+  faça sentido) cai em Q1. Validado contra o dev server real: `/metas?ano=2028` agora mostra
+  2027/2028/2029 no seletor; `/metas` (sem parâmetro, ano real) continua mostrando 2025/2026/2027
+  como antes — sem regressão no caminho comum.
+
+## 2026-07-27 (continuação) — ClickUp: matching de padrão precisa ignorar acento (ADR-0024)
+
+- **Usuário reportou:** categoria de Endereço Fiscal tem duas grafias reais convivendo
+  ("Comercio" e "Comércio") e não conseguiu cobrir as duas com um padrão só. Confirmado no dev DB:
+  5 linhas reais da categoria "Endereço Fiscal" com essa variação exata (3 com acento — SEAHUB
+  COWORKING —, 2 sem — SEATECH). O filtro `contains`/`mode: "insensitive"` do Postgres só ignora
+  maiúscula/minúscula, nunca acento.
+- **Corrigido:** casamento saiu da query do Postgres e passou pra JS. Novo `bateAlgumPadrao`
+  (`filtro-padroes.ts`, puro) substitui o antigo `filtroPorPadroes` (que montava `where` do
+  Prisma); usa `normalizarTexto` — extraído para `src/lib/text-normalize.ts` a partir do mesmo
+  algoritmo (NFD + descarta diacrítico + lowercase) que já existia isolado dentro de
+  `mes-fields.ts` pro nome dos campos do ClickUp, agora compartilhado. `push.ts`/`actions.ts`
+  buscam só por `categoria` (+`dataCredito` quando cabe) e filtram por padrão em memória —
+  categoria isolada não passa de umas poucas centenas de linhas, custo desprezível.
+- **Validado contra dado real:** um único padrão "Comércio" (ou "Comercio") agora bate nas 5
+  linhas reais nos dois sentidos, somando R$ 3.099,60. Typecheck limpo, 142 testes (novo
+  `text-normalize.test.ts` + 6 novos em `filtro-padroes.test.ts`). Nada commitado ainda.
