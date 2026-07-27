@@ -6,8 +6,16 @@ import { formatBRL } from "@/lib/money";
 import { Card, SectionTitle } from "@/components/ui";
 import { DefinirMetaForm, RemoverMetaForm } from "@/components/metas-form";
 import { nowInAppTz } from "@/lib/dates";
+import { trimestreDaData } from "@/lib/metas/periodo";
 
 export const metadata: Metadata = { title: "Metas" };
+
+const TRIMESTRE_LABEL: Record<string, string> = { Q1: "1º", Q2: "2º", Q3: "3º", Q4: "4º" };
+
+function formatAnoTrimestre(anoTrimestre: string): string {
+  const [ano, q] = anoTrimestre.split("-");
+  return `${TRIMESTRE_LABEL[q!] ?? q} trimestre de ${ano}`;
+}
 
 /**
  * Configuração de metas. Segue o padrão de /categorias e não o de /contas:
@@ -21,7 +29,7 @@ export default async function MetasPage({ searchParams }: { searchParams: Promis
   const agora = nowInAppTz();
   const anoCorrente = agora.getUTCFullYear();
   const ano = /^\d{4}$/.test(sp.ano ?? "") ? Number(sp.ano) : anoCorrente;
-  const mesPadrao = `${anoCorrente}-${String(agora.getUTCMonth() + 1).padStart(2, "0")}`;
+  const anoTrimestrePadrao = trimestreDaData(agora);
 
   const escopos = await prisma.metaEscopo.findMany({
     where: { ativo: true },
@@ -29,8 +37,8 @@ export default async function MetasPage({ searchParams }: { searchParams: Promis
     include: {
       categorias: { select: { categoria: true }, orderBy: { categoria: "asc" } },
       periodos: {
-        where: { anoMes: { startsWith: `${ano}-` } },
-        orderBy: { anoMes: "asc" },
+        where: { anoTrimestre: { startsWith: `${ano}-` } },
+        orderBy: { anoTrimestre: "asc" },
         include: {
           definidoPor: { select: { name: true } },
           eventos: { orderBy: { criadoEm: "desc" }, take: 1, include: { alteradoPor: { select: { name: true } } } },
@@ -47,8 +55,8 @@ export default async function MetasPage({ searchParams }: { searchParams: Promis
       <div>
         <h1 className="text-xl font-semibold text-slate-900">Metas</h1>
         <p className="text-sm text-slate-500">
-          Meta mensal de receita por escopo, apurada por Data de Crédito da Cobrança — o mesmo critério do
-          Panorama. Períodos maiores (trimestre, semestre, ano) somam as metas dos meses que eles contêm.
+          Meta trimestral de receita por escopo, apurada por Data de Crédito da Cobrança — o mesmo critério do
+          Panorama. Períodos maiores (semestre, ano) somam as metas dos trimestres que eles contêm.
         </p>
       </div>
 
@@ -56,7 +64,7 @@ export default async function MetasPage({ searchParams }: { searchParams: Promis
         <SectionTitle>Definir meta</SectionTitle>
         <DefinirMetaForm
           escopos={escopos.map((e) => ({ slug: e.slug, nome: e.nome }))}
-          mesPadrao={mesPadrao}
+          anoTrimestrePadrao={anoTrimestrePadrao}
           podeEditar={podeEditar}
         />
       </Card>
@@ -78,7 +86,7 @@ export default async function MetasPage({ searchParams }: { searchParams: Promis
 
       {escopos.map((escopo) => (
         <Card key={escopo.id} className="overflow-x-auto">
-          <SectionTitle hint={`${escopo.periodos.length} mês(es) com meta em ${ano}`}>{escopo.nome}</SectionTitle>
+          <SectionTitle hint={`${escopo.periodos.length} trimestre(s) com meta em ${ano}`}>{escopo.nome}</SectionTitle>
 
           <p className="mb-3 text-xs text-slate-500">
             Soma as categorias:{" "}
@@ -90,8 +98,7 @@ export default async function MetasPage({ searchParams }: { searchParams: Promis
             ))}
             {escopo.categorias.length > 1 ? (
               <span className="block pt-1 text-slate-400">
-                São grafias diferentes da mesma categoria, geradas por caminhos distintos do sistema — todas
-                somam nesta meta.
+                São grafias diferentes (ou unidades diferentes) da mesma categoria — todas somam nesta meta.
               </span>
             ) : null}
           </p>
@@ -99,7 +106,7 @@ export default async function MetasPage({ searchParams }: { searchParams: Promis
           <table className="w-full text-left text-sm">
             <thead className="text-slate-500">
               <tr>
-                <th className="pb-2 pr-4">Mês</th>
+                <th className="pb-2 pr-4">Trimestre</th>
                 <th className="pb-2 pr-4">Meta</th>
                 <th className="pb-2 pr-4">Definida por</th>
                 <th className="pb-2 pr-4">Última alteração</th>
@@ -112,7 +119,7 @@ export default async function MetasPage({ searchParams }: { searchParams: Promis
                 const foiAlterada = ultimo?.valorAnterior != null;
                 return (
                   <tr key={p.id} className="border-t border-slate-100">
-                    <td className="py-2 pr-4 tabular-nums">{p.anoMes}</td>
+                    <td className="py-2 pr-4 tabular-nums">{formatAnoTrimestre(p.anoTrimestre)}</td>
                     <td className="py-2 pr-4 tabular-nums font-medium">{formatBRL(p.valor.toString())}</td>
                     <td className="py-2 pr-4 text-slate-600">{p.definidoPor?.name ?? "—"}</td>
                     <td className="py-2 pr-4 text-xs text-slate-500">

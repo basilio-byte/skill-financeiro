@@ -304,24 +304,26 @@ model MetaEscopoCategoria {
   @@map("meta_escopo_categorias")
 }
 
-/// O VALOR da meta: uma linha por MÊS. Granularidade única e deliberada.
+/// O VALOR da meta: uma linha por TRIMESTRE. Granularidade única e deliberada
+/// (trocado de mensal para trimestral em 2026-07-24, alinhado com a Duda).
 ///
-/// Por que não um enum de granularidade (MONTH|QUARTER|YEAR) com uma chave de
+/// Por que não um enum de granularidade (QUARTER|SEMESTER|YEAR) com uma chave de
 /// período: `getPeriodBounds("quarter", "2026-07-01").fromKey` e
 /// `getPeriodBounds("month", "2026-07-01").fromKey` produzem A MESMA string
 /// ("2026-07-01"), e "2026-01-01" é simultaneamente chave de ano, de trimestre
 /// e de janeiro (src/lib/dates.ts). Um resolver que somasse por chave dobraria
-/// a meta em silêncio. Mês é o átomo; trimestre/semestre/ano são a SOMA dos
-/// meses contidos, calculada na leitura.
+/// a meta em silêncio. Trimestre é o átomo; semestre/ano são a SOMA dos
+/// trimestres contidos, calculada na leitura.
 model MetaPeriodo {
   id       String     @id @default(cuid())
   escopoId String
   escopo   MetaEscopo @relation(fields: [escopoId], references: [id], onDelete: Restrict)
-  /// "yyyy-MM". Formato validado na action e por CHECK constraint na migration —
-  /// um "2026-7" gravado por qualquer caminho nunca casaria com o resolver e a
-  /// meta sumiria da tela sem erro nenhum.
-  anoMes   String
-  valor    Decimal    @db.Decimal(14, 2)
+  /// "yyyy-Q#" (Q1..Q4, trimestre civil — Q1 jan-mar, Q2 abr-jun, Q3 jul-set,
+  /// Q4 out-dez). Formato validado na action e por CHECK constraint na
+  /// migration — um "2026-7" ou "2026-Q5" gravado por qualquer caminho nunca
+  /// casaria com o resolver e a meta sumiria da tela sem erro nenhum.
+  anoTrimestre String
+  valor        Decimal @db.Decimal(14, 2)
 
   definidoPorId String?
   definidoPor   User?    @relation(fields: [definidoPorId], references: [id], onDelete: SetNull)
@@ -330,8 +332,8 @@ model MetaPeriodo {
 
   eventos MetaPeriodoEvent[]
 
-  @@unique([escopoId, anoMes])
-  @@index([anoMes])
+  @@unique([escopoId, anoTrimestre])
+  @@index([anoTrimestre])
   @@map("meta_periodos")
 }
 

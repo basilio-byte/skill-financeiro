@@ -5,7 +5,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { checkRole } from "@/lib/auth/session";
 import { money, roundMoney, toAmountString } from "@/lib/money";
-import { ANO_MES_RE } from "@/lib/metas/periodo";
+import { ANO_TRIMESTRE_RE } from "@/lib/metas/periodo";
 
 export interface MetaFormState {
   error?: string;
@@ -23,19 +23,19 @@ export interface MetaFormState {
  */
 const metaSchema = z.object({
   escopoSlug: z.string().min(1, "Escolha o escopo"),
-  anoMes: z.string().regex(ANO_MES_RE, "Mês inválido (esperado AAAA-MM)"),
+  anoTrimestre: z.string().regex(ANO_TRIMESTRE_RE, "Trimestre inválido (esperado AAAA-Q# )"),
   valor: z
     .string()
     .min(1, "Informe o valor da meta")
     .regex(/^\d+(\.\d{1,2})?$/, "Valor inválido — use apenas números (ex.: 25000.00)"),
-  repetirAteDezembro: z.string().optional(),
+  repetirAteFimDoAno: z.string().optional(),
 });
 
-/** Meses de `anoMes` até dezembro do MESMO ano (inclusive). */
-function mesesAteDezembro(anoMes: string): string[] {
-  const [ano, mes] = anoMes.split("-").map(Number);
+/** Trimestres de `anoTrimestre` até Q4 do MESMO ano (inclusive). */
+function trimestresAteFimDoAno(anoTrimestre: string): string[] {
+  const [ano, q] = anoTrimestre.split("-Q").map(Number);
   const out: string[] = [];
-  for (let m = mes!; m <= 12; m++) out.push(`${ano}-${String(m).padStart(2, "0")}`);
+  for (let trimestre = q!; trimestre <= 4; trimestre++) out.push(`${ano}-Q${trimestre}`);
   return out;
 }
 
@@ -43,11 +43,17 @@ export async function definirMetaAction(_prev: MetaFormState, formData: FormData
   const auth = await checkRole("ADMIN");
   if (!auth.ok) return { error: auth.error };
 
+  // O form manda Ano e Trimestre em <select>s separados (não dá pra combinar
+  // no HTML sem JS) — remontados aqui antes de validar contra ANO_TRIMESTRE_RE.
+  const metaAno = formData.get("metaAno");
+  const metaTrimestre = formData.get("metaTrimestre");
+  const anoTrimestre = metaAno && metaTrimestre ? `${metaAno}-${metaTrimestre}` : "";
+
   const parsed = metaSchema.safeParse({
     escopoSlug: formData.get("escopoSlug"),
-    anoMes: formData.get("anoMes"),
+    anoTrimestre,
     valor: formData.get("valor"),
-    repetirAteDezembro: formData.get("repetirAteDezembro") ?? undefined,
+    repetirAteFimDoAno: formData.get("repetirAteFimDoAno") ?? undefined,
   });
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Dados inválidos" };
 
@@ -57,26 +63,28 @@ export async function definirMetaAction(_prev: MetaFormState, formData: FormData
   const escopo = await prisma.metaEscopo.findUnique({ where: { slug: parsed.data.escopoSlug } });
   if (!escopo) return { error: "Escopo de meta não encontrado." };
 
-  const meses = parsed.data.repetirAteDezembro ? mesesAteDezembro(parsed.data.anoMes) : [parsed.data.anoMes];
+  const trimestres = parsed.data.repetirAteFimDoAno
+    ? trimestresAteFimDoAno(parsed.data.anoTrimestre)
+    : [parsed.data.anoTrimestre];
   const valorStr = toAmountString(valor);
 
   // Uma transação só: gravar a meta e registrar a alteração no log são um fato
   // só. Meta é o número contra o qual a equipe é avaliada — mudar de R$ 30.000
-  // para R$ 20.000 no fim do mês não pode ficar indistinguível de sempre ter
-  // sido R$ 20.000 (financial-rigor #9).
+  // para R$ 20.000 no fim do trimestre não pode ficar indistinguível de sempre
+  // ter sido R$ 20.000 (financial-rigor #9).
   await prisma.$transaction(async (tx) => {
-    for (const anoMes of meses) {
+    for (const anoTrimestre of trimestres) {
       const atual = await tx.metaPeriodo.findUnique({
-        where: { escopoId_anoMes: { escopoId: escopo.id, anoMes } },
+        where: { escopoId_anoTrimestre: { escopoId: escopo.id, anoTrimestre } },
         select: { id: true, valor: true },
       });
       // Regravar o mesmo valor não é alteração — não polui o log.
       if (atual && atual.valor.toString() === valorStr) continue;
 
       const salvo = await tx.metaPeriodo.upsert({
-        where: { escopoId_anoMes: { escopoId: escopo.id, anoMes } },
+        where: { escopoId_anoTrimestre: { escopoId: escopo.id, anoTrimestre } },
         update: { valor: valorStr, definidoPorId: auth.user.id },
-        create: { escopoId: escopo.id, anoMes, valor: valorStr, definidoPorId: auth.user.id },
+        create: { escopoId: escopo.id, anoTrimestre, valor: valorStr, definidoPorId: auth.user.id },
       });
       await tx.metaPeriodoEvent.create({
         data: {
@@ -91,16 +99,16 @@ export async function definirMetaAction(_prev: MetaFormState, formData: FormData
 
   revalidatePath("/metas");
   revalidatePath("/");
-  const quantos = meses.length;
+  const quantos = trimestres.length;
   return {
     ok:
       quantos === 1
-        ? `Meta de ${escopo.nome} em ${parsed.data.anoMes} definida.`
-        : `Meta de ${escopo.nome} definida para ${quantos} meses (${meses[0]} até ${meses[quantos - 1]}).`,
+        ? `Meta de ${escopo.nome} em ${parsed.data.anoTrimestre} definida.`
+        : `Meta de ${escopo.nome} definida para ${quantos} trimestres (${trimestres[0]} até ${trimestres[quantos - 1]}).`,
   };
 }
 
-/** Remove a meta de um mês (volta ao estado "sem meta definida"). */
+/** Remove a meta de um trimestre (volta ao estado "sem meta definida"). */
 export async function removerMetaAction(_prev: MetaFormState, formData: FormData): Promise<MetaFormState> {
   const auth = await checkRole("ADMIN");
   if (!auth.ok) return { error: auth.error };
@@ -120,5 +128,5 @@ export async function removerMetaAction(_prev: MetaFormState, formData: FormData
   await prisma.metaPeriodo.delete({ where: { id } });
   revalidatePath("/metas");
   revalidatePath("/");
-  return { ok: `Meta de ${meta.escopo.nome} em ${meta.anoMes} removida.` };
+  return { ok: `Meta de ${meta.escopo.nome} em ${meta.anoTrimestre} removida.` };
 }

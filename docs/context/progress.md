@@ -631,3 +631,26 @@
     reporta qualquer linha revisada manualmente (não deveria acontecer, mas checado por
     segurança). Quando a data real chegar, a sincronização automática recria a fatura
     corretamente, se ainda válida. Validado: typecheck limpo, 111 testes.
+
+## 2026-07-24 (continuação) — Metas: escopo unificado + trimestral (ADR-0022)
+
+- **Alinhado com a Duda:** os 3 escopos de meta por unidade (Seaway/Sebrae/Ayrton Senna) viram
+  UM só ("Serviços de Espaço", somando as 3), e a granularidade muda de mensal para trimestral.
+  Migration `20260725000000_metas_trimestrais` renomeia `MetaPeriodo.anoMes` → `anoTrimestre`
+  ("yyyy-Q#"), com `DELETE FROM meta_periodos` explícito antes (nenhuma meta real existia em
+  produção; não há conversão sensata de valor mensal pra trimestral) e remove os 3 `MetaEscopo`
+  antigos (protegido por `ON DELETE RESTRICT` — falharia alto se alguma meta real ainda os
+  referenciasse). `periodo.ts`, `metas.ts`, `actions.ts`, `metas-form.tsx`, `metas-panel.tsx` e
+  `metas/page.tsx` atualizados; `periodoAceitaMeta` agora exclui mês também (só
+  quarter/semester/year aceitam meta). Formulário trocou `<input type="month">` por dois
+  `<select>` (Ano + Trimestre).
+- **Validado de ponta a ponta contra Postgres real** (não só typecheck/testes): migration
+  aplicada com sucesso no dev DB; seed rodado 2x (idempotente); `buildMetas` chamado direto
+  contra dado real (Seaway R$30.561,99 + Sebrae R$3.643,89 + Ayrton R$0,00) com uma meta de teste
+  — resultado bateu exato (R$34.205,88, 34,2%); confirmado `month` agora retorna
+  `aplicavel: false` (antes `true`). Smoke test de navegador real via sessão JWT criada à mão
+  (mesmo mecanismo de `createSession`) — `/metas` e `/` renderizados autenticados, card único
+  "Serviços de Espaço" confirmado no Panorama com o valor agregado certo. Ambiente de teste
+  limpo ao final (meta de teste, sessão, dev DB parado).
+- Typecheck limpo, 114 testes (3 novos em `periodo.test.ts`, `escopos.test.ts` reescrito pro
+  escopo único).

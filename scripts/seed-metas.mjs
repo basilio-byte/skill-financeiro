@@ -1,5 +1,5 @@
 /**
- * Cria os escopos de meta (Serviços de Espaço por unidade).
+ * Cria o escopo de meta ("Serviços de Espaço", somando as 3 unidades).
  *
  * Roda AUTOMATICAMENTE a cada boot, pelo docker-entrypoint.sh — e a cada boot
  * mesmo, diferente do seed de categorias, que só semeia quando a tabela está
@@ -17,6 +17,10 @@
  * um dia existir tela para renomear escopo, este script passaria por cima no
  * próximo deploy — nessa hora, trocar o `update` por `{}`.
  *
+ * Até 2026-07-24 existiam 3 escopos (um por unidade) — unificados num só a
+ * pedido da Duda (ver migration 20260725000000_metas_trimestrais, que remove
+ * os 3 antigos do banco; este script recria só o novo).
+ *
  * As strings de categoria são duplicadas de src/lib/metas/escopos.ts de
  * propósito: este script é .mjs e roda fora do build do Next (sem alias @/),
  * e o teste em escopos.test.ts trava as grafias contra mudança acidental.
@@ -25,24 +29,19 @@ import { PrismaClient } from "@prisma/client";
 
 const ESCOPOS = [
   {
-    slug: "espaco-seaway",
-    nome: "Serviços de Espaço — Seaway Center",
+    slug: "servicos-de-espaco",
+    nome: "Serviços de Espaço",
     ordem: 1,
-    categorias: ["Serviços de Espaço - Seaway Center"],
-  },
-  {
-    slug: "espaco-sebrae",
-    nome: "Serviços de Espaço — Sebrae",
-    ordem: 2,
-    // DOIS espaços (FIXED_FALLBACKS) + UM espaço (seed de categorias normalizado):
-    // as duas grafias da MESMA categoria existem no sistema. Ver escopos.ts.
-    categorias: ["Serviços de Espaço -  Sebrae", "Serviços de Espaço - Sebrae"],
-  },
-  {
-    slug: "espaco-ayrton-senna",
-    nome: "Serviços de Espaço — Ayrton Senna",
-    ordem: 3,
-    categorias: ["Serviços de Espaço -  Ayrton Senna", "Serviços de Espaço - Ayrton Senna"],
+    // DOIS espaços (FIXED_FALLBACKS) + UM espaço (seed de categorias normalizado)
+    // para Sebrae/Ayrton Senna: as duas grafias da MESMA categoria existem no
+    // sistema. Seaway Center não tem esse split. Ver escopos.ts.
+    categorias: [
+      "Serviços de Espaço - Seaway Center",
+      "Serviços de Espaço -  Sebrae",
+      "Serviços de Espaço - Sebrae",
+      "Serviços de Espaço -  Ayrton Senna",
+      "Serviços de Espaço - Ayrton Senna",
+    ],
   },
 ];
 

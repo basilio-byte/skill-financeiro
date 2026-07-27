@@ -84,7 +84,7 @@ function MetaRow({ escopo, ritmo }: { escopo: MetaEscopoResolvido; ritmo: number
           {(escopo.percentual as number) >= 100
             ? `Meta batida — ${formatBRL(escopo.realizado)} sobre ${formatBRL(escopo.meta as string)}.`
             : `Faltam ${formatBRL(escopo.falta as string)}.`}
-          {escopo.mesesComMeta > 1 ? ` Soma de ${escopo.mesesComMeta} meses.` : ""}
+          {escopo.trimestresComMeta > 1 ? ` Soma de ${escopo.trimestresComMeta} trimestres.` : ""}
         </p>
       ) : null}
     </li>
@@ -98,8 +98,8 @@ export function MetasPanel({ metas }: { metas: MetasDoPeriodo }) {
         <SectionTitle>Metas</SectionTitle>
         <p className="text-sm text-slate-500">
           {metas.motivo}{" "}
-          <Link href="/?g=month" className="text-seahub-600 hover:underline">
-            Ver por mês
+          <Link href="/?g=quarter" className="text-seahub-600 hover:underline">
+            Ver por trimestre
           </Link>
           .
         </p>
@@ -157,9 +157,9 @@ export function MetasPanel({ metas }: { metas: MetasDoPeriodo }) {
 
       {!metas.metaCompleta && !semNenhumaMeta ? (
         <p className="mb-3 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
-          Nem todos os {metas.mesesNoPeriodo} meses deste período têm meta definida. Para não comparar coisas
-          diferentes, o realizado mostrado considera <strong>apenas os meses que têm meta</strong> — então este
-          número não é a receita total do período.
+          Nem todos os {metas.trimestresNoPeriodo} trimestres deste período têm meta definida. Para não comparar
+          coisas diferentes, o realizado mostrado considera <strong>apenas os trimestres que têm meta</strong> —
+          então este número não é a receita total do período.
         </p>
       ) : null}
 

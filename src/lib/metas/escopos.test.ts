@@ -11,7 +11,7 @@ import { ESCOPOS_INICIAIS } from "@/lib/metas/escopos";
  * constante, os dois lados mudam juntos, o teste segue verde e a meta para de
  * casar com as linhas gravadas no banco, em silêncio.
  */
-describe("contrato entre escopos de meta e rules.ts", () => {
+describe("contrato entre escopo de meta e rules.ts", () => {
   // Sem regras cadastradas: força o caminho dos FIXED_FALLBACKS, que é quem
   // produz as categorias gravadas nas linhas de Sebrae/Ayrton hoje.
   const matcherSemRegras = new CategoryMatcher([]);
@@ -25,9 +25,8 @@ describe("contrato entre escopos de meta e rules.ts", () => {
   it("o fallback de Sebrae continua com DOIS espaços depois do hífen", () => {
     // Os dois espaços são intencionais — herdados da skill categoriza-receita
     // original e presentes nas linhas já gravadas. Se este teste falhar porque
-    // alguém "corrigiu" o espaçamento em rules.ts, a meta do Sebrae passa a
-    // não somar as linhas antigas: atualize ESCOPOS_INICIAIS junto e planeje a
-    // migração das linhas existentes.
+    // alguém "corrigiu" o espaçamento em rules.ts, a meta para de somar as
+    // linhas antigas: atualize ESCOPOS_INICIAIS junto e planeje a migração.
     expect(matcherSemRegras.match("[SEBRAE] - Auditório").categoria).toBe("Serviços de Espaço -  Sebrae");
   });
 
@@ -37,20 +36,20 @@ describe("contrato entre escopos de meta e rules.ts", () => {
     );
   });
 
-  it("todo escopo cobre a grafia que o fallback produz", () => {
-    const porSlug = new Map(ESCOPOS_INICIAIS.map((e) => [e.slug, e.categorias]));
-    expect(porSlug.get("espaco-seaway")).toContain(matcherSemRegras.match("[SEAWAY] - x").categoria);
-    expect(porSlug.get("espaco-sebrae")).toContain(matcherSemRegras.match("[SEBRAE] - x").categoria);
-    expect(porSlug.get("espaco-ayrton-senna")).toContain(matcherSemRegras.match("[AYRTON SENNA] - x").categoria);
+  it("existe exatamente um escopo (unificado, 2026-07-24), cobrindo as 3 grafias que os fallbacks produzem", () => {
+    expect(ESCOPOS_INICIAIS).toHaveLength(1);
+    const [escopo] = ESCOPOS_INICIAIS;
+    expect(escopo!.categorias).toContain(matcherSemRegras.match("[SEAWAY] - x").categoria);
+    expect(escopo!.categorias).toContain(matcherSemRegras.match("[SEBRAE] - x").categoria);
+    expect(escopo!.categorias).toContain(matcherSemRegras.match("[AYRTON SENNA] - x").categoria);
   });
 
-  it("nenhuma categoria aparece em mais de um escopo (evita contar receita duas vezes)", () => {
-    const vistas = new Map<string, string>();
+  it("nenhuma categoria aparece duplicada dentro do escopo", () => {
+    const vistas = new Set<string>();
     for (const escopo of ESCOPOS_INICIAIS) {
       for (const cat of escopo.categorias) {
-        const anterior = vistas.get(cat);
-        expect(anterior, `"${cat}" está em ${anterior} e em ${escopo.slug}`).toBeUndefined();
-        vistas.set(cat, escopo.slug);
+        expect(vistas.has(cat), `"${cat}" repetida em ${escopo.slug}`).toBe(false);
+        vistas.add(cat);
       }
     }
   });

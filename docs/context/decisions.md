@@ -837,3 +837,52 @@ Achado confirmado com dado real de produção (`scripts/inspecionar-linha.mjs`) 
 não apenas hipótese.
 
 **Status:** aceito.
+
+## ADR-0022 — Metas: escopo unificado + granularidade trimestral (substitui ADR-0016 nesses dois pontos)
+
+**Contexto:** alinhado com a Duda em 2026-07-24. Dois pontos da ADR-0016 mudaram por decisão de
+produto: (1) em vez de 3 escopos separados por unidade (Seaway Center, Sebrae, Ayrton Senna), o
+acompanhamento deve ser um único "Serviços de Espaço" somando as 3; (2) a meta passa de mensal
+para **trimestral** — trimestre civil (Q1 jan-mar, Q2 abr-jun, Q3 jul-set, Q4 out-dez) vira o
+átomo, mês deixa de aceitar meta (junto com dia e semana, que já não aceitavam).
+
+**Escopo unificado:** `ESCOPOS_INICIAIS` (escopos.ts) e o `ESCOPOS` duplicado em
+`scripts/seed-metas.mjs` passam de 3 entradas para 1 (`slug: "servicos-de-espaco"`), cobrindo as
+5 strings de categoria das 3 unidades (Seaway Center não tem split de grafia; Sebrae e Ayrton
+Senna têm 2 cada — ver comentário em escopos.ts, mesmo motivo da ADR-0017/0018). Migration
+`20260725000000_metas_trimestrais` remove os 3 `MetaEscopo` antigos do banco (`DELETE ... WHERE
+slug IN (...)`, protegido pelo `ON DELETE RESTRICT` de `MetaPeriodo.escopoId` — se alguma meta
+real ainda os referenciasse, o DELETE falharia alto em vez de perder dado); o novo escopo é
+recriado pelo seed no próximo boot, não precisa ser inserido na migration.
+
+**Granularidade trimestral:** `MetaPeriodo.anoMes` ("yyyy-MM") renomeado para `anoTrimestre`
+("yyyy-Q#"), com CHECK constraint e índice/unique key correspondentes recriados na migration.
+Nenhuma meta real existia em produção até a mudança (confirmado antes de decidir a estratégia da
+migration) — por isso a migration começa com `DELETE FROM meta_periodos` explícito (não um
+TRUNCATE silencioso) em vez de tentar converter valores mensais em trimestrais, o que não tem
+conversão sensata (a Duda define números novos por trimestre, não herda os antigos). `periodo.ts`
+ganhou `trimestresDoPeriodo`/`trimestreDaData`/`ANO_TRIMESTRE_RE` substituindo
+`mesesDoPeriodo`/`mesDaData`/`ANO_MES_RE`; `periodoAceitaMeta` agora só aceita
+quarter/semester/year (mês excluído, mesmo raciocínio já usado pra dia/semana: ratear uma meta
+trimestral por um recorte menor assumiria receita uniforme e inventaria número). `metas.ts`
+(`buildMetas`) e `actions.ts` (`definirMetaAction`/`removerMetaAction`) atualizados para a nova
+chave; formulário (`metas-form.tsx`) trocou o `<input type="month">` por dois `<select>` (Ano +
+Trimestre, HTML não tem input nativo de trimestre) combinados na action; "repetir até dezembro"
+virou "repetir para os trimestres seguintes do ano" (mesma ideia, agora limitada a Q4 do ano).
+
+**Validado com dado real, não só typecheck:** migration aplicada com sucesso contra Postgres real
+(dev), incluindo confirmação de que o dev DB tinha 2 `MetaPeriodo` de teste (removidos, sem
+problema — são dado de teste, não financeiro) e os 3 escopos antigos (removidos igual); seed
+rodado 2x contra o mesmo banco (idempotente, 1 escopo/5 categorias nas duas vezes);
+`buildMetas` chamado direto contra o banco real com uma meta de teste (Q3 2026, R$100.000) e
+faturas reais já persistidas (Seaway R$30.561,99 + Sebrae R$3.643,89 + Ayrton R$0,00) — resultado
+bateu exato: `realizado: "34205.88"`, `percentual: 34.2`; confirmado que `month` agora retorna
+`aplicavel: false` (antes retornava `true`) enquanto quarter/semester/year continuam `true`.
+Smoke test de navegador real: sessão JWT + linha `Session` criadas à mão (mesmo mecanismo de
+`createSession`) para autenticar como o admin real do dev DB, `/metas?ano=2026` e `/?g=quarter`
+renderizados via `curl` autenticado — confirmado visualmente (grep no HTML) o card único "Serviços
+de Espaço" no Panorama com o valor agregado correto, e a tela de definição de meta com os
+seletores de Ano/Trimestre e as 5 categorias somadas. Meta de teste e sessão removidas depois;
+dev DB parado ao final, sem deixar resíduo.
+
+**Status:** aceito.

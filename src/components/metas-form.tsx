@@ -6,6 +6,13 @@ import { definirMetaAction, removerMetaAction, type MetaFormState } from "@/lib/
 
 const inicial: MetaFormState = {};
 
+const TRIMESTRES = [
+  { valor: "Q1", label: "1º trimestre (jan-mar)" },
+  { valor: "Q2", label: "2º trimestre (abr-jun)" },
+  { valor: "Q3", label: "3º trimestre (jul-set)" },
+  { valor: "Q4", label: "4º trimestre (out-dez)" },
+];
+
 function Botao({ children, secundario }: { children: React.ReactNode; secundario?: boolean }) {
   const { pending } = useFormStatus();
   return (
@@ -21,14 +28,17 @@ function Botao({ children, secundario }: { children: React.ReactNode; secundario
 
 export function DefinirMetaForm({
   escopos,
-  mesPadrao,
+  anoTrimestrePadrao,
   podeEditar,
 }: {
   escopos: Array<{ slug: string; nome: string }>;
-  mesPadrao: string;
+  /** "yyyy-Q#" do trimestre corrente — só o valor inicial dos dois selects abaixo. */
+  anoTrimestrePadrao: string;
   podeEditar: boolean;
 }) {
   const [state, action] = useActionState<MetaFormState, FormData>(definirMetaAction, inicial);
+  const [anoPadrao, trimestrePadrao] = anoTrimestrePadrao.split("-Q");
+  const anos = [Number(anoPadrao) - 1, Number(anoPadrao), Number(anoPadrao) + 1];
 
   if (!podeEditar) {
     return (
@@ -57,11 +67,30 @@ export function DefinirMetaForm({
           </select>
         </div>
 
-        <div className="min-w-[150px]">
-          <label className="label" htmlFor="anoMes">
-            Mês
+        <div className="min-w-[110px]">
+          <label className="label" htmlFor="metaAno">
+            Ano
           </label>
-          <input className="input" id="anoMes" name="anoMes" type="month" defaultValue={mesPadrao} required />
+          <select className="input" id="metaAno" name="metaAno" defaultValue={anoPadrao} required>
+            {anos.map((a) => (
+              <option key={a} value={a}>
+                {a}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="min-w-[190px]">
+          <label className="label" htmlFor="metaTrimestre">
+            Trimestre
+          </label>
+          <select className="input" id="metaTrimestre" name="metaTrimestre" defaultValue={trimestrePadrao} required>
+            {TRIMESTRES.map((t) => (
+              <option key={t.valor} value={t.valor}>
+                {t.label}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div className="min-w-[170px]">
@@ -78,14 +107,14 @@ export function DefinirMetaForm({
             step="0.01"
             min="0"
             inputMode="decimal"
-            placeholder="25000.00"
+            placeholder="75000.00"
             required
           />
         </div>
 
         <label className="flex items-center gap-2 pb-2 text-sm text-slate-600">
-          <input type="checkbox" name="repetirAteDezembro" className="h-4 w-4 rounded border-slate-300" />
-          Repetir até dezembro
+          <input type="checkbox" name="repetirAteFimDoAno" className="h-4 w-4 rounded border-slate-300" />
+          Repetir para os trimestres seguintes do ano
         </label>
 
         <Botao>Salvar meta</Botao>
