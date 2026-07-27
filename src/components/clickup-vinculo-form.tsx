@@ -7,6 +7,7 @@ import { formatBRL } from "@/lib/money";
 import {
   criarVinculoAction,
   empurrarAgoraAction,
+  excluirVinculoAction,
   previsualizarVinculoAction,
   type PreviewState,
   type PushAgoraState,
@@ -184,6 +185,45 @@ export function EmpurrarAgoraButton({ vinculoId }: { vinculoId: string }) {
       </form>
       {state.error ? <p className="mt-1 text-xs text-red-600">{state.error}</p> : null}
       {state.ok ? <p className="mt-1 text-xs text-emerald-700">{state.ok}</p> : null}
+    </div>
+  );
+}
+
+function BotaoConfirmarExclusao() {
+  const { pending } = useFormStatus();
+  return (
+    <button className="btn px-2 py-1 text-xs disabled:opacity-60" type="submit" disabled={pending}>
+      {pending ? "Excluindo…" : "Sim, excluir"}
+    </button>
+  );
+}
+
+/** Botão "Excluir vínculo" com confirmação inline (dois cliques) — apaga o vínculo e seu histórico de push, nunca mexe em receita. */
+export function ExcluirVinculoButton({ vinculoId }: { vinculoId: string }) {
+  const [confirmando, setConfirmando] = useState(false);
+  const [state, action] = useActionState<VinculoFormState, FormData>(excluirVinculoAction, estadoInicialVinculo);
+
+  if (!confirmando) {
+    return (
+      <button type="button" onClick={() => setConfirmando(true)} className="btn-secondary px-2 py-1 text-xs">
+        Excluir
+      </button>
+    );
+  }
+
+  return (
+    <div>
+      <form action={action} className="flex flex-col items-start gap-1">
+        <input type="hidden" name="id" value={vinculoId} />
+        <span className="text-xs text-red-700">Confirma excluir este vínculo? Não tem como desfazer.</span>
+        <div className="flex items-center gap-2">
+          <BotaoConfirmarExclusao />
+          <button type="button" onClick={() => setConfirmando(false)} className="btn-secondary px-2 py-1 text-xs">
+            Cancelar
+          </button>
+        </div>
+      </form>
+      {state.error ? <p className="mt-1 text-xs text-red-600">{state.error}</p> : null}
     </div>
   );
 }

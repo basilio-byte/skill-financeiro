@@ -204,9 +204,20 @@ export async function startCategorizationRun(params: {
     // tarefas vinculadas. Isolada de propósito: o ClickUp é só um espelho, e
     // uma falha aqui (token inválido, API fora do ar, rate limit) NUNCA pode
     // marcar esta rodada como FAILED nem reverter a categorização de receita,
-    // que é o que importa de verdade.
+    // que é o que importa de verdade. Loga o resumo (mesmo quando não há
+    // nada pra fazer) — sem isso, confirmar que o push roda em TODA
+    // sincronização (automática inclusive, não só manual) exigiria acesso
+    // direto ao banco; com o log, dá pra ver isso direto nos logs do
+    // servidor (Easypanel) a cada 15 min.
     try {
-      await pushValoresDoMesCorrente();
+      const resumoClickUp = await pushValoresDoMesCorrente();
+      if (resumoClickUp.vinculosAtivos > 0) {
+        console.log(
+          `[run] ClickUp: ${resumoClickUp.vinculosAtivos} vínculo(s) ativo(s) — ` +
+            `${resumoClickUp.atualizados} atualizado(s), ${resumoClickUp.semMudanca} sem mudança, ` +
+            `${resumoClickUp.falharam} falha(s).`,
+        );
+      }
     } catch (err) {
       console.error("[run] push para o ClickUp falhou (rodada em si concluiu normalmente):", err);
     }

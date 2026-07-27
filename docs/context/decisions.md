@@ -1066,3 +1066,36 @@ cobrir as duas grafias. Typecheck limpo, 142 testes (novo `text-normalize.test.t
 `filtro-padroes.test.ts` cobrindo o caso Comércio/Comercio nos dois sentidos).
 
 **Status:** aceito. Mesmas pendências da ADR-0023 (push real de teste contra a API ainda não feito).
+
+**Correção seguinte, mesmo dia — excluir vínculo e confirmar push automático.** Usuário já tinha
+vínculos reais cadastrados e funcionando em produção (`/integracoes/clickup` real, 4 vínculos de
+"Endereço Fiscal" com pushes bem-sucedidos) e pediu duas coisas: (1) não existia como apagar um
+vínculo, só ativar/desativar; (2) "verifique e assegure" que o push acontece automaticamente em
+toda sincronização (não só quando alguém clica "Empurrar agora").
+
+- **Excluir vínculo:** `excluirVinculoAction` (checkRole ADMIN, `delete` por id, P2025 tratado
+  como sucesso — já não existia, sem erro) + `ExcluirVinculoButton` na tela, mesmo padrão de
+  confirmação inline de dois cliques já usado em `/conflitos`
+  (`BotaoExcluirLinha`/"Confirma excluir? Sim, excluir / Cancelar" — nunca um `window.confirm()`
+  nativo, não é o padrão deste app). Apaga só `ClickUpVinculo` e seu `ClickUpPushLog` (cascade) —
+  `RevenueCategorizedLine` nunca é tocada, confirmado contra o dev DB real.
+- **Push automático — confirmado por leitura direta do código, não suposição:** `run.ts` chama
+  `pushValoresDoMesCorrente()` incondicionalmente depois de QUALQUER rodada bem-sucedida, sem
+  ramificação por `origem` — `runAutoSyncTick()` (auto-sync.ts) chama `startCategorizationRun`
+  com `origem: "AUTOMATICO"`, que passa pelo EXATO mesmo caminho de código de uma rodada manual.
+  Os horários vistos no print do usuário (poucos minutos entre si) eram de cliques manuais em
+  "Empurrar agora" — que testa um vínculo isoladamente, sem rodar sincronização nenhuma — não de
+  ticks automáticos.
+- **Visibilidade adicionada** (pra o próprio usuário conseguir confirmar isso sem acesso ao
+  banco): `pushValoresDoMesCorrente()` agora devolve um resumo
+  (`{ vinculosAtivos, atualizados, semMudanca, falharam }`) em vez de `void`; `run.ts` loga esse
+  resumo depois de toda rodada (`[run] ClickUp: N vínculo(s) ativo(s) — X atualizado(s), Y sem
+  mudança, Z falha(s).`) — visível nos logs do servidor (Easypanel) a cada ciclo de 15 min,
+  automático ou manual. **Nuance importante para o usuário entender o comportamento:**
+  `devePush` pula o envio quando o valor não mudou desde o último sucesso — depois de um teste
+  manual forçado, o próximo tick automático pode legitimamente não reenviar nada (e não atualizar
+  "Último envio") se a receita daquele produto não mudou nesse meio-tempo; isso é o comportamento
+  pretendido (evitar chamada redundante), não uma falha do mecanismo.
+- Validado: typecheck limpo, 142 testes, exclusão testada contra o dev DB real (cascade correto),
+  resumo testado (sem token, `vinculosAtivos` fica 0 mesmo com vínculo real cadastrado — early
+  exit antes de qualquer query, garantia de isolamento preservada).

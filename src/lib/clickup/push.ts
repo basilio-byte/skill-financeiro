@@ -135,21 +135,40 @@ async function pushUmVinculo(
   }
 }
 
+export interface ResumoPushDoMesCorrente {
+  vinculosAtivos: number;
+  atualizados: number;
+  semMudanca: number;
+  falharam: number;
+}
+
 /**
  * Empurra o total do MÊS CORRENTE de cada vínculo ativo — chamada a cada
  * sincronização (run.ts), não só no fechamento do mês (pedido explícito do
  * usuário). Sequencial de propósito: mantém a taxa de chamadas longe do
  * limite de 100/min do ClickUp sem precisar de um limitador à parte.
+ *
+ * Devolve um resumo (não só void) pra quem chama poder logar o que aconteceu
+ * — sem isso, confirmar que o push automático de fato roda a cada ciclo
+ * exigiria acesso direto ao banco; com o resumo, um log de servidor (visível
+ * no Easypanel, por exemplo) já basta (pedido do usuário: "verifique e
+ * assegure" que o push acontece em toda sincronização, 2026-07-27).
  */
-export async function pushValoresDoMesCorrente(): Promise<void> {
-  if (!hasClickUpToken()) return;
+export async function pushValoresDoMesCorrente(): Promise<ResumoPushDoMesCorrente> {
+  const vazio: ResumoPushDoMesCorrente = { vinculosAtivos: 0, atualizados: 0, semMudanca: 0, falharam: 0 };
+  if (!hasClickUpToken()) return vazio;
   const vinculos = await prisma.clickUpVinculo.findMany({ where: { ativo: true } });
-  if (vinculos.length === 0) return;
+  if (vinculos.length === 0) return vazio;
 
+  const resumo: ResumoPushDoMesCorrente = { vinculosAtivos: vinculos.length, atualizados: 0, semMudanca: 0, falharam: 0 };
   const { ano, mes, fromDate, toDateExclusive } = periodoCorrente();
   for (const vinculo of vinculos) {
-    await pushUmVinculo(vinculo, ano, mes, fromDate, toDateExclusive, false);
+    const resultado = await pushUmVinculo(vinculo, ano, mes, fromDate, toDateExclusive, false);
+    if (!resultado.sucesso) resumo.falharam += 1;
+    else if (resultado.pulado) resumo.semMudanca += 1;
+    else resumo.atualizados += 1;
   }
+  return resumo;
 }
 
 /** "Empurrar agora" da tela admin — ignora a checagem de "valor mudou?" para servir de teste. */

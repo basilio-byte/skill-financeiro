@@ -797,4 +797,28 @@
   categoria isolada não passa de umas poucas centenas de linhas, custo desprezível.
 - **Validado contra dado real:** um único padrão "Comércio" (ou "Comercio") agora bate nas 5
   linhas reais nos dois sentidos, somando R$ 3.099,60. Typecheck limpo, 142 testes (novo
-  `text-normalize.test.ts` + 6 novos em `filtro-padroes.test.ts`). Nada commitado ainda.
+  `text-normalize.test.ts` + 6 novos em `filtro-padroes.test.ts`).
+
+## 2026-07-27 (continuação) — ClickUp: excluir vínculo + confirmar push automático
+
+- **Usuário já com vínculos reais funcionando em produção** (print de `/integracoes/clickup` com
+  4 vínculos de Endereço Fiscal e pushes bem-sucedidos) pediu: (1) opção de apagar um vínculo
+  (só existia ativar/desativar) e (2) "verifique e assegure" que o push acontece em toda
+  sincronização automática, não só quando alguém clica "Empurrar agora".
+- **Excluir vínculo:** `excluirVinculoAction` + `ExcluirVinculoButton`, mesmo padrão de
+  confirmação inline de dois cliques já usado em `/conflitos` (nunca `window.confirm()` nativo).
+  Cascade apaga só `ClickUpPushLog`; `RevenueCategorizedLine` nunca é tocada — confirmado contra
+  o dev DB real.
+- **Push automático confirmado por leitura direta do código:** `run.ts` chama
+  `pushValoresDoMesCorrente()` incondicionalmente após qualquer rodada bem-sucedida, sem
+  ramificar por `origem` — automática e manual passam pelo mesmo caminho. Os horários no print do
+  usuário eram de cliques manuais em "Empurrar agora" (testa 1 vínculo isolado, sem sincronizar),
+  não de ticks automáticos.
+- **Visibilidade adicionada:** `pushValoresDoMesCorrente()` agora devolve um resumo
+  (`vinculosAtivos`/`atualizados`/`semMudanca`/`falharam`) e `run.ts` loga isso a cada rodada —
+  dá pra confirmar nos logs do Easypanel, sem precisar de acesso ao banco, que o push roda a cada
+  ciclo de 15 min. Explicado ao usuário: `devePush` pula o reenvio quando o valor não mudou desde
+  o último sucesso — não ver "Último envio" atualizar depois de 15 min é esperado se a receita
+  daquele produto não mudou, não é sinal de que o mecanismo parou de funcionar.
+- Typecheck limpo, 142 testes, exclusão e resumo validados contra o dev DB real. Nada commitado
+  ainda.

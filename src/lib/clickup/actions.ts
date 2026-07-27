@@ -182,6 +182,22 @@ export async function alternarVinculoAction(id: string, ativo: boolean): Promise
   revalidatePath(CLICKUP_ADMIN_PATH);
 }
 
+/** Apaga o vínculo (e seu histórico de push, via cascade) — nunca mexe em RevenueCategorizedLine, só para de espelhar. */
+export async function excluirVinculoAction(_prev: VinculoFormState, formData: FormData): Promise<VinculoFormState> {
+  const auth = await checkRole("ADMIN");
+  if (!auth.ok) return { error: auth.error };
+  const id = String(formData.get("id") ?? "");
+  if (!id) return { error: "Vínculo inválido." };
+
+  await prisma.clickUpVinculo.delete({ where: { id } }).catch((err) => {
+    if ((err as { code?: string })?.code === "P2025") return; // já não existia — some do mesmo jeito, sem erro
+    throw err;
+  });
+
+  revalidatePath(CLICKUP_ADMIN_PATH);
+  return { ok: "Vínculo removido." };
+}
+
 export interface PushAgoraState {
   error?: string;
   ok?: string;

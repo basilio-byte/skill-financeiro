@@ -4,7 +4,7 @@ import { requireRole } from "@/lib/auth/session";
 import { formatBRL } from "@/lib/money";
 import { hasClickUpToken } from "@/lib/env";
 import { Card, SectionTitle } from "@/components/ui";
-import { NovoVinculoForm, EmpurrarAgoraButton } from "@/components/clickup-vinculo-form";
+import { NovoVinculoForm, EmpurrarAgoraButton, ExcluirVinculoButton } from "@/components/clickup-vinculo-form";
 import { alternarVinculoAction } from "@/lib/clickup/actions";
 import { listCategoriasConhecidas } from "@/lib/categorization/categorias";
 
@@ -125,6 +125,7 @@ export default async function ClickUpIntegracaoPage() {
                           {v.ativo ? "Desativar" : "Ativar"}
                         </button>
                       </form>
+                      <ExcluirVinculoButton vinculoId={v.id} />
                     </div>
                   </td>
                 </tr>
