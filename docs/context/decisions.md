@@ -1140,5 +1140,93 @@ resolveu ambiguidades que uma tentativa manual anterior não tinha notado (ex. "
   36, segunda rodada não criou nada de novo (idempotente) e reportou as mesmas 3 sobreposições
   esperadas.
 
+## ADR-0025 — Demais categorias ClickUp (SeaBox, Meu Depósito, Serviços de Espaço) + proteção real de sobreposição no push
+
+**Contexto:** depois de Salas Privativas, usuário perguntou o que mais faltava vincular. Resposta
+levantada da distribuição de categorias já conhecida: SeaBox, Outros Serviços, Hub
+Empreendedoras, Meu Depósito e Serviços de Espaço (3 unidades, estrutura por sala igual Salas
+Privativas, 175 linhas reais — maior volume que Salas Privativas).
+
+**Achado de processo, não só de dado — paginação incompleta quase gerou conclusão errada.** O
+primeiro dump de tarefas da lista "Eficiência" trouxe só 100 tarefas via `GET /list/{id}/task`
+sem paginar; a lista na verdade tem 152. Isso escondia TODAS as tarefas de Meu Depósito e boa
+parte das salas do Seaway Center, levando a uma conclusão inicial errada de "sem tarefa" pra
+essas duas coisas. Corrigido paginando até `last_page`. Registrado em memória
+(`reference_clickup_integration.md`) como lição permanente: **nunca listar tarefas desta lista
+sem paginar**.
+
+**Verificação adversarial (3 agentes independentes, rederivando tudo do zero sem olhar conclusão
+prévia) confirmou o mapeamento e achou 1 ponto que tinha passado batido:**
+
+- SeaBox (2 tarefas, via `TIPO DE PRODUTO` — únicas entre as 152, não um rótulo repetido tipo
+  "Auditório"), Meu Depósito (10 boxes, via "Nome da sala"), Serviços de Espaço - Ayrton
+  Senna/Sebrae (3 salas): confirmados sem ambiguidade.
+- Serviços de Espaço - Seaway Center (59 `servicoOuPlano` distintos): confirmado o mapeamento de
+  ~13 salas específicas + 1 tarefa genérica "Pacote de Horas"; achou que a tarefa de Cabine tem
+  "Nome da sala" = "Cabine 01" mas o texto real da fatura é só "Cabine" (sem sufixo) — corrigido
+  com padrão manual, única tarefa de cabine existente, sem risco de ambiguidade; confirmou que
+  "[SEBRAE] Auditório do Sebrae" (tarefa 86ah8wa55) bate com ZERO linhas reais em qualquer
+  categoria — órfã/duplicada, fora do mapeamento.
+- **Outros Serviços / Hub Empreendedoras: confirmado, com busca exaustiva (2 espaços do
+  workspace, 20+ pastas/listas, tarefas arquivadas e subtarefas, um campo compartilhado com 35
+  opções, uma pista falsa promissora investigada e descartada com evidência — um log de despesas
+  internas, não catálogo de receita), que não existe NENHUMA tarefa no ClickUp pra nenhum dos 14
+  itens dessas 2 categorias.** Nada a criar até alguém montar as tarefas na lista Eficiência —
+  usuário confirmou explicitamente que só a lista `901326339447` é alvo válido, nunca outra lista
+  do workspace mesmo que pareça relacionada.
+
+**Decisão do usuário — "Pacote de Horas" ganha padrões extras:** a tarefa genérica só batia com
+faturas dizendo literalmente "Pacote de horas" (18 de 59 linhas); "Horas do Plano Contratado
+(Xh)" e "PH - Xh anuais - [sala]" são o mesmo tipo de produto (hora avulsa) com nome diferente no
+Conexa, e ficavam de fora (~27% das linhas, só por diferença de texto). Usuário optou por
+mesclar: `padroes: ["Pacote de horas", "Horas do Plano Contratado", "PH -"]` no mesmo vínculo —
+mesmo mecanismo já usado pra "Comércio"/"Comercio".
+
+**Achado crítico do próprio dry-run — a proteção de sobreposição existente só protege a
+CRIAÇÃO, nunca o push.** Ao rodar `scripts/seed-clickup-servicos-espaco.mjs` contra o dev DB
+real, a ordem de criação causou um efeito cascata: "Auditório" (processado primeiro) reivindicou
+uma linha gigante combinando 9 salas/produtos, e isso bloqueou a criação de TODAS as demais salas
+que também batiam nessa mesma linha (Atendimento 01/02/03, Reunião 01/02/03/04) — mesmo elas
+tendo histórico próprio limpo em outras linhas. Investigando a causa, ficou claro um problema
+mais sério: `acharSobreposicoes`/o bloqueio em `criarVinculoAction` só compara contra o HISTÓRICO
+no momento da criação — `pushUmVinculo` (push.ts) soma cada vínculo ativo de forma totalmente
+independente, sem nenhuma checagem cruzada. Pra Salas Privativas/Meu Depósito (contratos mensais
+estáveis) esse risco é baixo (raro uma combinação nova surgir depois). Pra Serviços de Espaço -
+Seaway Center é estrutural: **29% das faturas históricas já combinam 2+ salas na mesma linha**
+(reserva avulsa de sala de reunião, não uma exceção) — qualquer mês futuro em que isso se
+repetisse entre 2 vínculos já ativos (mesmo criados sem conflito) dobraria o valor no ClickUp,
+silenciosamente, sem nenhum log de erro.
+
+**Decisão do usuário: construir a proteção de verdade no push, não só documentar o risco.** Nova
+função pura `linhasExclusivasDoVinculo` (`filtro-padroes.ts`, testada — 5 casos novos): dado o
+vínculo atual e os vínculos IRMÃOS ativos da mesma categoria, exclui da soma qualquer linha que
+TAMBÉM bata num vínculo irmão mais antigo (`criadoEm` como desempate principal, `id` como
+desempate de empate exato — determinístico, os dois lados calculam o mesmo vencedor). Conectada
+em `pushUmVinculo`/`pushValoresDoMesCorrente`/`pushVinculoAgora` (push.ts) — agora todo push, não
+só a criação, respeita "o vínculo mais antigo fica com a linha combinada". **Validado com dado
+real**: os 7 vínculos já criados no dry-run não tinham diferença (a proteção de criação já tinha
+descartado os conflitos históricos existentes); simulando uma fatura FUTURA hipotética
+combinando Auditório + Atendimento 04 (R$500, cenário que a proteção de criação não cobre por
+definição), a soma ingênua dava R$500 a mais no vínculo mais novo — corrigida, some certo.
+
+**3 novos scripts, mesmo padrão de `seed-clickup-salas-privativas.mjs`** (idempotentes,
+`clickUpListId` sempre `901326339447`):
+
+- `scripts/seed-clickup-seabox.mjs`: 2 vínculos (Básico/Pro), zero sobreposição possível (nenhuma
+  linha combinada nessa categoria).
+- `scripts/seed-clickup-meu-deposito.mjs`: 10 boxes (todas as tarefas existem, mesmo as sem
+  fatura ainda). 2 pares aparecem sempre combinados na mesma fatura (04+05, 08+10) — só o
+  primeiro processado de cada par ganha o vínculo (mesmo tradeoff aceito de Salas Privativas).
+- `scripts/seed-clickup-servicos-espaco.mjs`: Ayrton Senna (1) + Sebrae (2) + Seaway Center
+  (~13 salas + Cabine com padrão manual + Pacote de Horas com 3 padrões, salas processadas antes
+  da tarefa genérica de propósito — ver comentário ORDEM no arquivo).
+
+**Validado com dado real, dry-run duplo (idempotência) contra o dev DB, depois limpo (17 linhas
+de teste removidas de `clickup_vinculos`).** Typecheck limpo, 152 testes. Nenhum script rodado em
+produção ainda.
+
+**Status:** aceito. Scripts prontos, ainda não rodados em produção (precisam do deploy destas
+correções primeiro).
+
 **Status:** aceito. Script pronto, ainda não rodado em produção (precisa do deploy destas
 correções primeiro).

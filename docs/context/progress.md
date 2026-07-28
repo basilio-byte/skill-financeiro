@@ -847,3 +847,37 @@
   Salas Privativas — 175 linhas reais). Nenhum desses tem vínculo ainda.
 - Typecheck limpo, 147 testes. Nada commitado ainda — o script só pode rodar em produção depois
   do deploy destas correções.
+- Commit `c93f8ce` feito e enviado (`git push`) pro `main` a pedido do usuário.
+
+## 2026-07-28 (continuação) — SeaBox, Meu Depósito, Serviços de Espaço + proteção real no push
+
+- **Achado de processo**: o dump inicial da lista "Eficiência" trouxe só 100 das 152 tarefas
+  reais (API pagina em blocos de 100, faltou passar por todas as páginas) — isso quase levou a
+  concluir errado que Meu Depósito e várias salas do Seaway Center não tinham tarefa no ClickUp.
+  Corrigido paginando até `last_page`; lição registrada em memória permanente.
+- **Verificação adversarial rodada em background** (3 agentes independentes, rederivando do zero
+  sem ver a conclusão prévia) confirmou o mapeamento de SeaBox/Meu Depósito/Serviços de Espaço
+  (Ayrton Senna/Sebrae/Seaway Center) e, com busca exaustiva em todo o workspace ClickUp (2
+  espaços, 20+ pastas/listas, tarefas arquivadas), confirmou que **Outros Serviços e Hub
+  Empreendedoras não têm NENHUMA tarefa no ClickUp** — nada a criar até alguém montar as tarefas.
+- Usuário confirmou explicitamente: só a lista `901326339447` ("Eficiência") é alvo válido de
+  vínculo, nunca outra lista do workspace mesmo que pareça relacionada.
+- A pedido do usuário, "Pacote de Horas" (tarefa genérica de Serviços de Espaço - Seaway Center)
+  ganhou padrões extras ("Horas do Plano Contratado", "PH -") pra cobrir variantes do mesmo
+  produto que ficavam de fora (~27% das linhas), mesmo mecanismo já usado pra Comércio/Comercio.
+- **Achado crítico durante o dry-run**: a proteção de sobreposição existente (`acharSobreposicoes`)
+  só age na CRIAÇÃO do vínculo, comparando contra o histórico daquele momento — não protege
+  contra uma fatura FUTURA que combine 2 salas cujos vínculos já existiam sem conflito na
+  criação. Pra Serviços de Espaço - Seaway Center isso é sério: 29% das faturas históricas já
+  combinam salas (reserva avulsa, não uma exceção). A pedido do usuário, construída proteção real
+  no push: nova `linhasExclusivasDoVinculo` (testada) conectada em `pushUmVinculo`/
+  `pushValoresDoMesCorrente`/`pushVinculoAgora` — todo push agora exclui linhas que também batem
+  num vínculo irmão ativo mais antigo da mesma categoria (empate por `criadoEm`, desempate por
+  `id`). Validado com dado real: os vínculos já criados não mudaram de valor (a proteção de
+  criação já tinha filtrado os conflitos históricos); simulando uma fatura futura hipotética
+  combinando 2 salas sem conflito histórico, a soma sem a correção dava R$500 a mais no vínculo
+  mais novo — corrigida, some certo.
+- 3 novos scripts (`seed-clickup-seabox.mjs`, `seed-clickup-meu-deposito.mjs`,
+  `seed-clickup-servicos-espaco.mjs`), mesmo padrão idempotente de Salas Privativas. Dry-run
+  duplo contra o dev DB real confirmou idempotência; os 17 vínculos de teste foram removidos do
+  banco depois. Typecheck limpo, 152 testes. Nenhum script rodado em produção ainda.

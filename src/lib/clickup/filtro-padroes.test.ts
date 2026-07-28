@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { acharSobreposicoes, bateAlgumPadrao, normalizarPadroes, PadroesVazioError } from "@/lib/clickup/filtro-padroes";
+import {
+  acharSobreposicoes,
+  bateAlgumPadrao,
+  linhasExclusivasDoVinculo,
+  normalizarPadroes,
+  PadroesVazioError,
+} from "@/lib/clickup/filtro-padroes";
 
 describe("normalizarPadroes", () => {
   it("separa por linha, tira espaço e descarta vazios", () => {
@@ -76,5 +82,52 @@ describe("acharSobreposicoes", () => {
     const linhas = [{ servicoOuPlano: "Endereço Fiscal De   Comercio Mensal" }];
     const outros = [{ id: "v-comercio", clickUpTaskId: "t-comercio", padroes: ["Comércio"] }];
     expect(acharSobreposicoes(linhas, outros)).toHaveLength(1);
+  });
+});
+
+describe("linhasExclusivasDoVinculo", () => {
+  const D1 = new Date("2026-07-28T10:00:00Z");
+  const D2 = new Date("2026-07-28T11:00:00Z");
+
+  it("mantém a linha quando nenhum outro vínculo bate nela", () => {
+    const linhas = [{ servicoOuPlano: "[SEAWAY] - SALA DE ATENDIMENTO 01" }];
+    const atual = { id: "v-atend-01", clickUpTaskId: "t-01", padroes: ["ATENDIMENTO 01"], criadoEm: D1 };
+    expect(linhasExclusivasDoVinculo(linhas, atual, [])).toEqual(linhas);
+  });
+
+  it("exclui uma linha combinada que já pertence a um vínculo IRMÃO mais antigo — caso real Seaway Center", () => {
+    const linhas = [
+      { servicoOuPlano: "[SEAWAY] - AUDITÓRIO; [SEAWAY] - SALA DE ATENDIMENTO 01; [SEAWAY] - SALA DE ATENDIMENTO 02" },
+    ];
+    const atual = { id: "v-atend-01", clickUpTaskId: "t-01", padroes: ["SALA DE ATENDIMENTO 01"], criadoEm: D2 };
+    const outros = [{ id: "v-auditorio", clickUpTaskId: "t-auditorio", padroes: ["AUDITÓRIO"], criadoEm: D1 }];
+    expect(linhasExclusivasDoVinculo(linhas, atual, outros)).toHaveLength(0);
+  });
+
+  it("mantém a linha quando o vínculo irmão que também bate é MAIS NOVO (o mais antigo sempre vence)", () => {
+    const linhas = [{ servicoOuPlano: "[SEAWAY] - AUDITÓRIO; [SEAWAY] - SALA DE ATENDIMENTO 01" }];
+    const atual = { id: "v-auditorio", clickUpTaskId: "t-auditorio", padroes: ["AUDITÓRIO"], criadoEm: D1 };
+    const outros = [{ id: "v-atend-01", clickUpTaskId: "t-01", padroes: ["SALA DE ATENDIMENTO 01"], criadoEm: D2 }];
+    expect(linhasExclusivasDoVinculo(linhas, atual, outros)).toHaveLength(1);
+  });
+
+  it("desempata por id quando criadoEm é idêntico (mesmo resultado dos dois lados)", () => {
+    const linha = { servicoOuPlano: "[SEAWAY] - AUDITÓRIO; [SEAWAY] - SALA DE ATENDIMENTO 01" };
+    const auditorio = { id: "a-auditorio", clickUpTaskId: "t-auditorio", padroes: ["AUDITÓRIO"], criadoEm: D1 };
+    const atendimento = { id: "z-atend-01", clickUpTaskId: "t-01", padroes: ["SALA DE ATENDIMENTO 01"], criadoEm: D1 };
+    // "a-auditorio" < "z-atend-01" -> auditório vence o desempate, fica com a linha.
+    expect(linhasExclusivasDoVinculo([linha], auditorio, [atendimento])).toHaveLength(1);
+    expect(linhasExclusivasDoVinculo([linha], atendimento, [auditorio])).toHaveLength(0);
+  });
+
+  it("mantém linhas não combinadas mesmo com vínculos irmãos mais antigos por perto", () => {
+    const linhas = [
+      { servicoOuPlano: "[SEAWAY] - SALA DE ATENDIMENTO 02" },
+      { servicoOuPlano: "[SEAWAY] - AUDITÓRIO; [SEAWAY] - SALA DE ATENDIMENTO 02" },
+    ];
+    const atual = { id: "v-atend-02", clickUpTaskId: "t-02", padroes: ["SALA DE ATENDIMENTO 02"], criadoEm: D2 };
+    const outros = [{ id: "v-auditorio", clickUpTaskId: "t-auditorio", padroes: ["AUDITÓRIO"], criadoEm: D1 }];
+    const resultado = linhasExclusivasDoVinculo(linhas, atual, outros);
+    expect(resultado).toEqual([{ servicoOuPlano: "[SEAWAY] - SALA DE ATENDIMENTO 02" }]);
   });
 });

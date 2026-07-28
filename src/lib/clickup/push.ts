@@ -6,7 +6,7 @@ import { hasClickUpToken } from "@/lib/env";
 import { getListFields, setTaskFieldValue, ClickUpApiError } from "@/lib/clickup/client";
 import { devePush } from "@/lib/clickup/decisao-push";
 import { periodoCorrente } from "@/lib/clickup/periodo-corrente";
-import { bateAlgumPadrao } from "@/lib/clickup/filtro-padroes";
+import { bateAlgumPadrao, linhasExclusivasDoVinculo } from "@/lib/clickup/filtro-padroes";
 
 /**
  * Alimenta os campos de mês do ClickUp a partir de RevenueCategorizedLine
@@ -85,6 +85,7 @@ async function escreverComAutoCura(vinculo: ClickUpVinculo, fieldId: string, mes
 
 async function pushUmVinculo(
   vinculo: ClickUpVinculo,
+  outrosAtivosDaMesmaCategoria: ClickUpVinculo[],
   ano: number,
   mes: number,
   fromDate: Date,
@@ -102,7 +103,21 @@ async function pushUmVinculo(
       where: { categoria: vinculo.categoria, dataCredito: { gte: fromDate, lt: toDateExclusive } },
       select: { valorRecebidoCat: true, servicoOuPlano: true },
     });
-    const linhas = linhasDaCategoria.filter((l) => bateAlgumPadrao(l.servicoOuPlano, padroes));
+    const linhasQueBatem = linhasDaCategoria.filter((l) => bateAlgumPadrao(l.servicoOuPlano, padroes));
+    // Exclui linhas que uma fatura combinando salas/produtos também faria
+    // baterem num vínculo IRMÃO ativo mais antigo — sem isso, o mesmo valor
+    // seria somado em dobro em cada vínculo que bater na mesma linha, todo
+    // mês em que a combinação se repetisse (ver linhasExclusivasDoVinculo).
+    const linhas = linhasExclusivasDoVinculo(
+      linhasQueBatem,
+      { id: vinculo.id, clickUpTaskId: vinculo.clickUpTaskId, padroes, criadoEm: vinculo.criadoEm },
+      outrosAtivosDaMesmaCategoria.map((v) => ({
+        id: v.id,
+        clickUpTaskId: v.clickUpTaskId,
+        padroes: v.padroes as string[],
+        criadoEm: v.criadoEm,
+      })),
+    );
     total = roundMoney(sum(linhas.map((l) => l.valorRecebidoCat)));
 
     if (!forcar) {
@@ -163,7 +178,8 @@ export async function pushValoresDoMesCorrente(): Promise<ResumoPushDoMesCorrent
   const resumo: ResumoPushDoMesCorrente = { vinculosAtivos: vinculos.length, atualizados: 0, semMudanca: 0, falharam: 0 };
   const { ano, mes, fromDate, toDateExclusive } = periodoCorrente();
   for (const vinculo of vinculos) {
-    const resultado = await pushUmVinculo(vinculo, ano, mes, fromDate, toDateExclusive, false);
+    const outrosDaMesmaCategoria = vinculos.filter((v) => v.id !== vinculo.id && v.categoria === vinculo.categoria);
+    const resultado = await pushUmVinculo(vinculo, outrosDaMesmaCategoria, ano, mes, fromDate, toDateExclusive, false);
     if (!resultado.sucesso) resumo.falharam += 1;
     else if (resultado.pulado) resumo.semMudanca += 1;
     else resumo.atualizados += 1;
@@ -177,6 +193,13 @@ export async function pushVinculoAgora(vinculoId: string): Promise<ResultadoPush
   const vinculo = await prisma.clickUpVinculo.findUnique({ where: { id: vinculoId } });
   if (!vinculo) return { sucesso: false, valorEnviado: "0", erro: "Vínculo não encontrado." };
 
+  // Mesma exclusão de linhas que a rodada automática — sem isso, testar UM
+  // vínculo isoladamente mostraria um valor inflado sempre que ele dividisse
+  // faturas combinadas com outro vínculo ativo da mesma categoria.
+  const outrosDaMesmaCategoria = await prisma.clickUpVinculo.findMany({
+    where: { categoria: vinculo.categoria, ativo: true, id: { not: vinculo.id } },
+  });
+
   const { ano, mes, fromDate, toDateExclusive } = periodoCorrente();
-  return pushUmVinculo(vinculo, ano, mes, fromDate, toDateExclusive, true);
+  return pushUmVinculo(vinculo, outrosDaMesmaCategoria, ano, mes, fromDate, toDateExclusive, true);
 }

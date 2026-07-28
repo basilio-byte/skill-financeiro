@@ -91,3 +91,48 @@ export function acharSobreposicoes(
   }
   return achadas;
 }
+
+export interface VinculoAtivo extends VinculoExistente {
+  criadoEm: Date;
+}
+
+/**
+ * Decide quais linhas somam pra ESTE vínculo quando outros vínculos ATIVOS da
+ * mesma categoria também batem na mesma linha (fatura combinando várias
+ * salas/produtos, ver `acharSobreposicoes` acima).
+ *
+ * Por quê isto precisa existir separado da checagem em `criarVinculoAction`:
+ * aquela checagem só impede a CRIAÇÃO de um vínculo cujo histórico, NAQUELE
+ * MOMENTO, já pertence a outro vínculo — não protege contra uma fatura FUTURA
+ * que combine salas cujos vínculos já existiam sem conflito na criação.
+ * Achado real (Serviços de Espaço - Seaway Center, 2026-07-28): 29% das
+ * faturas históricas já combinam 2+ salas na mesma linha — reserva avulsa de
+ * sala de reunião, não uma exceção rara como em Salas Privativas. Sem este
+ * filtro no push, `pushUmVinculo` somaria a linha inteira em CADA vínculo que
+ * bater, TODO mês em que a combinação se repetisse, sem nenhum aviso.
+ *
+ * Desempate determinístico (mesmo vencedor sempre, os dois lados calculam
+ * igual): o vínculo criado PRIMEIRO (`criadoEm` mais antigo; `id` como
+ * desempate de empate exato) fica com a linha; todo vínculo mais novo que
+ * também bater a exclui da própria soma.
+ */
+export function linhasExclusivasDoVinculo<T extends { servicoOuPlano: string }>(
+  linhas: T[],
+  vinculoAtual: VinculoAtivo,
+  outrosAtivosDaMesmaCategoria: VinculoAtivo[],
+): T[] {
+  const precedeVinculoAtual = (outro: VinculoAtivo): boolean => {
+    const diff = outro.criadoEm.getTime() - vinculoAtual.criadoEm.getTime();
+    if (diff !== 0) return diff < 0;
+    return outro.id < vinculoAtual.id;
+  };
+  return linhas.filter((linha) => {
+    const reivindicadaPorMaisAntigo = outrosAtivosDaMesmaCategoria.some(
+      (outro) =>
+        outro.id !== vinculoAtual.id &&
+        precedeVinculoAtual(outro) &&
+        bateAlgumPadrao(linha.servicoOuPlano, outro.padroes),
+    );
+    return !reivindicadaPorMaisAntigo;
+  });
+}
