@@ -880,4 +880,31 @@
 - 3 novos scripts (`seed-clickup-seabox.mjs`, `seed-clickup-meu-deposito.mjs`,
   `seed-clickup-servicos-espaco.mjs`), mesmo padrão idempotente de Salas Privativas. Dry-run
   duplo contra o dev DB real confirmou idempotência; os 17 vínculos de teste foram removidos do
-  banco depois. Typecheck limpo, 152 testes. Nenhum script rodado em produção ainda.
+  banco depois. Typecheck limpo, 152 testes.
+- **Rodado em produção pelo usuário via Console do Easypanel, mesmo dia.** Diagnóstico rápido
+  antes: usuário reportou "o console trava" ao rodar o primeiro script — isolado em 2 passos
+  (console respondia normal a `node -e`, conexão Prisma→Postgres conectava em <1s) que não era
+  nem o console nem a rede/banco; o script já tinha rodado com sucesso numa tentativa anterior (só
+  não tinha ficado claro pro usuário), confirmado pelo idempotente "0 criado(s), 2 já existiam" no
+  reprocessamento. Os outros 2 scripts rodaram limpos na sequência: Meu Depósito (8 criados, 2
+  pulados por sobreposição) e Serviços de Espaço (7 criados, 9 pulados por sobreposição) — números
+  batendo com o que o dry-run já tinha previsto.
+- **`seed-clickup-salas-privativas.mjs` também rodado em produção** (usuário perguntou "algo ficou
+  pendente?" e isso ainda não tinha confirmação) — falso alarme de "travado" era o comando digitado
+  sem o `node` na frente; com o comando certo, rodou normal: 36 criados, 3 pulados por sobreposição,
+  igual ao dry-run.
+- **Gap identificado, ainda não resolvido**: Serviços de Espaço - Seaway Center só tem 4 das ~13
+  salas específicas vinculadas (Auditório, Atendimento 04, Cabine, Sala de Treinamento) — as outras
+  9 salas + a tarefa genérica "Pacote de Horas" foram puladas na criação por sobreposição, mesmo
+  tendo receita própria limpa em outras linhas, porque a checagem de criação bloqueia o vínculo
+  INTEIRO ao achar qualquer sobreposição no histórico. Agora que o push tem proteção de verdade
+  (linhasExclusivasDoVinculo), esse bloqueio total na criação ficou mais conservador do que precisa
+  — daria pra criar essas 9 salas e deixar o push filtrar as linhas combinadas sozinho. Proposto ao
+  usuário, que confirmou ("prossiga").
+- **Implementado**: `criarVinculoAction` não bloqueia mais por sobreposição, só avisa (mesmo
+  padrão do aviso de "sem histórico"). `seed-clickup-servicos-espaco.mjs` atualizado do mesmo
+  jeito. Dry-run contra o dev DB agora cria os 16 vínculos completos (antes só 7), idempotente.
+  **Validação forte**: simulando os 16 vínculos SEM a correção do push, a soma ingênua dava
+  R$66.936,32 — mais que o dobro do real; com a correção, bate exato com o total real das faturas
+  (R$30.561,99, ao centavo). Typecheck limpo, 152 testes. Aguardando redeploy pra rodar de novo em
+  produção (idempotente sobre os 7 vínculos já existentes).

@@ -37,10 +37,15 @@
  * Next.
  *
  * Sobreposição esperada e ampla aqui: ~29% das 59 linhas de Seaway Center
- * combinam 2+ salas/produtos na mesma fatura. A checagem abaixo cria só a
- * PRIMEIRA tarefa processada de cada grupo que colidir — as demais ficam sem
- * vínculo automático pra aquela linha específica (mesmo tradeoff aceito em
- * Salas Privativas/Meu Depósito, não um bug novo).
+ * combinam 2+ salas/produtos na mesma fatura. Diferente da 1ª rodada deste
+ * script (que PULAVA a tarefa inteira ao achar sobreposição — chegou a criar
+ * só 4 das ~13 salas, mesmo elas tendo bastante receita própria limpa em
+ * outras linhas), agora que `linhasExclusivasDoVinculo` (push.ts) protege
+ * contra dobra de valor em TODO push — não só na criação — o script CRIA
+ * mesmo com sobreposição, só avisa. O push garante que a linha combinada
+ * conta uma única vez, sempre pro vínculo mais antigo (`criadoEm`); o mais
+ * novo soma normalmente só as linhas exclusivas dele. Decisão do usuário
+ * 2026-07-28, 2ª rodada (ver docs/context/decisions.md, ADR-0025 update).
  *
  * IDEMPOTENTE: já existe vínculo pra essa clickUpTaskId? Pula. Rodar de novo
  * não duplica nada.
@@ -106,7 +111,7 @@ async function main() {
   let criados = 0;
   let jaExistiam = 0;
   let semHistorico = 0;
-  let pulados = 0;
+  let comSobreposicao = 0;
 
   for (const item of MAPEAMENTO) {
     const jaTem = await prisma.clickUpVinculo.findUnique({ where: { clickUpTaskId: item.clickUpTaskId } });
@@ -125,24 +130,14 @@ async function main() {
       where: { categoria: item.categoria, ativo: true },
       select: { id: true, clickUpTaskId: true, padroes: true },
     });
-    let colisao = null;
+    const colisoes = [];
     for (const linha of linhasQueBatem) {
       const outro = outrosVinculos.find((o) => bateAlgumPadrao(linha.servicoOuPlano, o.padroes));
-      if (outro) {
-        colisao = { linha: linha.servicoOuPlano, outro };
-        break;
-      }
-    }
-    if (colisao) {
-      console.log(
-        `[seed-servicos-espaco] PULADO "${item.padroes.join(", ")}" (${item.categoria}) — a linha "${colisao.linha}" ` +
-          `já pertence ao vínculo da tarefa ${colisao.outro.clickUpTaskId} (padrões: ${colisao.outro.padroes.join(", ")}).`,
-      );
-      pulados++;
-      continue;
+      if (outro) colisoes.push({ linha: linha.servicoOuPlano, outro });
     }
 
     if (linhasQueBatem.length === 0) semHistorico++;
+    if (colisoes.length > 0) comSobreposicao++;
 
     await prisma.clickUpVinculo.create({
       data: {
@@ -152,16 +147,20 @@ async function main() {
         clickUpTaskId: item.clickUpTaskId,
       },
     });
-    console.log(
-      `[seed-servicos-espaco] criado: "${item.padroes.join(", ")}" (${item.categoria}) -> tarefa ${item.clickUpTaskId}` +
-        (linhasQueBatem.length === 0 ? " [sem fatura no histórico ainda]" : ` [${linhasQueBatem.length} linha(s) histórica(s)]`),
-    );
+    const sufixo =
+      linhasQueBatem.length === 0
+        ? " [sem fatura no histórico ainda]"
+        : colisoes.length > 0
+          ? ` [${linhasQueBatem.length} linha(s) histórica(s), ${colisoes.length} também pertence(m) a um vínculo mais antigo — push exclui essas automaticamente]`
+          : ` [${linhasQueBatem.length} linha(s) histórica(s)]`;
+    console.log(`[seed-servicos-espaco] criado: "${item.padroes.join(", ")}" (${item.categoria}) -> tarefa ${item.clickUpTaskId}${sufixo}`);
     criados++;
   }
 
   console.log(
     `\n[seed-servicos-espaco] resumo: ${criados} criado(s), ${jaExistiam} já existiam (idempotente), ` +
-      `${pulados} pulado(s) por sobreposição, ${semHistorico} criado(s) sem histórico ainda (aviso, não bloqueio).`,
+      `${comSobreposicao} criado(s) com alguma linha compartilhada com vínculo mais antigo (push resolve sozinho), ` +
+      `${semHistorico} criado(s) sem histórico ainda (aviso, não bloqueio).`,
   );
 }
 

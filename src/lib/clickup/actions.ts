@@ -166,12 +166,20 @@ export async function criarVinculoAction(_prev: VinculoFormState, formData: Form
   const linhasQueBatem = linhasDaCategoria.filter((l) => bateAlgumPadrao(l.servicoOuPlano, parsed.data.padroes));
   const temHistorico = linhasQueBatem.length > 0;
 
-  // Bloqueia (não só avisa) se este padrão bater numa linha que outro vínculo
-  // ativo da mesma categoria já reivindica — dois vínculos somando a MESMA
-  // linha dobra/triplica dinheiro que não existe (achado real, Salas
-  // Privativas: faturas que combinam várias salas numa linha só). Diferente
-  // do aviso de "sem histórico" acima (que é só um alerta), aqui o dano é
-  // certo, não hipotético — não faz sentido deixar criar mesmo avisando.
+  // Avisa (não bloqueia mais) se este padrão bater numa linha que outro
+  // vínculo ativo da mesma categoria também reivindica — faturas combinando
+  // várias salas/produtos numa linha só (achado real, Salas Privativas).
+  // Até 2026-07-28 isso BLOQUEAVA a criação inteira, porque só existia
+  // proteção na criação (comparava contra o histórico daquele momento, nunca
+  // contra o push recorrente) — descartava vínculos inteiros mesmo quando a
+  // maior parte da receita da sala era limpa (achado real, Serviços de
+  // Espaço - Seaway Center: só 4 de ~13 salas específicas chegaram a ser
+  // criadas). Agora que `linhasExclusivasDoVinculo` (push.ts) exclui essas
+  // linhas em TODO push — não só na criação —, o vínculo mais novo nunca
+  // dobra o valor da linha combinada; só deixa de contar as linhas que já
+  // pertencem ao vínculo mais antigo, contando normalmente as linhas
+  // exclusivas dele. Criar continua sendo a decisão certa; só o aviso muda de
+  // "bloqueio" pra "informativo".
   const outrosVinculos = await prisma.clickUpVinculo.findMany({
     where: { categoria: parsed.data.categoria, ativo: true },
     select: { id: true, clickUpTaskId: true, padroes: true },
@@ -180,15 +188,6 @@ export async function criarVinculoAction(_prev: VinculoFormState, formData: Form
     linhasQueBatem,
     outrosVinculos.map((v) => ({ id: v.id, clickUpTaskId: v.clickUpTaskId, padroes: v.padroes as string[] })),
   );
-  if (sobreposicoes.length > 0) {
-    const exemplos = sobreposicoes
-      .slice(0, 3)
-      .map((s) => `"${s.servicoOuPlano}" (já vinculada à tarefa ${s.clickUpTaskId})`)
-      .join("; ");
-    return {
-      error: `Este padrão bate em ${sobreposicoes.length} linha(s) que já pertencem a outro vínculo ativo — criar dobraria o valor empurrado pras duas tarefas. Exemplo: ${exemplos}.`,
-    };
-  }
 
   try {
     await prisma.clickUpVinculo.create({
@@ -207,13 +206,19 @@ export async function criarVinculoAction(_prev: VinculoFormState, formData: Form
     throw err;
   }
 
+  let aviso: string | undefined;
+  if (!temHistorico) {
+    aviso = `Nenhuma fatura já categorizada bate com "${parsed.data.categoria}" + os padrões informados — confira a grafia, senão este vínculo vai empurrar R$ 0,00 todo mês.`;
+  } else if (sobreposicoes.length > 0) {
+    const exemplos = sobreposicoes
+      .slice(0, 3)
+      .map((s) => `"${s.servicoOuPlano}" (tarefa ${s.clickUpTaskId})`)
+      .join("; ");
+    aviso = `${sobreposicoes.length} linha(s) histórica(s) também pertencem a outro vínculo ativo — o push exclui essas linhas daqui automaticamente (fica só com o vínculo mais antigo), então este vínculo soma normalmente só as linhas exclusivas dele. Exemplo: ${exemplos}.`;
+  }
+
   revalidatePath(CLICKUP_ADMIN_PATH);
-  return {
-    ok: "Vínculo criado.",
-    aviso: temHistorico
-      ? undefined
-      : `Nenhuma fatura já categorizada bate com "${parsed.data.categoria}" + os padrões informados — confira a grafia, senão este vínculo vai empurrar R$ 0,00 todo mês.`,
-  };
+  return { ok: "Vínculo criado.", aviso };
 }
 
 export async function alternarVinculoAction(id: string, ativo: boolean): Promise<void> {

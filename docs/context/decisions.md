@@ -1140,6 +1140,13 @@ resolveu ambiguidades que uma tentativa manual anterior não tinha notado (ex. "
   36, segunda rodada não criou nada de novo (idempotente) e reportou as mesmas 3 sobreposições
   esperadas.
 
+**Rodado em produção (2026-07-28), via Console do Easypanel** (mesmo dia do ADR-0025, depois de
+diagnosticar um falso alarme — o usuário tinha digitado o comando sem o `node` na frente, o que
+não trava de verdade, só não executa nada visível): 36 criados, 3 pulados por sobreposição — igual
+ao dry-run.
+
+**Status:** aceito, rodado em produção.
+
 ## ADR-0025 — Demais categorias ClickUp (SeaBox, Meu Depósito, Serviços de Espaço) + proteção real de sobreposição no push
 
 **Contexto:** depois de Salas Privativas, usuário perguntou o que mais faltava vincular. Resposta
@@ -1222,11 +1229,40 @@ definição), a soma ingênua dava R$500 a mais no vínculo mais novo — corrig
   da tarefa genérica de propósito — ver comentário ORDEM no arquivo).
 
 **Validado com dado real, dry-run duplo (idempotência) contra o dev DB, depois limpo (17 linhas
-de teste removidas de `clickup_vinculos`).** Typecheck limpo, 152 testes. Nenhum script rodado em
-produção ainda.
+de teste removidas de `clickup_vinculos`).** Typecheck limpo, 152 testes.
 
-**Status:** aceito. Scripts prontos, ainda não rodados em produção (precisam do deploy destas
-correções primeiro).
+**Rodado em produção (2026-07-28), via Console do Easypanel:** SeaBox — 2 criados. Meu Depósito
+— 8 criados, 2 pulados por sobreposição (04/05 e 08/10, exatamente como previsto no dry-run).
+Serviços de Espaço — 7 criados, 9 pulados por sobreposição (a complexidade real do Seaway Center,
+também consistente com o dry-run); Sala de Treinamento teve histórico real em produção (o dev DB
+não tinha nenhum). Nenhum erro; resultados batem com a validação prévia.
 
-**Status:** aceito. Script pronto, ainda não rodado em produção (precisa do deploy destas
-correções primeiro).
+**Correção seguinte, mesmo dia — relaxar o bloqueio de criação pra aviso, agora que o push
+protege de verdade.** Usuário perguntou "algo ficou pendente?" depois de rodar os 4 scripts em
+produção. Resposta expôs um gap real: Serviços de Espaço - Seaway Center só tinha 4 das ~13 salas
+específicas vinculadas (Auditório, Atendimento 04, Cabine, Sala de Treinamento) — as outras 9
+salas + "Pacote de Horas" foram PULADAS na criação por sobreposição, mesmo tendo receita própria
+limpa em outras linhas, porque `criarVinculoAction` ainda bloqueava a criação INTEIRA ao achar
+qualquer sobreposição no histórico (comportamento de antes do push ganhar proteção real). Como
+`linhasExclusivasDoVinculo` já garante que o push nunca dobra valor de linha combinada, esse
+bloqueio na criação virou desnecessariamente conservador — só impedia rastrear receita que já
+seria contabilizada corretamente de qualquer forma.
+
+**Mudança:** `criarVinculoAction` (`actions.ts`) não bloqueia mais por sobreposição — cria o
+vínculo e devolve um aviso informativo (mesmo padrão do aviso de "sem histórico" já existente,
+não um erro). `scripts/seed-clickup-servicos-espaco.mjs` atualizado do mesmo jeito: cria mesmo com
+sobreposição, loga quantas linhas são compartilhadas com um vínculo mais antigo. Essa mudança é
+genérica (vale pra qualquer categoria via a tela admin), não só Seaway Center — mas só o script de
+Serviços de Espaço foi alterado nesta rodada; os scripts de Salas Privativas/Meu Depósito
+continuam pulando suas poucas sobreposições conhecidas (3 e 2 respectivamente), ficando como
+follow-up opcional caso o usuário queira recuperar essas também.
+
+**Validado com dado real, dry-run duplo (idempotência) contra o dev DB — agora cria os 16
+vínculos completos** (antes só 7). **Prova concreta de que a proteção funciona:** somando os 16
+vínculos coexistindo SEM a correção do push (simulação), o total ingênuo dava R$66.936,32 — mais
+que o DOBRO do real; com `linhasExclusivasDoVinculo`, a soma corrigida bate EXATO com o total real
+das faturas da categoria (R$30.561,99, ao centavo). Vínculos de teste removidos do dev DB depois.
+Typecheck limpo, 152 testes.
+
+**Status:** aceito, rodado em produção (aguardando redeploy pra rodar de novo o script atualizado
+de Serviços de Espaço — vai criar as ~9 salas que faltam, idempotente sobre as 7 já existentes).
