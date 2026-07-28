@@ -1,8 +1,9 @@
 import "server-only";
 import { prisma } from "@/lib/db";
+import type { MetaGranularidade } from "@prisma/client";
 import { money, roundMoney, toAmountString, ZERO, type Money } from "@/lib/money";
 import type { PeriodBounds } from "@/lib/dates";
-import { fracaoDecorrida, trimestreDaData, trimestresDoPeriodo, periodoAceitaMeta } from "@/lib/metas/periodo";
+import { fracaoDecorrida, chaveDaData, chavesDoPeriodo, granularidadeDoKind } from "@/lib/metas/periodo";
 
 /**
  * Apuração de metas para o Panorama.
@@ -11,37 +12,42 @@ import { fracaoDecorrida, trimestreDaData, trimestresDoPeriodo, periodoAceitaMet
  *  - `realizado` e `%` NUNCA vêm do banco — são calculados ao vivo a partir das
  *    linhas atuais, por `dataCredito` (regime de caixa, o mesmo que o resto do
  *    app usa). Persistir o realizado repetiria o erro que a ADR-0013 corrigiu.
- *  - Meta é TRIMESTRAL. Semestre/ano = soma dos trimestres contidos.
- *  - Quando só PARTE dos trimestres do período tem meta, o realizado é
- *    recortado para EXATAMENTE os mesmos trimestres. Dividir 4 trimestres de
- *    receita por 1 trimestre de meta produziria um "400% da meta" que parece
- *    apurado e é lixo.
+ *  - Mensal e trimestral são SÉRIES INDEPENDENTES (2026-07-28): a visão de mês
+ *    do Panorama usa metas MES; trimestre/semestre/ano usam metas TRIMESTRE —
+ *    nunca uma é derivada da outra. Semestre/ano continuam somando os
+ *    trimestres contidos, exatamente como antes de mês voltar a existir.
+ *  - Quando só PARTE dos períodos-átomo (meses ou trimestres, conforme a
+ *    granularidade) tem meta, o realizado é recortado para EXATAMENTE os
+ *    mesmos períodos. Dividir a receita de 4 trimestres por 1 trimestre de
+ *    meta produziria um "400% da meta" que parece apurado e é lixo.
  */
 
 export interface MetaEscopoResolvido {
   slug: string;
   nome: string;
-  /** null = nenhum trimestre do período tem meta definida. */
+  /** null = nenhum período-átomo do intervalo tem meta definida. */
   meta: string | null;
-  /** Receita dos trimestres COM meta (não do período inteiro), quando há meta parcial. */
+  /** Receita dos períodos COM meta (não do intervalo inteiro), quando há meta parcial. */
   realizado: string;
   /** null quando não há meta, ou quando a meta é zero (divisão sem sentido). */
   percentual: number | null;
   /** Quanto falta para bater a meta; 0 se já bateu. */
   falta: string | null;
-  trimestresComMeta: number;
+  periodosComMeta: number;
 }
 
 export interface MetasDoPeriodo {
-  /** false em dia/semana/mês — a meta é trimestral e ratear inventaria número. */
+  /** false em dia/semana — mês e trimestre agora aceitam meta direta, dia/semana continuam sem resposta honesta. */
   aplicavel: boolean;
   motivo?: string;
+  /** Granularidade usada nesta apuração (MES pra visão de mês, TRIMESTRE pras demais); null quando !aplicavel. */
+  granularidade: MetaGranularidade | null;
   escopos: MetaEscopoResolvido[];
   totalMeta: string | null;
   totalRealizado: string;
   percentualTotal: number | null;
-  trimestresNoPeriodo: number;
-  /** Todos os trimestres do período têm meta? Se não, a comparação é recortada. */
+  periodosNoPeriodo: number;
+  /** Todos os períodos-átomo do intervalo têm meta? Se não, a comparação é recortada. */
   metaCompleta: boolean;
   /**
    * Onde o ritmo LINEAR estaria hoje (0..100), ou null se o período não está
@@ -64,21 +70,23 @@ export async function buildMetas(periodo: PeriodBounds, agora: Date): Promise<Me
     include: { categorias: { select: { categoria: true } } },
   });
 
-  const trimestres = trimestresDoPeriodo(periodo);
+  const granularidade = granularidadeDoKind(periodo.kind);
+  const chaves = granularidade ? chavesDoPeriodo(periodo, granularidade) : [];
   const base: MetasDoPeriodo = {
-    aplicavel: periodoAceitaMeta(periodo.kind),
+    aplicavel: granularidade !== null,
+    granularidade,
     escopos: [],
     totalMeta: null,
     totalRealizado: toAmountString(ZERO),
     percentualTotal: null,
-    trimestresNoPeriodo: trimestres.length,
+    periodosNoPeriodo: chaves.length,
     metaCompleta: false,
     ritmoEsperadoPct: null,
     temEscopos: escopos.length > 0,
   };
 
-  if (!base.aplicavel) {
-    return { ...base, motivo: "A meta é trimestral — escolha Trimestral, Semestral ou Anual." };
+  if (!granularidade) {
+    return { ...base, motivo: "A meta é mensal ou trimestral — escolha Mensal, Trimestral, Semestral ou Anual." };
   }
   if (escopos.length === 0) return base;
 
@@ -87,8 +95,8 @@ export async function buildMetas(periodo: PeriodBounds, agora: Date): Promise<Me
 
   const [metasPeriodo, linhas] = await Promise.all([
     prisma.metaPeriodo.findMany({
-      where: { escopoId: { in: escopoIds }, anoTrimestre: { in: trimestres } },
-      select: { escopoId: true, anoTrimestre: true, valor: true },
+      where: { escopoId: { in: escopoIds }, granularidade, periodoChave: { in: chaves } },
+      select: { escopoId: true, periodoChave: true, valor: true },
     }),
     todasCategorias.length === 0
       ? Promise.resolve([])
@@ -101,52 +109,50 @@ export async function buildMetas(periodo: PeriodBounds, agora: Date): Promise<Me
         }),
   ]);
 
-  // (escopoId → anoTrimestre → valor) e (categoria → escopoId)
-  const metaPorEscopoTrimestre = new Map<string, Map<string, Money>>();
+  // (escopoId → periodoChave → valor) e (categoria → escopoId)
+  const metaPorEscopoChave = new Map<string, Map<string, Money>>();
   for (const m of metasPeriodo) {
-    const porTrimestre = metaPorEscopoTrimestre.get(m.escopoId) ?? new Map<string, Money>();
-    porTrimestre.set(m.anoTrimestre, money(m.valor.toString()));
-    metaPorEscopoTrimestre.set(m.escopoId, porTrimestre);
+    const porChave = metaPorEscopoChave.get(m.escopoId) ?? new Map<string, Money>();
+    porChave.set(m.periodoChave, money(m.valor.toString()));
+    metaPorEscopoChave.set(m.escopoId, porChave);
   }
   const escopoDaCategoria = new Map<string, string>();
   for (const e of escopos) {
     for (const c of e.categorias) escopoDaCategoria.set(c.categoria, e.id);
   }
 
-  // Receita por (escopo, trimestre) — o recorte por trimestre é o que permite
-  // comparar só os trimestres que têm meta quando a configuração está incompleta.
-  const realizadoPorEscopoTrimestre = new Map<string, Map<string, Money>>();
+  // Receita por (escopo, período-átomo) — o recorte é o que permite comparar
+  // só os períodos que têm meta quando a configuração está incompleta.
+  const realizadoPorEscopoChave = new Map<string, Map<string, Money>>();
   for (const l of linhas) {
-    if (!l.dataCredito) continue; // sem data não pertence a trimestre nenhum
+    if (!l.dataCredito) continue; // sem data não pertence a período nenhum
     const escopoId = escopoDaCategoria.get(l.categoria);
     if (!escopoId) continue;
-    const trimestre = trimestreDaData(l.dataCredito);
-    const porTrimestre = realizadoPorEscopoTrimestre.get(escopoId) ?? new Map<string, Money>();
-    porTrimestre.set(trimestre, (porTrimestre.get(trimestre) ?? ZERO).plus(money(l.valorRecebidoCat.toString())));
-    realizadoPorEscopoTrimestre.set(escopoId, porTrimestre);
+    const chave = chaveDaData(l.dataCredito, granularidade);
+    const porChave = realizadoPorEscopoChave.get(escopoId) ?? new Map<string, Money>();
+    porChave.set(chave, (porChave.get(chave) ?? ZERO).plus(money(l.valorRecebidoCat.toString())));
+    realizadoPorEscopoChave.set(escopoId, porChave);
   }
 
   let totalMeta = ZERO;
   let totalRealizado = ZERO;
   let algumaMeta = false;
-  let todosTrimestresComMeta = true;
+  let todasChavesComMeta = true;
 
   const resolvidos: MetaEscopoResolvido[] = escopos.map((e) => {
-    const metasDoEscopo = metaPorEscopoTrimestre.get(e.id);
-    const realizadoDoEscopo = realizadoPorEscopoTrimestre.get(e.id);
-    const trimestresComMeta = trimestres.filter((t) => metasDoEscopo?.has(t));
+    const metasDoEscopo = metaPorEscopoChave.get(e.id);
+    const realizadoDoEscopo = realizadoPorEscopoChave.get(e.id);
+    const chavesComMeta = chaves.filter((c) => metasDoEscopo?.has(c));
 
-    if (trimestresComMeta.length === 0) {
-      // Sem meta: ainda assim mostramos o realizado do período inteiro, que é
-      // informação honesta e ajuda a calibrar a meta a ser definida.
-      const realizadoTotal = trimestres.reduce<Money>(
-        (acc, t) => acc.plus(realizadoDoEscopo?.get(t) ?? ZERO),
-        ZERO,
-      );
+    if (chavesComMeta.length === 0) {
+      // Sem meta: ainda assim mostramos o realizado do intervalo inteiro, que
+      // é informação honesta e ajuda a calibrar a meta a ser definida.
+      const realizadoTotal = chaves.reduce<Money>((acc, c) => acc.plus(realizadoDoEscopo?.get(c) ?? ZERO), ZERO);
       // NÃO marca o período como incompleto: um escopo sem meta NENHUMA já se
       // explica sozinho na própria linha ("sem meta definida"). "Incompleto" é
-      // outra coisa — escopo que tem meta em alguns trimestres do período e
-      // não em todos, que é o caso em que o realizado precisa ser recortado.
+      // outra coisa — escopo que tem meta em alguns períodos-átomo do
+      // intervalo e não em todos, que é o caso em que o realizado precisa ser
+      // recortado.
       return {
         slug: e.slug,
         nome: e.nome,
@@ -154,19 +160,16 @@ export async function buildMetas(periodo: PeriodBounds, agora: Date): Promise<Me
         realizado: toAmountString(roundMoney(realizadoTotal)),
         percentual: null,
         falta: null,
-        trimestresComMeta: 0,
+        periodosComMeta: 0,
       };
     }
 
-    if (trimestresComMeta.length < trimestres.length) todosTrimestresComMeta = false;
+    if (chavesComMeta.length < chaves.length) todasChavesComMeta = false;
     algumaMeta = true;
 
-    const metaSoma = trimestresComMeta.reduce<Money>((acc, t) => acc.plus(metasDoEscopo!.get(t)!), ZERO);
-    // Recorte deliberado: só os trimestres que têm meta entram no realizado.
-    const realizadoSoma = trimestresComMeta.reduce<Money>(
-      (acc, t) => acc.plus(realizadoDoEscopo?.get(t) ?? ZERO),
-      ZERO,
-    );
+    const metaSoma = chavesComMeta.reduce<Money>((acc, c) => acc.plus(metasDoEscopo!.get(c)!), ZERO);
+    // Recorte deliberado: só os períodos que têm meta entram no realizado.
+    const realizadoSoma = chavesComMeta.reduce<Money>((acc, c) => acc.plus(realizadoDoEscopo?.get(c) ?? ZERO), ZERO);
 
     totalMeta = totalMeta.plus(metaSoma);
     totalRealizado = totalRealizado.plus(realizadoSoma);
@@ -179,7 +182,7 @@ export async function buildMetas(periodo: PeriodBounds, agora: Date): Promise<Me
       realizado: toAmountString(roundMoney(realizadoSoma)),
       percentual: pct(realizadoSoma, metaSoma),
       falta: toAmountString(roundMoney(faltante.isNegative() ? ZERO : faltante)),
-      trimestresComMeta: trimestresComMeta.length,
+      periodosComMeta: chavesComMeta.length,
     };
   });
 
@@ -191,7 +194,7 @@ export async function buildMetas(periodo: PeriodBounds, agora: Date): Promise<Me
     totalMeta: algumaMeta ? toAmountString(roundMoney(totalMeta)) : null,
     totalRealizado: toAmountString(roundMoney(totalRealizado)),
     percentualTotal: algumaMeta ? pct(totalRealizado, totalMeta) : null,
-    metaCompleta: algumaMeta && todosTrimestresComMeta,
+    metaCompleta: algumaMeta && todasChavesComMeta,
     ritmoEsperadoPct: fracao === null ? null : Number((fracao * 100).toFixed(1)),
   };
 }

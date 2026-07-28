@@ -1273,3 +1273,59 @@ batem exatamente com o dry-run.
 mapeados) e de todas as categorias que já têm tarefa correspondente no ClickUp — só Outros
 Serviços e Hub Empreendedoras seguem sem cobertura, por falta de tarefa na lista Eficiência (não é
 algo resolvível pelo dashboard).
+
+## ADR-0026 — Metas: mensal volta a existir, ao lado do trimestral (séries independentes)
+
+**Contexto:** a ADR-0022 tinha trocado meta mensal por trimestral (2026-07-24, alinhado com a
+Duda). Usuário pediu agora que as duas convivam, "visíveis/configuráveis" — não uma substituindo
+a outra.
+
+**Decisão de produto confirmada com o usuário (`AskUserQuestion`) antes de tocar schema:** mensal
+e trimestral são **séries independentes**. Trimestre NUNCA é calculado como soma dos 3 meses, nem
+mês é um rateio do trimestre — cada um é um número que alguém define direto. Motivo: evita
+inconsistência quando só parte dos meses de um trimestre tem meta, ou quando a soma dos 3 meses
+não bate com o que alguém quis definir pro trimestre. Semestre/ano continuam somando só
+TRIMESTRES contidos, exatamente como antes — mês nunca soma pra cima, fica só na própria visão
+mensal do Panorama.
+
+**Achado que confirmou ser seguro redesenhar o schema livremente:** o banco (dev e produção)
+tinha **0 linhas em `meta_periodos`** — nenhuma meta de VALOR foi definida desde a virada pra
+trimestral (só `meta_escopos`/`meta_escopo_categorias` têm dado real). Migration não precisou
+preservar nem migrar nenhum valor.
+
+**Modelo:** novo enum `MetaGranularidade` (`MES` | `TRIMESTRE`); `MetaPeriodo.anoTrimestre`
+virou `periodoChave` (String) + `granularidade` (a coluna nova). Unique composto
+`[escopoId, granularidade, periodoChave]` — a mesma chave textual nunca colide entre as duas
+granularidades porque os formatos são mutuamente exclusivos por desenho: `"yyyy-MM"` (mês) nunca
+tem "-Q", `"yyyy-Q#"` (trimestre) sempre tem. CHECK constraint composto na migration garante isso
+no banco, não só na action (mesmo padrão de rigor da coluna anterior). Migration
+`20260728000000_metas_mensal_e_trimestral` — `DROP COLUMN`+`ADD COLUMN` (não rename, como da vez
+passada) porque o significado da coluna mudou de verdade.
+
+**Lógica (`src/lib/metas/periodo.ts`/`metas.ts`):** `granularidadeDoKind(kind)` mapeia o
+`PeriodKind` do Panorama pra granularidade de meta (`month` → `MES`; `quarter`/`semester`/`year`
+→ `TRIMESTRE`; `day`/`week` → `null`, continuam sem meta — nenhuma granularidade responde por um
+recorte tão fino sem inventar dado). Novo par `mesDaData`/`mesesDoPeriodo` espelha
+`trimestreDaData`/`trimestresDoPeriodo`; `chavesDoPeriodo`/`chaveDaData` escolhem qual par usar
+sem `metas.ts` precisar saber a diferença. `buildMetas` generalizado pra somar pela granularidade
+resolvida em vez de sempre trimestre — a mesma lógica de recorte parcial ("nem todos os períodos
+do intervalo têm meta") continua valendo, agora genérica pra mês ou trimestre.
+
+**UI:** `/metas` ganhou um alternador Mensal/Trimestral no formulário (troca os campos Mês↔
+Trimestre, nunca os dois juntos — usa `key` no `<form>` pra resetar o estado não-controlado dos
+selects ao trocar, sem duplicar Server Action no mesmo form, gotcha já documentado neste projeto).
+A tabela por escopo agora mostra duas seções (Trimestral / Mensal) em vez de uma. O card de metas
+do Panorama (`metas-panel.tsx`) usa a palavra certa ("mês"/"trimestre") conforme
+`metas.granularidade`; a mensagem de "não aplicável" (dia/semana) agora oferece os dois atalhos
+("Ver por mês" e "por trimestre").
+
+**Validado com dado real:** script duplicando a agregação (mesmo padrão dos scripts de seed do
+ClickUp) criou uma meta mensal (R$1.000, Julho/2026) e uma trimestral (R$5.000, Q3/2026) pro
+mesmo escopo real no dev DB — confirmou que a constraint composta aceita as duas coexistindo, e
+que cada uma é lida isoladamente pela sua própria chave, nunca cruzando. App subido de verdade
+(`npm run dev`, sessão JWT criada à mão): `/metas` renderizado com o alternador Mensal/Trimestral
+visível; Panorama em `?g=month` agora mostra o card de metas (antes só dizia "meta é trimestral");
+`?g=week` mostra a mensagem "mensal ou trimestral" com os dois links. Sessão de teste e processo
+de dev removidos depois. Typecheck limpo, 161 testes (34 novos/reescritos em `periodo.test.ts`).
+
+**Status:** aceito. Migration aplicada no dev DB; ainda não commitado nem rodado em produção.

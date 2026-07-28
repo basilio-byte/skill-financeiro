@@ -912,3 +912,27 @@
   tarefa correspondente no ClickUp (Endereço Fiscal, Salas Privativas, SeaBox, Meu Depósito,
   Serviços de Espaço); só Outros Serviços e Hub Empreendedoras seguem sem cobertura, por falta de
   tarefa na lista Eficiência — não resolvível pelo dashboard, depende de alguém criar as tarefas lá.
+
+## 2026-07-28 (continuação) — Metas: mensal volta a existir, ao lado do trimestral
+
+- Usuário pediu que mensal (removida na virada pra trimestral, ADR-0022) volte a existir, com as
+  duas "visíveis/configuráveis". Confirmado antes de mexer no schema: são **séries
+  independentes** — trimestre nunca é a soma dos 3 meses, mês nunca é rateio do trimestre.
+- Achado que liberou redesenhar o schema à vontade: `meta_periodos` tinha **0 linhas** (nenhuma
+  meta de valor definida desde 2026-07-24) — nada de dado real pra preservar/migrar.
+- Novo enum `MetaGranularidade` (MES/TRIMESTRE); `anoTrimestre` virou `periodoChave` +
+  `granularidade`, unique composto pelos 3 (`escopoId, granularidade, periodoChave`) — os dois
+  formatos de chave (`yyyy-MM` vs `yyyy-Q#`) nunca colidem entre si por desenho, CHECK constraint
+  composto garante isso no banco. Migration `20260728000000_metas_mensal_e_trimestral`.
+- `periodo.ts`/`metas.ts` generalizados: `granularidadeDoKind` decide MES (mês) ou TRIMESTRE
+  (trimestre/semestre/ano) por `PeriodKind`; dia/semana continuam sem meta em nenhuma
+  granularidade. `/metas` ganhou alternador Mensal/Trimestral no formulário (troca os campos sem
+  duplicar Server Action no mesmo `<form>` — usa `key` pra resetar o estado ao trocar) e a tabela
+  virou 2 seções por escopo. Card do Panorama usa a palavra certa (mês/trimestre) e a mensagem de
+  "não aplicável" (dia/semana) agora oferece os dois atalhos.
+- **Validado com dado real**: script duplicando a agregação confirmou no dev DB que uma meta
+  mensal (R$1.000) e uma trimestral (R$5.000) pro mesmo escopo coexistem sem cruzar. App subido
+  de verdade (sessão JWT criada à mão): `/metas` com o alternador visível, Panorama em `?g=month`
+  agora mostra o card de metas (antes dizia "meta é trimestral"), `?g=week` mostra a mensagem com
+  os dois links. Ambiente de teste limpo depois. Typecheck limpo, 161 testes.
+- Migration aplicada só no dev DB por enquanto — nada commitado nem rodado em produção ainda.

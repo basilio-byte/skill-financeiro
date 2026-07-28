@@ -1,24 +1,34 @@
 import type { PeriodBounds, PeriodKind } from "@/lib/dates";
+import type { MetaGranularidade } from "@prisma/client";
 
 /**
  * Lógica PURA de período para metas (sem Prisma, sem Next) — testável com
  * fixtures, mesmo padrão de categorize-invoices.ts e auto-sync-window.ts.
  *
- * Trocado de mensal para trimestral em 2026-07-24 (alinhado com a Duda) —
- * trimestre é o átomo agora, mês não aceita mais meta (nem dia/semana).
+ * Mensal e trimestral coexistem como séries INDEPENDENTES (reintroduzido
+ * 2026-07-28, pedido do usuário — mês tinha sido removido em 2026-07-24).
+ * Mês nunca soma pra virar trimestre nem trimestre se divide pra virar mês;
+ * cada granularidade é um número que alguém define direto. Dia e semana
+ * continuam recusados — nem mês nem trimestre respondem por um recorte tão
+ * fino sem inventar dado.
  */
 
-/** Granularidades em que a meta faz sentido. Trimestre é o átomo. */
-const KINDS_COM_META: PeriodKind[] = ["quarter", "semester", "year"];
+/** Granularidade de MetaPeriodo que cada kind de Panorama usa, ou null se não aceita meta. */
+export function granularidadeDoKind(kind: PeriodKind): MetaGranularidade | null {
+  if (kind === "month") return "MES";
+  if (kind === "quarter" || kind === "semester" || kind === "year") return "TRIMESTRE";
+  return null;
+}
 
 /**
- * A meta é sempre TRIMESTRAL. Em dia, semana e mês não existe resposta
- * honesta: ratear a meta do trimestre por um recorte menor assumiria receita
+ * Dia e semana não têm resposta honesta em NENHUMA granularidade: ratear uma
+ * meta mensal ou trimestral por um recorte tão fino assumiria receita
  * uniforme, e `dataCredito` concentra nas datas de vencimento — o número
- * pareceria apurado e seria inventado. Melhor não exibir e dizer por quê.
+ * pareceria apurado e seria inventado. Mês e trimestre agora são átomos
+ * diretos (cada um com sua própria série), nunca rateados um do outro.
  */
 export function periodoAceitaMeta(kind: PeriodKind): boolean {
-  return KINDS_COM_META.includes(kind);
+  return granularidadeDoKind(kind) !== null;
 }
 
 /**
@@ -52,8 +62,48 @@ export function trimestreDaData(d: Date): string {
   return `${d.getUTCFullYear()}-Q${q}`;
 }
 
-/** Formato aceito em MetaPeriodo.anoTrimestre — espelha o CHECK constraint da migration. */
+/** "yyyy-MM" de uma data (UTC), para agrupar linhas por mês civil. */
+export function mesDaData(d: Date): string {
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+/**
+ * Meses "yyyy-MM" que o período cobre. Diferente de `trimestresDoPeriodo`,
+ * só é chamada com `periodo.kind === "month"` na prática (mês é sempre o
+ * átomo da sua própria série, nunca some pra semestre/ano) — mas devolve a
+ * lista genérica mesmo assim, sem assumir isso, pelo mesmo motivo de
+ * segurança documentado em `trimestresDoPeriodo`.
+ */
+export function mesesDoPeriodo(periodo: PeriodBounds): string[] {
+  const meses: string[] = [];
+  const cursor = new Date(Date.UTC(periodo.fromDate.getUTCFullYear(), periodo.fromDate.getUTCMonth(), 1));
+  const ultimo = new Date(periodo.toDateExclusive.getTime() - 1);
+  const limite = Date.UTC(ultimo.getUTCFullYear(), ultimo.getUTCMonth(), 1);
+
+  while (cursor.getTime() <= limite) {
+    meses.push(mesDaData(cursor));
+    cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+  }
+  return meses;
+}
+
+/**
+ * Chaves de período (mês ou trimestre, conforme a granularidade) que o
+ * período cobre — ponto único que `metas.ts` usa pra não precisar saber qual
+ * das duas funções chamar.
+ */
+export function chavesDoPeriodo(periodo: PeriodBounds, granularidade: MetaGranularidade): string[] {
+  return granularidade === "MES" ? mesesDoPeriodo(periodo) : trimestresDoPeriodo(periodo);
+}
+
+/** Chave de período (mês ou trimestre) de uma data, conforme a granularidade. */
+export function chaveDaData(d: Date, granularidade: MetaGranularidade): string {
+  return granularidade === "MES" ? mesDaData(d) : trimestreDaData(d);
+}
+
+/** Formato aceito em MetaPeriodo.periodoChave — espelham o CHECK constraint composto da migration. */
 export const ANO_TRIMESTRE_RE = /^\d{4}-Q[1-4]$/;
+export const ANO_MES_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
 /**
  * Fração do período já decorrida (0..1), ou null se o período não contém

@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { getPeriodBounds } from "@/lib/dates";
-import { fracaoDecorrida, trimestreDaData, trimestresDoPeriodo, periodoAceitaMeta } from "@/lib/metas/periodo";
+import {
+  chaveDaData,
+  chavesDoPeriodo,
+  fracaoDecorrida,
+  granularidadeDoKind,
+  mesDaData,
+  mesesDoPeriodo,
+  periodoAceitaMeta,
+  trimestreDaData,
+  trimestresDoPeriodo,
+} from "@/lib/metas/periodo";
 
 /**
  * `trimestresDoPeriodo` decide QUANTAS metas trimestrais são somadas. Um
@@ -38,25 +48,65 @@ describe("trimestresDoPeriodo", () => {
     expect(new Set(trimestres).size).toBe(4);
   });
 
-  it("mês pode devolver o trimestre que o contém, mesmo não sendo o átomo aceito", () => {
-    // Não é usado para somar meta (mês não aceita meta), mas a função não pode
-    // quebrar nem inventar trimestres se for chamada.
+  it("mês pode devolver o trimestre que o contém, mesmo não sendo usado pra somar meta trimestral", () => {
+    // trimestresDoPeriodo nunca é chamada com kind="month" na prática (mês usa
+    // mesesDoPeriodo, ver chavesDoPeriodo), mas não pode quebrar nem inventar
+    // trimestre se for chamada mesmo assim.
     const trimestres = trimestresDoPeriodo(getPeriodBounds("month", "2026-07-01"));
     expect(trimestres).toEqual(["2026-Q3"]);
   });
 });
 
+describe("mesesDoPeriodo", () => {
+  it("mês devolve exatamente um mês", () => {
+    expect(mesesDoPeriodo(getPeriodBounds("month", "2026-07-01"))).toEqual(["2026-07"]);
+  });
+
+  it("janeiro fica com 2 dígitos (zero à esquerda)", () => {
+    expect(mesesDoPeriodo(getPeriodBounds("month", "2026-01-01"))).toEqual(["2026-01"]);
+  });
+
+  it("dezembro não vaza pro mês seguinte por causa do limite exclusivo", () => {
+    expect(mesesDoPeriodo(getPeriodBounds("month", "2026-12-01"))).toEqual(["2026-12"]);
+  });
+});
+
+describe("granularidadeDoKind / chavesDoPeriodo / chaveDaData", () => {
+  it("mês usa granularidade MES e mesesDoPeriodo", () => {
+    expect(granularidadeDoKind("month")).toBe("MES");
+    expect(chavesDoPeriodo(getPeriodBounds("month", "2026-07-01"), "MES")).toEqual(["2026-07"]);
+  });
+
+  it("trimestre/semestre/ano usam granularidade TRIMESTRE e trimestresDoPeriodo", () => {
+    expect(granularidadeDoKind("quarter")).toBe("TRIMESTRE");
+    expect(granularidadeDoKind("semester")).toBe("TRIMESTRE");
+    expect(granularidadeDoKind("year")).toBe("TRIMESTRE");
+    expect(chavesDoPeriodo(getPeriodBounds("quarter", "2026-07-01"), "TRIMESTRE")).toEqual(["2026-Q3"]);
+  });
+
+  it("dia e semana não têm granularidade — null", () => {
+    expect(granularidadeDoKind("day")).toBeNull();
+    expect(granularidadeDoKind("week")).toBeNull();
+  });
+
+  it("chaveDaData escolhe mesDaData ou trimestreDaData conforme a granularidade", () => {
+    const d = new Date("2026-07-15T00:00:00Z");
+    expect(chaveDaData(d, "MES")).toBe("2026-07");
+    expect(chaveDaData(d, "TRIMESTRE")).toBe("2026-Q3");
+  });
+});
+
 describe("periodoAceitaMeta", () => {
-  it("aceita trimestre e agregados maiores", () => {
+  it("aceita mês (reintroduzido 2026-07-28) e trimestre e agregados maiores", () => {
+    expect(periodoAceitaMeta("month")).toBe(true);
     expect(periodoAceitaMeta("quarter")).toBe(true);
     expect(periodoAceitaMeta("semester")).toBe(true);
     expect(periodoAceitaMeta("year")).toBe(true);
   });
 
-  it("recusa dia, semana e mês — ratear meta trimestral inventaria número", () => {
+  it("recusa dia e semana — nem mês nem trimestre respondem por um recorte tão fino", () => {
     expect(periodoAceitaMeta("day")).toBe(false);
     expect(periodoAceitaMeta("week")).toBe(false);
-    expect(periodoAceitaMeta("month")).toBe(false);
   });
 });
 
@@ -81,6 +131,18 @@ describe("trimestreDaData", () => {
     // dataCredito é @db.Date (meia-noite UTC). Ler em fuso local negativo
     // devolveria o dia anterior, jogando a receita para o trimestre errado.
     expect(trimestreDaData(new Date("2026-07-01T00:00:00Z"))).toBe("2026-Q3");
+  });
+});
+
+describe("mesDaData", () => {
+  it("formata em yyyy-MM, com zero à esquerda", () => {
+    expect(mesDaData(new Date("2026-01-15T00:00:00Z"))).toBe("2026-01");
+    expect(mesDaData(new Date("2026-09-30T00:00:00Z"))).toBe("2026-09");
+    expect(mesDaData(new Date("2026-12-01T00:00:00Z"))).toBe("2026-12");
+  });
+
+  it("usa UTC — mesmo motivo de trimestreDaData", () => {
+    expect(mesDaData(new Date("2026-07-01T00:00:00Z"))).toBe("2026-07");
   });
 });
 

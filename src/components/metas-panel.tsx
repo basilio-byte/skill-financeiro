@@ -30,7 +30,15 @@ function corDaBarra(percentual: number | null, ritmo: number | null): string {
   return "bg-seahub-500";
 }
 
-function MetaRow({ escopo, ritmo }: { escopo: MetaEscopoResolvido; ritmo: number | null }) {
+function MetaRow({
+  escopo,
+  ritmo,
+  unidadePlural,
+}: {
+  escopo: MetaEscopoResolvido;
+  ritmo: number | null;
+  unidadePlural: "meses" | "trimestres";
+}) {
   const temMeta = escopo.meta !== null && escopo.percentual !== null;
   const largura = larguraPct(escopo.percentual);
 
@@ -84,7 +92,7 @@ function MetaRow({ escopo, ritmo }: { escopo: MetaEscopoResolvido; ritmo: number
           {(escopo.percentual as number) >= 100
             ? `Meta batida — ${formatBRL(escopo.realizado)} sobre ${formatBRL(escopo.meta as string)}.`
             : `Faltam ${formatBRL(escopo.falta as string)}.`}
-          {escopo.trimestresComMeta > 1 ? ` Soma de ${escopo.trimestresComMeta} trimestres.` : ""}
+          {escopo.periodosComMeta > 1 ? ` Soma de ${escopo.periodosComMeta} ${unidadePlural}.` : ""}
         </p>
       ) : null}
     </li>
@@ -98,8 +106,12 @@ export function MetasPanel({ metas }: { metas: MetasDoPeriodo }) {
         <SectionTitle>Metas</SectionTitle>
         <p className="text-sm text-slate-500">
           {metas.motivo}{" "}
+          <Link href="/?g=month" className="text-seahub-600 hover:underline">
+            Ver por mês
+          </Link>{" "}
+          ou{" "}
           <Link href="/?g=quarter" className="text-seahub-600 hover:underline">
-            Ver por trimestre
+            por trimestre
           </Link>
           .
         </p>
@@ -123,6 +135,7 @@ export function MetasPanel({ metas }: { metas: MetasDoPeriodo }) {
   }
 
   const semNenhumaMeta = metas.totalMeta === null;
+  const unidadePlural: "meses" | "trimestres" = metas.granularidade === "MES" ? "meses" : "trimestres";
 
   return (
     <Card>
@@ -157,15 +170,15 @@ export function MetasPanel({ metas }: { metas: MetasDoPeriodo }) {
 
       {!metas.metaCompleta && !semNenhumaMeta ? (
         <p className="mb-3 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
-          Nem todos os {metas.trimestresNoPeriodo} trimestres deste período têm meta definida. Para não comparar
-          coisas diferentes, o realizado mostrado considera <strong>apenas os trimestres que têm meta</strong> —
+          Nem todos os {metas.periodosNoPeriodo} {unidadePlural} deste período têm meta definida. Para não comparar
+          coisas diferentes, o realizado mostrado considera <strong>apenas os {unidadePlural} que têm meta</strong> —
           então este número não é a receita total do período.
         </p>
       ) : null}
 
       <ul className="divide-y divide-slate-100">
         {metas.escopos.map((e) => (
-          <MetaRow key={e.slug} escopo={e} ritmo={metas.ritmoEsperadoPct} />
+          <MetaRow key={e.slug} escopo={e} ritmo={metas.ritmoEsperadoPct} unidadePlural={unidadePlural} />
         ))}
       </ul>
 
