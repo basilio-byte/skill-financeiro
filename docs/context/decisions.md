@@ -1328,4 +1328,23 @@ visível; Panorama em `?g=month` agora mostra o card de metas (antes só dizia "
 `?g=week` mostra a mensagem "mensal ou trimestral" com os dois links. Sessão de teste e processo
 de dev removidos depois. Typecheck limpo, 161 testes (34 novos/reescritos em `periodo.test.ts`).
 
-**Status:** aceito. Migration aplicada no dev DB; ainda não commitado nem rodado em produção.
+**Correção seguinte, mesmo dia — deploy em produção falhou (P3009), causa era exatamente o ponto
+cego que a validação anterior tinha.** "0 linhas em `meta_periodos`" só tinha sido conferido no
+dev DB — produção já tinha 1 meta trimestral real (Q3 2026, R$35.000,00, definida às 11:52 UTC do
+mesmo dia, antes deste deploy). `ADD COLUMN ... NOT NULL` sem `DEFAULT` falha numa tabela
+não-vazia; a transação reverteu inteira (confirmado direto no banco: `applied_steps_count: 0`,
+`meta_periodos` ainda com a coluna antiga) — nenhum dado tocado, só o app não subiu. Migration
+reescrita pra funcionar com QUALQUER quantidade de linhas: colunas novas entram NULLABLE, backfill
+(toda linha até aqui só podia ser trimestral) copia `anoTrimestre` pra `periodoChave` com
+`granularidade='TRIMESTRE'`, só então aperta NOT NULL e dropa a coluna antiga. **Validado desta
+vez contra uma reprodução fiel do cenário real** (banco de teste isolado no mesmo Postgres do dev,
+mesma linha/valor de produção) — a meta de R$35.000 sobrevive intacta, uma meta mensal nova
+coexiste sem conflito. Registro da migration falhada removido de `_prisma_migrations` em produção
+via Console do Postgres do Easypanel (seguro — a transação já tinha revertido tudo).
+
+**Lição:** validar migration que altera tabela existente contra um dev DB VAZIO não é suficiente
+quando a suposição é "a tabela está vazia" — precisa testar com dado real (ou uma reprodução fiel
+dele) presente, especialmente quando a tabela em questão já está em uso por uma feature live há
+dias (trimestral estava em produção desde a ADR-0022, dando tempo real pra alguém usá-la).
+
+**Status:** aceito, corrigido e validado. Enviado para produção.

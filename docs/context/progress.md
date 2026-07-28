@@ -936,3 +936,21 @@
   agora mostra o card de metas (antes dizia "meta é trimestral"), `?g=week` mostra a mensagem com
   os dois links. Ambiente de teste limpo depois. Typecheck limpo, 161 testes.
 - Migration aplicada só no dev DB por enquanto — nada commitado nem rodado em produção ainda.
+- Commitado (`1228a1c`) e enviado — deploy em produção **falhou** (P3009): a migration assumia
+  `meta_periodos` vazia (só conferido no dev), mas produção já tinha 1 meta trimestral real (Q3
+  2026, R$35.000,00, definida às 11:52 UTC do mesmo dia) quando o deploy rodou às 16:31 —
+  `ADD COLUMN ... NOT NULL` sem DEFAULT falha numa tabela não-vazia. Transação revertida inteira,
+  confirmado direto no banco (`applied_steps_count: 0`) antes de qualquer correção — nenhum dado
+  perdido, app só não subiu.
+- **Corrigido (`b6...` a seguir) e revalidado antes de reenviar**: migration reescrita pra
+  funcionar com qualquer quantidade de linhas (adiciona colunas NULLABLE, faz backfill —
+  granularidade=TRIMESTRE pra toda linha já existente, já que mensal não existia ainda — só então
+  aperta NOT NULL e dropa a coluna antiga). Validado contra uma reprodução exata do cenário real
+  de produção (banco de teste isolado no mesmo Postgres do dev, mesma linha/valor) antes de
+  reenviar — a meta de R$35.000 sobreviveu intacta, uma meta mensal nova coexiste sem conflito.
+  Registro da migration falhada removido de `_prisma_migrations` em produção (via Console do
+  Postgres no Easypanel) — seguro porque a transação já tinha revertido tudo.
+- **Lição registrada**: a validação anterior só tinha testado a migration contra o dev DB VAZIO —
+  o mesmo ponto cego que causou o incidente. Daqui pra frente, migration que altera tabela
+  existente precisa ser testada com dado real (ou uma reprodução fiel dele), não só contra uma
+  tabela vazia, mesmo quando a suposição "está vazia" parece razoável.
