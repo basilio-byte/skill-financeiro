@@ -1,12 +1,12 @@
 import "server-only";
 import type { ClickUpVinculo } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { roundMoney, sum, toAmountString, ZERO } from "@/lib/money";
+import { toAmountString, ZERO } from "@/lib/money";
 import { hasClickUpToken } from "@/lib/env";
 import { getListFields, setTaskFieldValue, ClickUpApiError } from "@/lib/clickup/client";
 import { devePush } from "@/lib/clickup/decisao-push";
 import { periodoCorrente } from "@/lib/clickup/periodo-corrente";
-import { bateAlgumPadrao, linhasExclusivasDoVinculo } from "@/lib/clickup/filtro-padroes";
+import { composicaoDoVinculo } from "@/lib/clickup/composicao";
 
 /**
  * Alimenta os campos de mês do ClickUp a partir de RevenueCategorizedLine
@@ -94,31 +94,11 @@ async function pushUmVinculo(
 ): Promise<ResultadoPush> {
   let total = ZERO;
   try {
-    // Busca só por categoria+data no Postgres; o casamento por padrão
-    // acontece em JS (bateAlgumPadrao), não numa query `contains` — precisa
-    // ignorar acento (ex. "Comércio"/"Comercio" convivem no servicoOuPlano
-    // real), e o Postgres só ignora maiúscula/minúscula por padrão.
-    const padroes = vinculo.padroes as string[];
-    const linhasDaCategoria = await prisma.revenueCategorizedLine.findMany({
-      where: { categoria: vinculo.categoria, dataCredito: { gte: fromDate, lt: toDateExclusive } },
-      select: { valorRecebidoCat: true, servicoOuPlano: true },
-    });
-    const linhasQueBatem = linhasDaCategoria.filter((l) => bateAlgumPadrao(l.servicoOuPlano, padroes));
-    // Exclui linhas que uma fatura combinando salas/produtos também faria
-    // baterem num vínculo IRMÃO ativo mais antigo — sem isso, o mesmo valor
-    // seria somado em dobro em cada vínculo que bater na mesma linha, todo
-    // mês em que a combinação se repetisse (ver linhasExclusivasDoVinculo).
-    const linhas = linhasExclusivasDoVinculo(
-      linhasQueBatem,
-      { id: vinculo.id, clickUpTaskId: vinculo.clickUpTaskId, padroes, criadoEm: vinculo.criadoEm },
-      outrosAtivosDaMesmaCategoria.map((v) => ({
-        id: v.id,
-        clickUpTaskId: v.clickUpTaskId,
-        padroes: v.padroes as string[],
-        criadoEm: v.criadoEm,
-      })),
-    );
-    total = roundMoney(sum(linhas.map((l) => l.valorRecebidoCat)));
+    // A composição (quais linhas somam) vem de `composicao.ts` — a MESMA função
+    // que a tela admin usa pra listar essas faturas. Reimplementar o filtro aqui
+    // faria a tela e o push divergirem sem ninguém perceber; ver o doc daquele
+    // módulo para os 4 filtros que definem a composição.
+    ({ total } = await composicaoDoVinculo(vinculo, outrosAtivosDaMesmaCategoria, fromDate, toDateExclusive));
 
     if (!forcar) {
       const ultimoSucesso = await prisma.clickUpPushLog.findFirst({

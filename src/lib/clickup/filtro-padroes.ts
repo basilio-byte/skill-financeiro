@@ -121,18 +121,53 @@ export function linhasExclusivasDoVinculo<T extends { servicoOuPlano: string }>(
   vinculoAtual: VinculoAtivo,
   outrosAtivosDaMesmaCategoria: VinculoAtivo[],
 ): T[] {
+  return particionarPorReivindicacao(linhas, vinculoAtual, outrosAtivosDaMesmaCategoria).incluidas;
+}
+
+export interface LinhaReivindicada<T> {
+  linha: T;
+  /** O vínculo mais antigo que ficou com esta linha (é dele que ela soma). */
+  reivindicadaPor: VinculoAtivo;
+}
+
+export interface ParticaoPorReivindicacao<T> {
+  incluidas: T[];
+  excluidas: Array<LinhaReivindicada<T>>;
+}
+
+/**
+ * Mesma decisão de `linhasExclusivasDoVinculo`, mas devolvendo TAMBÉM as linhas
+ * que ficaram de fora e QUEM ficou com cada uma.
+ *
+ * Existe porque a tela de detalhamento (`detalharVinculoAction`) precisa
+ * responder "por que a fatura X não está somando aqui?" — sem isso, a linha
+ * simplesmente sumiria da lista sem explicação, que é justamente a pergunta que
+ * a tela existe pra responder. `linhasExclusivasDoVinculo` continua sendo a
+ * porta de entrada de quem só quer a soma (push.ts), implementada em cima
+ * desta — as duas NUNCA podem divergir, então há uma implementação só.
+ */
+export function particionarPorReivindicacao<T extends { servicoOuPlano: string }>(
+  linhas: T[],
+  vinculoAtual: VinculoAtivo,
+  outrosAtivosDaMesmaCategoria: VinculoAtivo[],
+): ParticaoPorReivindicacao<T> {
   const precedeVinculoAtual = (outro: VinculoAtivo): boolean => {
     const diff = outro.criadoEm.getTime() - vinculoAtual.criadoEm.getTime();
     if (diff !== 0) return diff < 0;
     return outro.id < vinculoAtual.id;
   };
-  return linhas.filter((linha) => {
-    const reivindicadaPorMaisAntigo = outrosAtivosDaMesmaCategoria.some(
+
+  const incluidas: T[] = [];
+  const excluidas: Array<LinhaReivindicada<T>> = [];
+  for (const linha of linhas) {
+    const dono = outrosAtivosDaMesmaCategoria.find(
       (outro) =>
         outro.id !== vinculoAtual.id &&
         precedeVinculoAtual(outro) &&
         bateAlgumPadrao(linha.servicoOuPlano, outro.padroes),
     );
-    return !reivindicadaPorMaisAntigo;
-  });
+    if (dono) excluidas.push({ linha, reivindicadaPor: dono });
+    else incluidas.push(linha);
+  }
+  return { incluidas, excluidas };
 }

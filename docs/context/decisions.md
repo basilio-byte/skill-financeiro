@@ -1370,3 +1370,65 @@ correção certa como se fosse a causa errada.
 
 **Status:** aceito, corrigido, validado e confirmado funcionando em produção (dado real preservado
 — meta de R$35.000 migrada intacta).
+
+## ADR-0027 — Detalhamento por vínculo ClickUp: quais faturas somam o valor empurrado
+
+**Contexto:** pedido do usuário (2026-07-28) — na tela `/integracoes/clickup` cada vínculo mostra
+o valor enviado (ex. "Cabine — R$ 263,75"), mas não dá pra saber QUAIS faturas produziram esse
+número. Pediu um botão por vínculo que expande/recolhe mostrando essa lista.
+
+**Achado que definiu o desenho (não era óbvio antes de investigar):** `ClickUpPushLog` guarda
+apenas o TOTAL — não existe tabela de itens/composição, então **a lista é sempre um RECÁLCULO com
+os dados de agora, nunca um retrato do que foi somado no envio**. Consequências que o desenho
+teve que enfrentar em vez de ignorar:
+
+1. **A lista só fecha com o valor se aplicar os MESMOS 4 filtros do push**: categoria exata +
+   `dataCredito` no mês (meio-aberto) + `bateAlgumPadrao` em JS + **exclusão de sobreposição**
+   (`linhasExclusivasDoVinculo`, ADR-0025). Esquecer o 4º faria a lista mostrar faturas a mais e
+   somar MAIS que o valor empurrado — justamente nas categorias onde isso mais importa (29% das
+   faturas de Seaway Center combinam produtos).
+2. **Recálculo e último envio divergem por motivos legítimos e frequentes**: a receita do mês
+   corrente muda a cada sincronização (15 min), uma revisão manual pode ter trocado categoria/
+   valor, e `devePush` pula reenvio quando nada mudou. Para meses passados a divergência é quase
+   garantida (o push só roda para o mês corrente).
+
+**Decisão 1 — fonte única, para tela e push nunca divergirem.** Em vez de a tela reimplementar o
+filtro, extraí `src/lib/clickup/composicao.ts` (`composicaoDoVinculo`) e **refatorei `push.ts`
+para consumir a mesma função**. Reimplementar "quase igual" era o risco real aqui: qualquer
+diferença sutil faria a tela mentir sobre dinheiro sem ninguém perceber. Com uma implementação
+só, divergir vira impossível por construção. Para suportar a tela sem perder isso,
+`linhasExclusivasDoVinculo` passou a ser implementada sobre uma nova função pura
+`particionarPorReivindicacao` (devolve incluídas + excluídas + QUEM ficou com cada excluída).
+
+**Decisão 2 — mostrar a divergência em vez de escondê-la.** `detalharVinculoAction` devolve os
+DOIS números: `totalAtual` (recálculo de agora, que é o que a lista soma) e `ultimoEnviado` (só
+push com `sucesso: true`, porque log de falha grava um valor que nunca chegou ao ClickUp). Quando
+diferem, a UI mostra um aviso âmbar explicando que a receita mudou desde o envio e que a próxima
+sincronização corrige o campo lá — nunca imprime o valor do log como cabeçalho de uma lista
+recalculada.
+
+**Decisão 3 — expor as faturas EXCLUÍDAS, não só as incluídas.** Um bloco recolhível separado
+lista as linhas que casam o padrão mas somam em outro vínculo, com link para a tarefa que ficou
+com elas. Sem isso, a fatura simplesmente sumiria da lista e "cadê a fatura X?" — exatamente a
+pergunta que a tela existe para responder — ficaria sem resposta.
+
+**Período reapurado com trava de teste:** a tela lista o mês do último envio (ou o corrente, se
+nunca enviou), derivando os limites com `limitesDoMes(ano, mes)` — enquanto o push usa
+`periodoCorrente()`. Se as duas produzissem janelas diferentes, a lista seria de outro recorte e
+não fecharia. A equivalência entre elas está travada por teste nos 12 meses, não confiada.
+
+**UI segue os padrões existentes, sem inventar:** linha expansível em `<tr colSpan>` cinza (igual
+`LinhaRevisaoRow`), carga sob demanda com `useTransition` + Server Action (igual ao botão
+"Pré-visualizar"), bloco secundário em `<details>/<summary>` com chevron `group-open:rotate-90`
+(igual `ChartCard`). As células da linha continuam vindo prontas do Server Component via
+`children` — inclusive o form com server action de ativar/desativar —, então o componente cliente
+só acrescenta a célula do botão e a linha expandida.
+
+**Validado com dado real, não só typecheck:** script comparou, nos **52 vínculos reais** semeados
+no dev DB (Salas Privativas + Serviços de Espaço, jul/2026), o total pela lógica ANTIGA do push
+contra a NOVA — **0 divergências**, e a soma da lista de faturas fecha exatamente com o total em
+todos os 52. App subido de verdade com sessão real: a página renderiza os 52 botões "Ver faturas"
+e todos os controles pré-existentes seguem intactos (105 forms = 52 ativar/desativar + 52
+empurrar + 1 novo vínculo). Ambiente de teste limpo depois. Typecheck limpo, 169 testes (8 novos).
+
+**Status:** aceito.

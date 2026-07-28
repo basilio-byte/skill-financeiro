@@ -966,3 +966,26 @@
 - **Resolvido e confirmado**: subiu limpo (logs mostrando boot normal, auto-sync rodando), e a
   meta de R$35.000 (Q3 2026) confirmada visualmente em `/metas`, migrada corretamente pra seção
   Trimestral. Nenhum dado perdido durante todo o incidente.
+
+## 2026-07-28 (continuação) — Detalhamento por vínculo ClickUp (quais faturas somam o valor)
+
+- Pedido do usuário: botão por vínculo em `/integracoes/clickup` que expande/recolhe mostrando as
+  faturas que compõem o valor (ex. "Cabine — R$ 263,75").
+- **Achado que mudou o desenho**: `ClickUpPushLog` guarda só o total, nunca as linhas — a lista é
+  sempre um recálculo. E ela só fecha com o valor se aplicar os mesmos 4 filtros do push,
+  incluindo a exclusão de sobreposição (ADR-0025); sem o 4º, mostraria faturas a mais.
+- **Fonte única em vez de reimplementar**: novo `composicao.ts` (`composicaoDoVinculo`) passou a
+  ser usado tanto pela tela quanto pelo `push.ts` (refatorado) — divergir vira impossível por
+  construção. `linhasExclusivasDoVinculo` agora é implementada sobre uma nova função pura
+  `particionarPorReivindicacao`, que devolve também as excluídas e quem ficou com cada uma.
+- **Divergência é mostrada, não escondida**: a action devolve `totalAtual` (recálculo) e
+  `ultimoEnviado` (só push com sucesso); quando diferem, aviso âmbar explica que a receita mudou
+  desde o envio e que a próxima sincronização corrige o ClickUp.
+- Bloco recolhível extra lista as faturas que casam o padrão mas somam em OUTRO vínculo, com link
+  pra tarefa que ficou com elas — responde "cadê a fatura X?", que some sem explicação hoje.
+- UI segue padrões já existentes (linha expansível igual `LinhaRevisaoRow`, carga sob demanda com
+  `useTransition` igual ao "Pré-visualizar", `<details>` igual `ChartCard`).
+- **Validado com dado real**: nos 52 vínculos reais semeados no dev DB, o total pela lógica antiga
+  do push e pela nova bateram em 100% (0 divergências) e a soma da lista fecha exato com o total
+  em todos. App subido de verdade: 52 botões renderizados, 105 forms pré-existentes intactos.
+  Ambiente limpo depois. Typecheck limpo, 169 testes (8 novos).

@@ -4,6 +4,7 @@ import {
   bateAlgumPadrao,
   linhasExclusivasDoVinculo,
   normalizarPadroes,
+  particionarPorReivindicacao,
   PadroesVazioError,
 } from "@/lib/clickup/filtro-padroes";
 
@@ -129,5 +130,51 @@ describe("linhasExclusivasDoVinculo", () => {
     const outros = [{ id: "v-auditorio", clickUpTaskId: "t-auditorio", padroes: ["AUDITÓRIO"], criadoEm: D1 }];
     const resultado = linhasExclusivasDoVinculo(linhas, atual, outros);
     expect(resultado).toEqual([{ servicoOuPlano: "[SEAWAY] - SALA DE ATENDIMENTO 02" }]);
+  });
+});
+
+describe("particionarPorReivindicacao", () => {
+  const D1 = new Date("2026-07-28T10:00:00Z");
+  const D2 = new Date("2026-07-28T11:00:00Z");
+  const auditorio = { id: "v-auditorio", clickUpTaskId: "t-auditorio", padroes: ["AUDITÓRIO"], criadoEm: D1 };
+  const atend02 = { id: "v-atend-02", clickUpTaskId: "t-02", padroes: ["SALA DE ATENDIMENTO 02"], criadoEm: D2 };
+
+  it("separa as linhas incluídas das reivindicadas por um vínculo mais antigo, dizendo QUEM ficou com cada uma", () => {
+    const propria = { servicoOuPlano: "[SEAWAY] - SALA DE ATENDIMENTO 02" };
+    const combinada = { servicoOuPlano: "[SEAWAY] - AUDITÓRIO; [SEAWAY] - SALA DE ATENDIMENTO 02" };
+
+    const { incluidas, excluidas } = particionarPorReivindicacao([propria, combinada], atend02, [auditorio]);
+
+    expect(incluidas).toEqual([propria]);
+    expect(excluidas).toHaveLength(1);
+    expect(excluidas[0]?.linha).toEqual(combinada);
+    expect(excluidas[0]?.reivindicadaPor.clickUpTaskId).toBe("t-auditorio");
+  });
+
+  it("nada é excluído para o vínculo mais antigo — ele fica com a linha combinada", () => {
+    const combinada = { servicoOuPlano: "[SEAWAY] - AUDITÓRIO; [SEAWAY] - SALA DE ATENDIMENTO 02" };
+    const { incluidas, excluidas } = particionarPorReivindicacao([combinada], auditorio, [atend02]);
+    expect(incluidas).toEqual([combinada]);
+    expect(excluidas).toEqual([]);
+  });
+
+  it("toda linha aparece em EXATAMENTE uma das duas listas — nunca some nem duplica", () => {
+    const linhas = [
+      { servicoOuPlano: "[SEAWAY] - SALA DE ATENDIMENTO 02" },
+      { servicoOuPlano: "[SEAWAY] - AUDITÓRIO; [SEAWAY] - SALA DE ATENDIMENTO 02" },
+      { servicoOuPlano: "[SEAWAY] - SALA DE ATENDIMENTO 02 - outra fatura" },
+    ];
+    const { incluidas, excluidas } = particionarPorReivindicacao(linhas, atend02, [auditorio]);
+    expect(incluidas.length + excluidas.length).toBe(linhas.length);
+  });
+
+  it("é a MESMA decisão de linhasExclusivasDoVinculo (uma é implementada sobre a outra)", () => {
+    const linhas = [
+      { servicoOuPlano: "[SEAWAY] - SALA DE ATENDIMENTO 02" },
+      { servicoOuPlano: "[SEAWAY] - AUDITÓRIO; [SEAWAY] - SALA DE ATENDIMENTO 02" },
+    ];
+    expect(particionarPorReivindicacao(linhas, atend02, [auditorio]).incluidas).toEqual(
+      linhasExclusivasDoVinculo(linhas, atend02, [auditorio]),
+    );
   });
 });

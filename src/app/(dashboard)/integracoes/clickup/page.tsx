@@ -5,6 +5,7 @@ import { formatBRL } from "@/lib/money";
 import { hasClickUpToken } from "@/lib/env";
 import { Card, SectionTitle } from "@/components/ui";
 import { NovoVinculoForm, EmpurrarAgoraButton, ExcluirVinculoButton } from "@/components/clickup-vinculo-form";
+import { LinhaVinculoDetalhavel } from "@/components/clickup-detalhe-vinculo";
 import { alternarVinculoAction } from "@/lib/clickup/actions";
 import { listCategoriasConhecidas } from "@/lib/categorization/categorias";
 
@@ -70,6 +71,7 @@ export default async function ClickUpIntegracaoPage() {
               <th className="pb-2 pr-4">Último envio</th>
               <th className="pb-2 pr-4">Ativo</th>
               <th className="pb-2 pr-4" />
+              <th className="pb-2 pr-4" />
             </tr>
           </thead>
           <tbody>
@@ -77,7 +79,7 @@ export default async function ClickUpIntegracaoPage() {
               const ultimo = v.pushes[0];
               const padroes = v.padroes as string[];
               return (
-                <tr key={v.id} className="border-t border-slate-100 align-top">
+                <LinhaVinculoDetalhavel key={v.id} vinculoId={v.id} colunas={7}>
                   <td className="py-2 pr-4">{v.categoria}</td>
                   <td className="py-2 pr-4">
                     {padroes.map((p) => (
@@ -128,12 +130,12 @@ export default async function ClickUpIntegracaoPage() {
                       <ExcluirVinculoButton vinculoId={v.id} />
                     </div>
                   </td>
-                </tr>
+                </LinhaVinculoDetalhavel>
               );
             })}
             {vinculos.length === 0 ? (
               <tr>
-                <td colSpan={6} className="py-6 text-center text-slate-400">
+                <td colSpan={7} className="py-6 text-center text-slate-400">
                   Nenhum vínculo cadastrado.
                 </td>
               </tr>

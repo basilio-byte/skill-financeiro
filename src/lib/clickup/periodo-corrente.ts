@@ -34,3 +34,19 @@ export function periodoCorrente(referenciaCrua?: Date): PeriodoCorrente {
   const periodo = referenciaCrua ? getPeriodBounds("month", referenciaCrua) : getPeriodBounds("month");
   return { ano: agora.getFullYear(), mes: agora.getMonth() + 1, fromDate: periodo.fromDate, toDateExclusive: periodo.toDateExclusive };
 }
+
+/**
+ * Limites de `dataCredito` de um mês (ano/mês civis), para reapurar um período
+ * que NÃO é necessariamente o corrente — é o que a tela de detalhamento usa
+ * para listar as faturas do mês de um `ClickUpPushLog` já gravado.
+ *
+ * Precisa produzir EXATAMENTE os mesmos limites que `periodoCorrente()` produz
+ * quando o (ano, mes) é o de hoje: se divergir, a tela listaria faturas de uma
+ * janela diferente da que o push somou, e a lista não fecharia com o valor —
+ * exatamente o tipo de erro silencioso que esta tela existe para não cometer.
+ * Travado por teste.
+ */
+export function limitesDoMes(ano: number, mes: number): { fromDate: Date; toDateExclusive: Date } {
+  const periodo = getPeriodBounds("month", `${ano}-${String(mes).padStart(2, "0")}-01`);
+  return { fromDate: periodo.fromDate, toDateExclusive: periodo.toDateExclusive };
+}

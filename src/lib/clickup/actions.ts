@@ -7,7 +7,8 @@ import { checkRole } from "@/lib/auth/session";
 import { formatBRL, money, roundMoney, sum, toAmountString, ZERO, type Money } from "@/lib/money";
 import { pushVinculoAgora } from "@/lib/clickup/push";
 import { normalizarPadroes, bateAlgumPadrao, acharSobreposicoes, type Sobreposicao } from "@/lib/clickup/filtro-padroes";
-import { periodoCorrente } from "@/lib/clickup/periodo-corrente";
+import { periodoCorrente, limitesDoMes } from "@/lib/clickup/periodo-corrente";
+import { composicaoDoVinculo, type LinhaDaComposicao, type LinhaExcluidaDaComposicao } from "@/lib/clickup/composicao";
 
 const CLICKUP_ADMIN_PATH = "/integracoes/clickup";
 
@@ -260,4 +261,96 @@ export async function empurrarAgoraAction(_prev: PushAgoraState, formData: FormD
   revalidatePath(CLICKUP_ADMIN_PATH);
   if (!resultado.sucesso) return { error: resultado.erro ?? "Falha ao empurrar." };
   return { ok: `Enviado: ${formatBRL(resultado.valorEnviado)}` };
+}
+
+// -----------------------------------------------------------------------
+// Detalhamento: quais faturas compõem o valor de um vínculo.
+// -----------------------------------------------------------------------
+
+export interface DetalheState {
+  error?: string;
+  /** Mês apurado (o mesmo do último envio mostrado na linha, ou o mês corrente se nunca enviou). */
+  ano?: number;
+  mes?: number;
+  incluidas?: LinhaDaComposicao[];
+  excluidas?: LinhaExcluidaDaComposicao[];
+  /** Soma RECALCULADA agora das linhas incluídas. */
+  totalAtual?: string;
+  /** Último valor que de fato chegou ao ClickUp neste mês (só push com sucesso), ou null. */
+  ultimoEnviado?: { valor: string; enviadoEm: string } | null;
+  /** true quando o recálculo difere do último enviado — a receita mudou desde o envio. */
+  divergente?: boolean;
+}
+
+/**
+ * Lista as faturas que compõem o valor de UM vínculo, para o mês do último
+ * envio (ou o mês corrente, se nunca enviou).
+ *
+ * Ponto honesto e não negociável desta tela: `ClickUpPushLog` guarda só o
+ * TOTAL, nunca quais linhas o compuseram — então esta lista é sempre um
+ * RECÁLCULO com os dados de agora, não um retrato do que foi somado no envio.
+ * As duas coisas divergem por motivos legítimos e frequentes (a receita do mês
+ * corrente muda a cada sincronização de 15 min; uma revisão manual pode ter
+ * trocado categoria/valor; `devePush` pula reenvio quando nada muda). Por isso
+ * o retorno traz os DOIS números e um sinalizador — a UI mostra a divergência
+ * em vez de escondê-la atrás de um total que "parece" o do ClickUp.
+ */
+export async function detalharVinculoAction(vinculoId: string): Promise<DetalheState> {
+  const auth = await checkRole("ADMIN");
+  if (!auth.ok) return { error: auth.error };
+  if (!vinculoId) return { error: "Vínculo inválido." };
+
+  const vinculo = await prisma.clickUpVinculo.findUnique({ where: { id: vinculoId } });
+  if (!vinculo) return { error: "Vínculo não encontrado." };
+
+  // O mês apurado segue o que a linha da tabela mostra (último envio, com ou
+  // sem sucesso); sem nenhum envio ainda, cai no mês corrente — que é o que o
+  // próximo push vai empurrar.
+  const ultimoPush = await prisma.clickUpPushLog.findFirst({
+    where: { vinculoId },
+    orderBy: { enviadoEm: "desc" },
+    select: { ano: true, mes: true },
+  });
+  const corrente = periodoCorrente();
+  const ano = ultimoPush?.ano ?? corrente.ano;
+  const mes = ultimoPush?.mes ?? corrente.mes;
+  const { fromDate, toDateExclusive } = limitesDoMes(ano, mes);
+
+  // Mesma vizinhança que o push considera: só vínculos ATIVOS da mesma
+  // categoria disputam linhas (ver composicao.ts, filtro 4).
+  const outrosAtivos = await prisma.clickUpVinculo.findMany({
+    where: { categoria: vinculo.categoria, ativo: true, id: { not: vinculo.id } },
+  });
+
+  let composicao;
+  try {
+    composicao = await composicaoDoVinculo(vinculo, outrosAtivos, fromDate, toDateExclusive);
+  } catch (err) {
+    // Vínculo sem padrão nenhum (PadroesVazioError) cai aqui — é o mesmo erro
+    // que derrubaria o push, então mostrar na tela é melhor que uma lista vazia.
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+
+  // Só push com SUCESSO representa o que está no campo do ClickUp: um log com
+  // falha grava `valorEnviado` que nunca chegou lá (às vezes 0,00).
+  const ultimoSucesso = await prisma.clickUpPushLog.findFirst({
+    where: { vinculoId, ano, mes, sucesso: true },
+    orderBy: { enviadoEm: "desc" },
+    select: { valorEnviado: true, enviadoEm: true },
+  });
+
+  const totalAtual = toAmountString(composicao.total);
+  const ultimoEnviado = ultimoSucesso
+    ? { valor: ultimoSucesso.valorEnviado.toString(), enviadoEm: ultimoSucesso.enviadoEm.toISOString() }
+    : null;
+
+  return {
+    ano,
+    mes,
+    incluidas: composicao.incluidas,
+    excluidas: composicao.excluidas,
+    totalAtual,
+    ultimoEnviado,
+    divergente: ultimoEnviado !== null && !money(ultimoEnviado.valor).equals(composicao.total),
+  };
 }
