@@ -15,7 +15,13 @@ describe("normalizarTexto", () => {
     expect(normalizarTexto("  Março  ")).toBe("marco");
   });
 
-  it("mantém espaços internos", () => {
+  it("mantém espaços internos simples", () => {
     expect(normalizarTexto("Endereço Fiscal")).toBe("endereco fiscal");
+  });
+
+  it("colapsa espaço interno repetido — mesma sala escrita com 1, 2 ou 3 espaços (achado real na Conexa)", () => {
+    const umEspaco = normalizarTexto("Sala 08 - Loja 24");
+    expect(normalizarTexto("Sala 08  - Loja 24")).toBe(umEspaco);
+    expect(normalizarTexto("Sala 08   - Loja 24")).toBe(umEspaco);
   });
 });

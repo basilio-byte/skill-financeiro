@@ -67,6 +67,14 @@ function TabelaPreview({ preview }: { preview: PreviewState }) {
       <p className="mt-2 text-sm font-medium text-slate-800">
         Total do mês corrente (o que seria empurrado agora): {formatBRL(preview.totalMesCorrente ?? "0")}
       </p>
+      {preview.sobreposicoes && preview.sobreposicoes.length > 0 ? (
+        <p className="mt-2 rounded-md border border-red-300 bg-red-50 p-2 text-xs text-red-700">
+          <strong>Atenção:</strong> {preview.sobreposicoes.length} linha(s) acima já pertencem a outro vínculo ativo
+          (ex.: tarefa {preview.sobreposicoes[0]?.clickUpTaskId}) — vincular vai dobrar o valor empurrado pras duas
+          tarefas. Provavelmente é uma fatura que combina vários itens numa linha só; não crie este vínculo com esses
+          padrões.
+        </p>
+      ) : null}
     </div>
   );
 }

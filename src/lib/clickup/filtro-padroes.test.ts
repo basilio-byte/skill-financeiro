@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bateAlgumPadrao, normalizarPadroes, PadroesVazioError } from "@/lib/clickup/filtro-padroes";
+import { acharSobreposicoes, bateAlgumPadrao, normalizarPadroes, PadroesVazioError } from "@/lib/clickup/filtro-padroes";
 
 describe("normalizarPadroes", () => {
   it("separa por linha, tira espaço e descarta vazios", () => {
@@ -43,5 +43,38 @@ describe("bateAlgumPadrao", () => {
 
   it("lança PadroesVazioError se a lista de padrões estiver vazia", () => {
     expect(() => bateAlgumPadrao("qualquer coisa", [])).toThrow(PadroesVazioError);
+  });
+});
+
+describe("acharSobreposicoes", () => {
+  it("acha uma linha combinada (várias salas) que já bate em outro vínculo ativo — caso real Sebrae", () => {
+    const linhas = [
+      { servicoOuPlano: "Contrato: Sala 10 - Sebrae Mensal; Contrato: Sala 09 - Sebrae Mensal; Contrato: Sala 08 - Sebrae Mensal" },
+    ];
+    const outros = [{ id: "v-sala-09", clickUpTaskId: "task-sala-09", padroes: ["Sala 09 - Sebrae"] }];
+    const achadas = acharSobreposicoes(linhas, outros);
+    expect(achadas).toHaveLength(1);
+    expect(achadas[0]?.vinculoId).toBe("v-sala-09");
+  });
+
+  it("não acha nada quando as linhas não batem em nenhum outro vínculo", () => {
+    const linhas = [{ servicoOuPlano: "Contrato: Sala 05 - Ayrton Senna Mensal" }];
+    const outros = [{ id: "v-sala-06", clickUpTaskId: "task-sala-06", padroes: ["Sala 06 - Ayrton Senna"] }];
+    expect(acharSobreposicoes(linhas, outros)).toHaveLength(0);
+  });
+
+  it("não reporta a mesma linha duas vezes mesmo se bater em mais de um vínculo vizinho", () => {
+    const linhas = [{ servicoOuPlano: "Sala 08 - Sebrae; Sala 09 - Sebrae; Sala 10 - Sebrae" }];
+    const outros = [
+      { id: "v-08", clickUpTaskId: "t-08", padroes: ["Sala 08 - Sebrae"] },
+      { id: "v-09", clickUpTaskId: "t-09", padroes: ["Sala 09 - Sebrae"] },
+    ];
+    expect(acharSobreposicoes(linhas, outros)).toHaveLength(1);
+  });
+
+  it("ignora acento/espaço ao comparar, igual bateAlgumPadrao", () => {
+    const linhas = [{ servicoOuPlano: "Endereço Fiscal De   Comercio Mensal" }];
+    const outros = [{ id: "v-comercio", clickUpTaskId: "t-comercio", padroes: ["Comércio"] }];
+    expect(acharSobreposicoes(linhas, outros)).toHaveLength(1);
   });
 });

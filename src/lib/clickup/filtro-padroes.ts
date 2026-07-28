@@ -45,3 +45,49 @@ export function bateAlgumPadrao(servicoOuPlano: string, padroes: string[]): bool
   const alvo = normalizarTexto(servicoOuPlano);
   return padroes.some((padrao) => alvo.includes(normalizarTexto(padrao)));
 }
+
+export interface VinculoExistente {
+  id: string;
+  clickUpTaskId: string;
+  padroes: string[];
+}
+
+export interface Sobreposicao {
+  servicoOuPlano: string;
+  vinculoId: string;
+  clickUpTaskId: string;
+}
+
+/**
+ * Acha, entre uma lista de linhas candidatas (as que um padrão NOVO casaria),
+ * quais delas TAMBÉM batem em algum vínculo já ativo da mesma categoria.
+ *
+ * Por quê: achado real (Salas Privativas, 2026-07-27) — uma fatura pode
+ * combinar VÁRIAS salas na mesma linha de `servicoOuPlano` (ex. um cliente
+ * que aluga 3 salas de uma vez, texto vira "Contrato: Sala 08...; Contrato:
+ * Sala 09...; Contrato: Sala 10..." com um valor ÚNICO pras 3 juntas). Se dois
+ * vínculos diferentes (um por sala) casarem essa MESMA linha, os dois somam o
+ * valor INTEIRO da linha — o total combinado é contado uma vez por vínculo
+ * que bater, multiplicando dinheiro que não existe. Nunca detectável só pela
+ * prévia de UM vínculo isolado; por isso compara contra os vínculos VIZINHOS
+ * já cadastrados.
+ */
+export function acharSobreposicoes(
+  linhas: Array<{ servicoOuPlano: string }>,
+  outrosVinculosDaMesmaCategoria: VinculoExistente[],
+): Sobreposicao[] {
+  const achadas: Sobreposicao[] = [];
+  const vistos = new Set<string>();
+  for (const linha of linhas) {
+    const chave = linha.servicoOuPlano;
+    if (vistos.has(chave)) continue;
+    for (const outro of outrosVinculosDaMesmaCategoria) {
+      if (bateAlgumPadrao(linha.servicoOuPlano, outro.padroes)) {
+        achadas.push({ servicoOuPlano: chave, vinculoId: outro.id, clickUpTaskId: outro.clickUpTaskId });
+        vistos.add(chave);
+        break;
+      }
+    }
+  }
+  return achadas;
+}

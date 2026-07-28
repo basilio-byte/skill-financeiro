@@ -822,3 +822,28 @@
   daquele produto não mudou, não é sinal de que o mecanismo parou de funcionar.
 - Typecheck limpo, 142 testes, exclusão e resumo validados contra o dev DB real. Nada commitado
   ainda.
+
+## 2026-07-28 — ClickUp: vínculos de Salas Privativas (3 unidades) + 2 bugs achados na tentativa
+
+- **Usuário pediu:** criar os vínculos de Salas Privativas (Ayrton Senna, Sebrae, Seaway Center) e
+  perguntou o que mais estava pendente na integração.
+- **Investigação real antes de criar qualquer coisa** achou 2 bugs que precisavam de correção
+  primeiro: (1) espaçamento repetido no `servicoOuPlano` real ("Sala 08 - Loja 24" com 1, 2 ou 3
+  espaços) quebrava o casamento por substring — corrigido colapsando espaço em `normalizarTexto`;
+  (2) faturas que combinam várias salas numa linha só (uma delas: Sebrae "Sala 08+09+10" =
+  R$8.200 numa linha) fariam DOIS vínculos (um por sala) dobrarem o mesmo valor — nova
+  `acharSobreposicoes` detecta e BLOQUEIA a criação quando isso aconteceria (mais forte que o
+  aviso de "sem histórico" existente, porque aqui o dano é certo).
+- **Mapeamento sala→tarefa do ClickUp gerado programaticamente** (cruzando o dropdown "Nome da
+  sala" de cada tarefa real contra os `servicoOuPlano` distintos do banco), não digitado à mão —
+  achou 7 salas com receita real sem tarefa correspondente ainda no ClickUp (Loja 05/08/09/11/12/
+  13/14 mais 2 Estações) e confirmou que a checagem de sobreposição funciona corretamente contra
+  2 grupos de fatura combinada reais.
+- `scripts/seed-clickup-salas-privativas.mjs` (novo, idempotente): cria os 36 vínculos
+  confirmados. Validado com dry-run duplo contra o dev DB real (segunda rodada não duplica nada).
+- **O que ainda falta na integração ClickUp** (perguntado pelo usuário): depois de Salas
+  Privativas, faltam vínculos pra SeaBox (Básico/Pro), Outros Serviços, Hub Empreendedoras, Meu
+  Depósito, e Serviços de Espaço (mesma estrutura por sala das 3 unidades, ainda maior volume que
+  Salas Privativas — 175 linhas reais). Nenhum desses tem vínculo ainda.
+- Typecheck limpo, 147 testes. Nada commitado ainda — o script só pode rodar em produção depois
+  do deploy destas correções.

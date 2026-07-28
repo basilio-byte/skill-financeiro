@@ -6,7 +6,7 @@ import { prisma } from "@/lib/db";
 import { checkRole } from "@/lib/auth/session";
 import { formatBRL, money, roundMoney, sum, toAmountString, ZERO, type Money } from "@/lib/money";
 import { pushVinculoAgora } from "@/lib/clickup/push";
-import { normalizarPadroes, bateAlgumPadrao } from "@/lib/clickup/filtro-padroes";
+import { normalizarPadroes, bateAlgumPadrao, acharSobreposicoes, type Sobreposicao } from "@/lib/clickup/filtro-padroes";
 import { periodoCorrente } from "@/lib/clickup/periodo-corrente";
 
 const CLICKUP_ADMIN_PATH = "/integracoes/clickup";
@@ -54,6 +54,7 @@ export interface PreviewState {
   error?: string;
   itens?: PreviewItem[];
   totalMesCorrente?: string;
+  sobreposicoes?: Sobreposicao[];
 }
 
 export async function previsualizarVinculoAction(_prev: PreviewState, formData: FormData): Promise<PreviewState> {
@@ -102,7 +103,22 @@ export async function previsualizarVinculoAction(_prev: PreviewState, formData: 
     ),
   );
 
-  return { itens, totalMesCorrente: toAmountString(totalMesCorrente) };
+  // Sobreposição: alguma dessas linhas TAMBÉM bate num vínculo já ativo da
+  // mesma categoria? Achado real (Salas Privativas): uma fatura pode combinar
+  // várias salas na mesma linha de servicoOuPlano com um valor único pras
+  // várias juntas — se dois vínculos (um por sala) casarem essa MESMA linha,
+  // os dois somam o valor inteiro, dobrando ou triplicando dinheiro que não
+  // existe. Nunca detectável olhando só o padrão novo isolado.
+  const outrosVinculos = await prisma.clickUpVinculo.findMany({
+    where: { categoria, ativo: true },
+    select: { id: true, clickUpTaskId: true, padroes: true },
+  });
+  const sobreposicoes = acharSobreposicoes(
+    linhasQueBatem,
+    outrosVinculos.map((v) => ({ id: v.id, clickUpTaskId: v.clickUpTaskId, padroes: v.padroes as string[] })),
+  );
+
+  return { itens, totalMesCorrente: toAmountString(totalMesCorrente), sobreposicoes };
 }
 
 const vinculoSchema = z.object({
@@ -147,7 +163,32 @@ export async function criarVinculoAction(_prev: VinculoFormState, formData: Form
     where: { categoria: parsed.data.categoria },
     select: { servicoOuPlano: true },
   });
-  const temHistorico = linhasDaCategoria.some((l) => bateAlgumPadrao(l.servicoOuPlano, parsed.data.padroes));
+  const linhasQueBatem = linhasDaCategoria.filter((l) => bateAlgumPadrao(l.servicoOuPlano, parsed.data.padroes));
+  const temHistorico = linhasQueBatem.length > 0;
+
+  // Bloqueia (não só avisa) se este padrão bater numa linha que outro vínculo
+  // ativo da mesma categoria já reivindica — dois vínculos somando a MESMA
+  // linha dobra/triplica dinheiro que não existe (achado real, Salas
+  // Privativas: faturas que combinam várias salas numa linha só). Diferente
+  // do aviso de "sem histórico" acima (que é só um alerta), aqui o dano é
+  // certo, não hipotético — não faz sentido deixar criar mesmo avisando.
+  const outrosVinculos = await prisma.clickUpVinculo.findMany({
+    where: { categoria: parsed.data.categoria, ativo: true },
+    select: { id: true, clickUpTaskId: true, padroes: true },
+  });
+  const sobreposicoes = acharSobreposicoes(
+    linhasQueBatem,
+    outrosVinculos.map((v) => ({ id: v.id, clickUpTaskId: v.clickUpTaskId, padroes: v.padroes as string[] })),
+  );
+  if (sobreposicoes.length > 0) {
+    const exemplos = sobreposicoes
+      .slice(0, 3)
+      .map((s) => `"${s.servicoOuPlano}" (já vinculada à tarefa ${s.clickUpTaskId})`)
+      .join("; ");
+    return {
+      error: `Este padrão bate em ${sobreposicoes.length} linha(s) que já pertencem a outro vínculo ativo — criar dobraria o valor empurrado pras duas tarefas. Exemplo: ${exemplos}.`,
+    };
+  }
 
   try {
     await prisma.clickUpVinculo.create({

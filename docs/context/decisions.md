@@ -1099,3 +1099,46 @@ toda sincronização (não só quando alguém clica "Empurrar agora").
 - Validado: typecheck limpo, 142 testes, exclusão testada contra o dev DB real (cascade correto),
   resumo testado (sem token, `vinculosAtivos` fica 0 mesmo com vínculo real cadastrado — early
   exit antes de qualquer query, garantia de isolamento preservada).
+
+**Salas Privativas: dois bugs novos achados ao tentar cobrir as 3 unidades (Ayrton Senna, Sebrae,
+Seaway Center), corrigidos antes de criar qualquer vínculo (2026-07-28):**
+
+1. **Espaçamento repetido quebra o casamento por substring.** A mesma sala aparece no
+   `servicoOuPlano` real com 1, 2 ou 3 espaços (`"Sala 08 - Loja 24"` vs `"Sala 08   - Loja 24"`)
+   — o Postgres/nosso `bateAlgumPadrao` ignoravam acento e caixa, mas não espaço repetido, então
+   um padrão com o espaçamento "errado" simplesmente não batia, sem erro nenhum. Corrigido em
+   `normalizarTexto` (`src/lib/text-normalize.ts`): `.replace(/\s+/g, " ")` depois de tirar
+   acento/caixa — afeta os dois usos compartilhados (mês do ClickUp e padrão de vínculo).
+2. **Sobreposição entre vínculos da mesma categoria — risco de dobrar dinheiro.** Faturas que
+   combinam VÁRIAS salas na mesma linha (um cliente alugando 3 salas de uma vez vira uma linha só
+   com valor único pras 3 juntas, ex. "Sala 08+09+10 - Sebrae" = R$8.200) fariam DOIS vínculos (um
+   por sala) somarem o MESMO valor cada um se eu criasse um pra cada sala envolvida — nunca
+   detectável olhando o padrão novo isolado. Nova função `acharSobreposicoes`
+   (`filtro-padroes.ts`, testada): compara as linhas que um padrão NOVO casaria contra os padrões
+   de todo vínculo ATIVO já cadastrado da mesma categoria. Na prévia da tela, isso vira um aviso
+   visual; em `criarVinculoAction`, isso **bloqueia** a criação (não é só aviso como o "sem
+   histórico" — aqui o dano é certo, não hipotético, então não faz sentido deixar criar mesmo
+   avisando).
+
+**Mapeamento sala→tarefa gerado programaticamente, não digitado à mão:** cruzou o valor real do
+dropdown "Nome da sala" de cada tarefa do ClickUp (que espelha o nome do contrato da Conexa, ex.
+"Contrato: Sala 03 - Ayrton Senna") contra os `servicoOuPlano` distintos de cada categoria "Salas
+Privativas - X" no banco — usar o valor do dropdown em vez do nome de exibição da tarefa foi o que
+resolveu ambiguidades que uma tentativa manual anterior não tinha notado (ex. "Estação de estudo
+02 - Loja 08" só aparece no dropdown, não no nome da tarefa). Achados da investigação:
+- **7 salas com receita real não têm tarefa correspondente no ClickUp ainda**: Loja 05, 08, 09,
+  11, 12, 13, 14 (várias combinações "Sala X - Loja Y"), mais Estação 05 - Coworking L21 e
+  "Coworking Estação 08" — ficam de fora até alguém criar a tarefa lá (confirmado via o campo
+  dropdown ter a OPÇÃO pré-cadastrada pra Loja 05/11/12/13/14 mas nenhuma task usando ela — alguém
+  previu a sala, nunca criou o rastreamento).
+- **2 grupos de faturas combinadas** foram pegos pela checagem de sobreposição e tiveram só 1 sala
+  vinculada (a primeira processada) — Sebrae "Sala 08+09+10" (ficou só com Sala 10) e Seaway
+  "Sala 06+07 - Loja 24" (ficou só com Sala 07).
+- `scripts/seed-clickup-salas-privativas.mjs` (novo, idempotente, mesmo padrão de
+  `resolver-conflitos.mjs`): cria os 36 vínculos confirmados (+ 1 sala sem fatura ainda,
+  cadastrada de antemão). Validado com dry-run duplo contra o dev DB real: primeira rodada criou
+  36, segunda rodada não criou nada de novo (idempotente) e reportou as mesmas 3 sobreposições
+  esperadas.
+
+**Status:** aceito. Script pronto, ainda não rodado em produção (precisa do deploy destas
+correções primeiro).
