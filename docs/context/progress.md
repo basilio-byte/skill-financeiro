@@ -906,5 +906,9 @@
   jeito. Dry-run contra o dev DB agora cria os 16 vínculos completos (antes só 7), idempotente.
   **Validação forte**: simulando os 16 vínculos SEM a correção do push, a soma ingênua dava
   R$66.936,32 — mais que o dobro do real; com a correção, bate exato com o total real das faturas
-  (R$30.561,99, ao centavo). Typecheck limpo, 152 testes. Aguardando redeploy pra rodar de novo em
-  produção (idempotente sobre os 7 vínculos já existentes).
+  (R$30.561,99, ao centavo). Typecheck limpo, 152 testes.
+- **Rodado em produção depois do redeploy**: 9 criados, 7 já existiam — 16/16 vínculos de Serviços
+  de Espaço completos e ativos. Com isso, a integração ClickUp cobre todas as categorias que já têm
+  tarefa correspondente no ClickUp (Endereço Fiscal, Salas Privativas, SeaBox, Meu Depósito,
+  Serviços de Espaço); só Outros Serviços e Hub Empreendedoras seguem sem cobertura, por falta de
+  tarefa na lista Eficiência — não resolvível pelo dashboard, depende de alguém criar as tarefas lá.

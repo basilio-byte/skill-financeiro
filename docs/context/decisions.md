@@ -1264,5 +1264,12 @@ que o DOBRO do real; com `linhasExclusivasDoVinculo`, a soma corrigida bate EXAT
 das faturas da categoria (R$30.561,99, ao centavo). Vínculos de teste removidos do dev DB depois.
 Typecheck limpo, 152 testes.
 
-**Status:** aceito, rodado em produção (aguardando redeploy pra rodar de novo o script atualizado
-de Serviços de Espaço — vai criar as ~9 salas que faltam, idempotente sobre as 7 já existentes).
+**Rodado em produção (2026-07-28), via Console do Easypanel, depois do redeploy:** 9 criados
+(Atendimento 01/02/03/05, Reunião 01/02/03/04, Pacote de Horas), 7 já existiam (idempotente) — os
+16 vínculos completos de Serviços de Espaço agora ativos nas 3 unidades. Nenhum erro; contagens
+batem exatamente com o dry-run.
+
+**Status:** aceito, rodado em produção. Cobertura completa de Serviços de Espaço (16/16 vínculos
+mapeados) e de todas as categorias que já têm tarefa correspondente no ClickUp — só Outros
+Serviços e Hub Empreendedoras seguem sem cobertura, por falta de tarefa na lista Eficiência (não é
+algo resolvível pelo dashboard).
