@@ -954,3 +954,15 @@
   o mesmo ponto cego que causou o incidente. Daqui pra frente, migration que altera tabela
   existente precisa ser testada com dado real (ou uma reprodução fiel dele), não só contra uma
   tabela vazia, mesmo quando a suposição "está vazia" parece razoável.
+- **2ª falha, mesmo incidente**: o deploy corrigido falhou de novo com o MESMO erro — mas era a
+  imagem ANTIGA ainda rodando (confirmado consultando o histórico do GitHub Actions: o build da
+  correção só terminou às 16:59:45 UTC, a falha reportada foi às 16:53:11). A causa real da 2ª
+  falha era outra: o registro da tentativa de 16:53 ficou bloqueando `_prisma_migrations`
+  (P3009), mesmo já existindo imagem corrigida — precisou limpar esse registro de novo antes do
+  deploy seguinte rodar a versão certa. **Lição**: cada tentativa de deploy que falha cria um novo
+  registro de bloqueio que precisa ser limpo de novo (não basta limpar uma vez); e antes de
+  concluir "a correção não funcionou", conferir se a imagem que rodou realmente já tinha a
+  correção (comparando horário da falha × horário de build no GitHub Actions).
+- **Resolvido e confirmado**: subiu limpo (logs mostrando boot normal, auto-sync rodando), e a
+  meta de R$35.000 (Q3 2026) confirmada visualmente em `/metas`, migrada corretamente pra seção
+  Trimestral. Nenhum dado perdido durante todo o incidente.

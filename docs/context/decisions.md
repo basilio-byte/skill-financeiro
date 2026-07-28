@@ -1347,4 +1347,26 @@ quando a suposição é "a tabela está vazia" — precisa testar com dado real 
 dele) presente, especialmente quando a tabela em questão já está em uso por uma feature live há
 dias (trimestral estava em produção desde a ADR-0022, dando tempo real pra alguém usá-la).
 
-**Status:** aceito, corrigido e validado. Enviado para produção.
+**2ª falha, mesmo incidente — o registro de migration falha bloqueia RETENTATIVAS mesmo depois da
+imagem corrigida existir.** Depois de corrigir e reenviar (`fee3e35`), o deploy falhou de novo com
+o MESMO erro (`ERROR: column "granularidade" ... contains null values`, código 23502). Investigado
+antes de concluir que a correção estava errada: consultado o histórico real do GitHub Actions
+(`api.github.com/repos/.../actions/runs`) — o build da imagem corrigida só **começou** às 16:57:44
+UTC e terminou às 16:59:45; a falha reportada foi às 16:53:11, ou seja, ainda era a imagem ANTIGA
+(sem a correção) rodando. A verdadeira causa da 2ª falha reportada: o registro dessa tentativa
+(16:53:11) ficou em `_prisma_migrations` sem `finished_at`, e o Prisma (P3009) bloqueia qualquer
+nova tentativa de aplicar migrations enquanto existir QUALQUER registro de falha pendente — mesmo
+depois da imagem já ter sido corrigida e reenviada. Precisou apagar esse SEGUNDO registro de falha
+(mesma checagem de segurança: `finished_at IS NULL`, transação revertida) antes do próximo clique
+em "Implantar" finalmente rodar a versão corrigida de verdade — aí sim subiu limpo, confirmado
+visualmente em `/metas` (meta de R$35.000 aparece certa na seção Trimestral).
+
+**Lição adicional:** depois de corrigir e reenviar um deploy que falhou por causa de uma migration
+travada, **cada nova tentativa de deploy que falhar cria um NOVO registro de falha que precisa ser
+limpo de novo** — não basta limpar uma vez achando que já resolveu. E antes de decidir "a correção
+não funcionou", checar se a imagem que rodou de fato já tinha a correção (comparando o horário da
+falha contra o horário real de build/push da imagem, via GitHub Actions) — evita investigar a
+correção certa como se fosse a causa errada.
+
+**Status:** aceito, corrigido, validado e confirmado funcionando em produção (dado real preservado
+— meta de R$35.000 migrada intacta).
