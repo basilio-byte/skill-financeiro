@@ -989,3 +989,38 @@
   do push e pela nova bateram em 100% (0 divergências) e a soma da lista fecha exato com o total
   em todos. App subido de verdade: 52 botões renderizados, 105 forms pré-existentes intactos.
   Ambiente limpo depois. Typecheck limpo, 169 testes (8 novos).
+
+## 2026-07-28 (continuação) — Receita dividida por ITEM da fatura (ADR-0028)
+
+- Usuário abriu a tela nova de detalhamento, viu a Cabine com R$ 263,75 e mandou o PDF da fatura
+  provando que a Cabine faturou R$ 26,25 — o resto era de outras 2 salas na mesma linha.
+  Perguntou "como lidamos com esse tipo de coisa?".
+- **Diagnóstico**: o motor descartava o valor por item, e a proteção de sobreposição só sabia dar
+  a linha inteira ao vínculo mais antigo. Provado arbitrário: a mesma fatura foi pra salas
+  diferentes em produção e no dev, só por ordem de cadastro (9 ms de diferença).
+- **Medido antes de decidir**: R$ 6.929,61/mês de atribuição arbitrária = 22,67% da categoria
+  "Serviços de Espaço - Seaway Center"; 7 vínculos com 29-68% do número vindo de linha alheia.
+- **Viabilidade confirmada no código**: `valoresPorItem` já era calculado e jogado fora. Achado
+  lateral: o comentário do schema sobre `raw` ("CR + itens LV casados") era falso — corrigido.
+- **Etapa 1** (guardar, sem mudar o ClickUp): `ItemDaLinha`, colunas `itensDetalhe`/
+  `ajusteArredondamento` (nullable — sem risco em tabela populada). Validado com **sync real
+  contra a Conexa**: invariante `soma(itens)+ajuste = valor` verdadeira em **1015/1015** linhas,
+  conferência do motor em **R$ 0,00**, e os itens da fatura 27320 batendo com o PDF ao centavo.
+- **Etapa 2** (dividir no push): `donoDoItem` + `composicao.ts` com modo por-item e fallback
+  linha-inteira (usado em linha antiga, SEM_LV e revisada manualmente — revisão humana prevalece).
+- **Destravou dinheiro parado**: como dividir agora é seguro, os seeds de Salas Privativas e Meu
+  Depósito não pulam mais as salas que dividem fatura. Sala 08/09 Sebrae saíram de R$ 0,00 para
+  R$ 3.858,80 e R$ 2.411,80.
+- **Validação antes × depois**: nenhuma categoria excede seu total; 23 vínculos mudam; Cabine vai
+  a R$ 166,25 (o valor do PDF). Caem R$ 2.916,43 do total — dinheiro de salas sem tarefa no
+  ClickUp, que antes inflava a vizinha.
+- Typecheck limpo, 178 testes. Revisão adversarial rodada antes do commit.
+- **Revisão adversarial (8 agentes) achou 4 bugs reais, todos de informação exibida** — a dimensão
+  dinheiro/precisão foi refutada (não há como criar ou duplicar valor). Corrigidos: (1) o Decimal
+  do Prisma derruba zeros à direita, então a UI marcava "parte da fatura" em quase toda
+  mensalidade redonda — resolvido na raiz com um campo `dividida` decidido no servidor; (2) a
+  prévia de novo vínculo somava linha inteira e prometia mais do que o push entregaria — agora usa
+  a mesma função do push com um vínculo hipotético; (3) o bloco "Excluídas" dizia "R$ 123,75
+  somando na tarefa X" quando X levou R$ 26,25 — agora mostra a repartição real; (4) padrão com
+  ";" zerava a receita silenciosamente — bloqueado na criação. Revalidado: totais idênticos aos de
+  antes dos fixes.

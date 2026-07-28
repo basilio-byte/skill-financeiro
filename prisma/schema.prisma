@@ -219,8 +219,33 @@ model RevenueCategorizedLine {
   observacoes String?
   tags        String?
 
-  // Linha bruta de origem (CR + itens LV casados), para auditoria/reprocessamento.
+  // Linha bruta de origem — SÓ o cabeçalho da fatura (Contas a Receber), para
+  // auditoria/reprocessamento. Até 2026-07-28 este comentário dizia "CR + itens
+  // LV casados", o que era FALSO: o código sempre gravou apenas `cr.raw`. Quem
+  // confiou no comentário achava que o detalhe por item já estava salvo — não
+  // estava. Os itens agora vivem em `itensDetalhe` (ADR-0028).
   raw Json
+
+  /// Itens de LV que compõem esta linha, cada um com o valor rateado que ele
+  /// contribuiu — `ItemDaLinha[]` (ver src/lib/categorization/types.ts).
+  ///
+  /// Por que existe (ADR-0028): o motor SEMPRE calculou o valor por item, mas
+  /// jogava fora ao somar o bucket da categoria. Uma fatura com 3 salas virava
+  /// uma linha só ("Sala A; Sala B; Sala C", R$ 123,75), e a integração ClickUp
+  /// era obrigada a dar esse valor inteiro a UM vínculo — creditando receita à
+  /// sala errada em 22,67% da categoria "Serviços de Espaço - Seaway Center".
+  ///
+  /// Nullable de propósito: linha gravada antes desta mudança fica `null`, e
+  /// `SEM_LV` (fatura sem LV casado) não tem item nenhum. Quem consome PRECISA
+  /// tratar a ausência — nunca assumir que existe.
+  itensDetalhe Json?
+
+  /// Resíduo de centavos que o motor joga no ÚLTIMO bucket da fatura para
+  /// fechar em `valorRecebidoTotal`. Fica separado porque NÃO é atribuível a
+  /// nenhum item: soma(itensDetalhe.valorRateado) + ajusteArredondamento =
+  /// valorRecebidoCat. Sem este campo, a soma dos itens pareceria "errada" por
+  /// centavos justamente na linha que fecha a fatura.
+  ajusteArredondamento Decimal? @db.Decimal(14, 2)
 
   atualizadoEm DateTime @updatedAt
 

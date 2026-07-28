@@ -5,6 +5,7 @@ import type {
   CategorizationRunResult,
   CategorizedLine,
   ContasReceberRow,
+  ItemDaLinha,
   ListarVendasRow,
   ProporcionadoTipo,
 } from "@/lib/categorization/types";
@@ -82,9 +83,20 @@ export function categorizeInvoices(
 
     // Fase 2 — agrupa por categoria (ordem de primeira aparição dos itens),
     // somando os valores JÁ arredondados por item. Replica `by_cat[cat] += val`.
-    const buckets = new Map<string, { categoria: string; nomes: string[]; valor: Money }>();
+    //
+    // `itens` é PURAMENTE ADITIVO (ADR-0028): guarda o detalhe que já era
+    // calculado em `valoresPorItem` e se perdia nesta soma. Nenhum valor do
+    // bucket muda por causa dele — é só parar de descartar o que existe.
+    const buckets = new Map<string, { categoria: string; nomes: string[]; valor: Money; itens: ItemDaLinha[] }>();
     itensLV.forEach((lv, i) => {
       const categoria = categoriasPorItem[i]!;
+      const item: ItemDaLinha = {
+        lvId: lv.id,
+        servicoItem: lv.servicoItem,
+        categoriaConexa: lv.categoriaConexa,
+        valorBruto: toAmountString(roundMoney(lv.valor)),
+        valorRateado: toAmountString(valoresPorItem[i]!),
+      };
       const bucket = buckets.get(categoria);
       if (bucket) {
         bucket.valor = bucket.valor.plus(valoresPorItem[i]!);
@@ -92,8 +104,9 @@ export function categorizeInvoices(
         // do Python, que concatena todo item da categoria, mesmo repetido —
         // 2 lançamentos idênticos na mesma fatura aparecem 2x (auditoria 2026-07-23).
         bucket.nomes.push(lv.servicoItem);
+        bucket.itens.push(item);
       } else {
-        buckets.set(categoria, { categoria, nomes: [lv.servicoItem], valor: valoresPorItem[i]! });
+        buckets.set(categoria, { categoria, nomes: [lv.servicoItem], valor: valoresPorItem[i]!, itens: [item] });
       }
     });
 
@@ -107,8 +120,17 @@ export function categorizeInvoices(
     const ajuste = roundMoneyRateio(cr.valorRecebido.minus(somaBuckets));
 
     bucketList.forEach((b, i) => {
-      const valorFinal = i === bucketList.length - 1 ? b.valor.plus(ajuste) : b.valor;
-      linhas.push(buildLinha(cr, b.categoria, b.nomes.join("; "), proporcionado, valorFinal, cr.valorRecebido));
+      const ehUltimo = i === bucketList.length - 1;
+      const valorFinal = ehUltimo ? b.valor.plus(ajuste) : b.valor;
+      // O ajuste vai para um campo PRÓPRIO, nunca redistribuído entre os itens
+      // — redistribuir mudaria número já calculado (ADR-0028). Consequência
+      // aceita: no último bucket, soma(itens) + ajuste = valorRecebidoCategoria.
+      linhas.push(
+        buildLinha(cr, b.categoria, b.nomes.join("; "), proporcionado, valorFinal, cr.valorRecebido, {
+          itens: b.itens,
+          ajusteArredondamento: ehUltimo ? toAmountString(ajuste) : toAmountString(ZERO),
+        }),
+      );
     });
   }
 
@@ -138,8 +160,10 @@ function buildLinha(
   proporcionado: ProporcionadoTipo,
   valorRecebidoCategoria: Money,
   valorRecebidoTotal: Money,
+  detalhe?: { itens: ItemDaLinha[]; ajusteArredondamento: string },
 ): CategorizedLine {
   return {
+    ...(detalhe ? { itens: detalhe.itens, ajusteArredondamento: detalhe.ajusteArredondamento } : {}),
     crId: cr.id,
     unidade: cr.unidade,
     faturamento: cr.faturamento,

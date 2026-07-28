@@ -96,13 +96,6 @@ export async function previsualizarVinculoAction(_prev: PreviewState, formData: 
     .sort((a, b) => Number(b.totalHistorico) - Number(a.totalHistorico));
 
   const { fromDate, toDateExclusive } = periodoCorrente();
-  const totalMesCorrente = roundMoney(
-    sum(
-      linhasQueBatem
-        .filter((l) => l.dataCredito && l.dataCredito >= fromDate && l.dataCredito < toDateExclusive)
-        .map((l) => l.valorRecebidoCat),
-    ),
-  );
 
   // Sobreposição: alguma dessas linhas TAMBÉM bate num vínculo já ativo da
   // mesma categoria? Achado real (Salas Privativas): uma fatura pode combinar
@@ -119,7 +112,28 @@ export async function previsualizarVinculoAction(_prev: PreviewState, formData: 
     outrosVinculos.map((v) => ({ id: v.id, clickUpTaskId: v.clickUpTaskId, padroes: v.padroes as string[] })),
   );
 
-  return { itens, totalMesCorrente: toAmountString(totalMesCorrente), sobreposicoes };
+  // "Quanto isso empurraria agora" sai da MESMA função que o push usa — nunca
+  // de uma soma de linha inteira feita à parte. Desde a ADR-0028 o push divide
+  // fatura combinada por item; uma prévia que somasse a linha cheia prometeria
+  // ao admin um valor maior do que ele de fato receberia (achado da revisão
+  // adversarial 2026-07-28). O vínculo hipotético entra com `criadoEm: agora`
+  // — é como ele nasceria, o mais NOVO da categoria, perdendo todo desempate
+  // para os existentes: a prévia mostra o caso realista, nunca o otimista.
+  const ativosDaCategoria = await prisma.clickUpVinculo.findMany({ where: { categoria, ativo: true } });
+  const hipotetico = {
+    id: "",
+    categoria,
+    padroes,
+    clickUpListId: "",
+    clickUpTaskId: "",
+    ativo: true,
+    criadoPorId: null,
+    criadoEm: new Date(),
+    atualizadoEm: new Date(),
+  } as unknown as Parameters<typeof composicaoDoVinculo>[0];
+  const previa = await composicaoDoVinculo(hipotetico, ativosDaCategoria, fromDate, toDateExclusive);
+
+  return { itens, totalMesCorrente: toAmountString(previa.total), sobreposicoes };
 }
 
 const vinculoSchema = z.object({
@@ -155,6 +169,22 @@ export async function criarVinculoAction(_prev: VinculoFormState, formData: Form
     clickUpTaskId: extrairIdDoTexto(String(formData.get("clickUpTaskId") ?? "")),
   });
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Dados inválidos" };
+
+  // Padrão com ";" casaria o texto CONCATENADO de uma linha combinada, mas
+  // nunca um item individual — e desde a ADR-0028 o push casa item a item.
+  // Resultado silencioso: o vínculo empurraria R$ 0,00 pra sempre e a linha
+  // nem apareceria no detalhamento. Bloqueia porque é sempre um engano (o ";"
+  // é separador que o motor inventa ao juntar itens, não faz parte do nome de
+  // nenhum produto). Achado da revisão adversarial 2026-07-28.
+  const comSeparador = parsed.data.padroes.filter((p) => p.includes(";"));
+  if (comSeparador.length > 0) {
+    return {
+      error:
+        `Padrão com ";" não casa nada: ${comSeparador.map((p) => `"${p}"`).join(", ")}. ` +
+        `O ";" só existe porque o sistema junta vários produtos de uma fatura numa linha só — ` +
+        `use o nome de UM produto (ex.: "[SEAWAY] - Cabine"), que a divisão por item cuida do resto.`,
+    };
+  }
 
   // Nenhuma linha bate com categoria+padrões — pode ser um padrão digitado
   // errado; não bloqueia (pode passar a bater no futuro), mas avisa, senão o

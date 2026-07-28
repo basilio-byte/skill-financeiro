@@ -1432,3 +1432,92 @@ e todos os controles pré-existentes seguem intactos (105 forms = 52 ativar/desa
 empurrar + 1 novo vínculo). Ambiente de teste limpo depois. Typecheck limpo, 169 testes (8 novos).
 
 **Status:** aceito.
+
+## ADR-0028 — Receita dividida POR ITEM da fatura, não "linha inteira pro vínculo mais antigo"
+
+**Contexto:** o usuário abriu a tela de detalhamento (ADR-0027) e viu que a Cabine mostrava
+R$ 263,75. O PDF da fatura real (27320) provou que a Cabine faturou R$ 26,25 — os outros R$ 97,50
+eram de "Sala de Atendimento 02" e "03", que dividiam a mesma linha de fatura. Perguntou "como
+lidamos com esse tipo de coisa?".
+
+**Diagnóstico:** o motor soma todos os itens de uma mesma categoria numa linha só
+(`servicoOuPlano` concatenado, um `valorRecebidoCat` único) e DESCARTA o valor de cada item. Sem
+esse detalhe, a proteção de sobreposição (ADR-0025) só sabia fazer o grosseiro: dar a linha
+inteira ao vínculo ATIVO mais antigo. Não duplicava dinheiro, mas creditava à sala errada.
+
+**Prova de que a atribuição era arbitrária, não uma escolha:** a MESMA fatura foi para salas
+DIFERENTES em produção e no dev — em produção a Cabine venceu (criada na 1ª rodada do seed), no
+dev a Atendimento 02 (criada 9 ms antes). Ordem de cadastro, não dado da fatura.
+
+**Escala medida antes de decidir (não estimada):** julho/2026, R$ 6.929,61 de atribuição
+arbitrária = 5,75% do total empurrado, mas **22,67% da categoria "Serviços de Espaço - Seaway
+Center"** — 7 vínculos tinham de 29% a 68% do número exibido no ClickUp vindo de linha alheia, e
+um (Atendimento 05) aparecia com R$ 0,00. 86% do problema era sala-vs-sala genuína, que nenhum
+ajuste de padrão resolveria.
+
+**Viabilidade confirmada no código antes de prometer:** `categorize-invoices.ts` JÁ calcula
+`valoresPorItem` (para a fatura 27320: `[15000, 90, 48.75, 48.75, 26.25]`) e perde esse array na
+linha que soma o bucket. Não era recuperar dado inexistente — era parar de descartar. Achado
+lateral: o comentário do schema dizia que `raw` guardava "CR + itens LV casados"; **era falso**,
+sempre guardou só o cabeçalho do CR. Corrigido.
+
+**Feito em 2 etapas deliberadamente**, para que a primeira fosse invisível e reversível:
+
+*Etapa 1 — passar a GUARDAR o detalhe, sem mudar nada no ClickUp.* `ItemDaLinha` novo; o bucket
+acumula `itens`; migration aditiva com `itensDetalhe Json?` e `ajusteArredondamento Decimal?`
+(ambas NULLABLE — `ADD COLUMN` nullable não reescreve linha existente, lição do P3009 do mesmo
+dia). O resíduo de arredondamento vai em campo PRÓPRIO, nunca redistribuído entre itens, porque
+redistribuir mudaria número já calculado. **Validado com sincronização real contra a Conexa:**
+1036 linhas, 1015 com itens + 21 SEM_LV (soma exata), invariante `soma(itens) + ajuste =
+valorRecebidoCat` verdadeira em **1015 de 1015**, `diferencaConferencia` da rodada = **R$ 0,00**
+(o motor continua fechando ao centavo). Os itens da fatura 27320 gravaram exatamente os valores
+do PDF: 26,25 / 48,75 / 48,75.
+
+*Etapa 2 — dividir no push.* Nova `donoDoItem` (pura, testada) responde "de quem é ESTE item";
+`composicao.ts` ganhou dois modos: **por-item** quando a linha tem detalhe, e **linha-inteira**
+como fallback (linha antiga sem itens, `SEM_LV`, ou `revisadoManualmente` — revisão manual congela
+o valor, então os itens do motor deixam de valer e a correção humana prevalece, financial-rigor
+#9). Item sem nenhum vínculo dono não vai pra ninguém: o valor deixa de ser espelhado em vez de
+inflar o vizinho.
+
+**Consequência que destravou dinheiro parado:** com a divisão, criar vínculo para salas que
+dividem fatura deixou de ser perigoso — os scripts de Salas Privativas e Meu Depósito não PULAM
+mais essas salas (ADR-0025 revisada). Sala 08 e 09 do Sebrae saíram de R$ 0,00 para R$ 3.858,80 e
+R$ 2.411,80.
+
+**Validado com dado real (antes × depois, julho/2026):** nenhuma categoria excede seu total (
+dinheiro nunca é criado) — verificado categoria a categoria. 23 vínculos mudam de valor; os que
+caem são os que absorviam receita alheia (Sala 10 Sebrae −R$ 6.270,60, Auditório −R$ 4.127,28) e
+os que sobem são os que estavam sendo roubados. A Cabine vai de R$ 140,00 para **R$ 166,25** —
+exatamente 26,25 + 80 + 60, o que o PDF manda. O total empurrado cai R$ 2.916,43: é dinheiro de
+salas que genuinamente não têm tarefa no ClickUp (Loja 05/11/12/13/14), que antes inflava a
+vizinha e agora corretamente não aparece.
+
+**Status:** aceito.
+
+**Revisão adversarial da ADR-0028 (8 agentes: 4 dimensões + 1 refutador por dimensão) — 4 achados
+confirmados, todos de INFORMAÇÃO EXIBIDA, nenhum movendo dinheiro errado.** A dimensão mais
+crítica (dinheiro/precisão) foi explicitamente refutada: não há caminho em que a soma dos vínculos
+exceda o total da categoria, nem item contado duas vezes — o modo é propriedade da LINHA, então
+todos os vínculos concordam sobre ela, e o ajuste é creditado exatamente uma vez. Corrigidos antes
+do commit:
+
+1. **`Decimal.toString()` derruba zeros à direita** — a UI comparava `valorAtribuido` ("250.00")
+   com `valorRecebidoCat` ("250") pra decidir se a linha foi repartida, marcando "parte da fatura"
+   em praticamente TODA mensalidade redonda que na verdade foi integral. Corrigido na raiz: a
+   decisão virou um campo `dividida` calculado no servidor com comparação de Decimal, eliminando a
+   classe do bug em vez da ocorrência.
+2. **A prévia de novo vínculo ainda somava linha inteira** — prometia ao admin um valor maior do
+   que o push entregaria depois da divisão. Agora a prévia chama `composicaoDoVinculo` com um
+   vínculo hipotético `criadoEm: agora` (o mais novo, perde todo desempate): mesma função do push,
+   mesmo número, e conservadora por construção.
+3. **Bloco "Excluídas" mentia no modo por-item** — dizia "R$ 123,75 somando na tarefa X" quando X
+   levou R$ 26,25, e o texto descrevia o caso oposto (linha SEM detalhe). Agora mostra a repartição
+   real, parte por parte, com o destino de cada uma.
+4. **Padrão contendo ";"** casaria o texto concatenado mas nunca um item individual — vínculo
+   empurraria R$ 0,00 pra sempre, invisível. Bloqueado na criação com mensagem explicando que o
+   ";" é separador que o motor inventa, não parte do nome de produto.
+
+Revalidado após os fixes: os 23 vínculos que mudam de valor e os totais (R$ 137.146,71 →
+R$ 134.230,28) ficaram IDÊNTICOS aos de antes das correções — confirmando que elas só tocaram
+informação exibida. Typecheck limpo, 178 testes.

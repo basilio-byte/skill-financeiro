@@ -68,7 +68,7 @@ async function main() {
   let criados = 0;
   let jaExistiam = 0;
   let semHistorico = 0;
-  let pulados = 0;
+  let comSobreposicao = 0;
 
   for (const item of MAPEAMENTO) {
     const jaTem = await prisma.clickUpVinculo.findUnique({ where: { clickUpTaskId: item.clickUpTaskId } });
@@ -95,14 +95,17 @@ async function main() {
         break;
       }
     }
+    // ATÉ A ADR-0028 isto PULAVA a criação (sem detalhe por item, dois vínculos
+    // casando a mesma linha dobrariam o valor). Agora o push divide item a
+    // item, então criar é seguro E é o certo — cada box recebe a parte dele em
+    // vez de o valor inteiro ficar com o vizinho. Vira só um aviso.
     if (colisao) {
       console.log(
-        `[seed-deposito] PULADO "${item.padroes.join(", ")}" — a linha "${colisao.linha}" já pertence ao ` +
-          `vínculo da tarefa ${colisao.outro.clickUpTaskId} (padrões: ${colisao.outro.padroes.join(", ")}). ` +
-          `Provável fatura combinando 2 boxes na mesma linha.`,
+        `[seed-deposito] AVISO "${item.padroes.join(", ")}" — a linha "${colisao.linha}" também casa o ` +
+          `vínculo da tarefa ${colisao.outro.clickUpTaskId}. Com a divisão por item (ADR-0028) cada box recebe ` +
+          `só a sua parte.`,
       );
-      pulados++;
-      continue;
+      comSobreposicao++;
     }
 
     if (linhasQueBatem.length === 0) semHistorico++;
@@ -124,7 +127,7 @@ async function main() {
 
   console.log(
     `\n[seed-deposito] resumo: ${criados} criado(s), ${jaExistiam} já existiam (idempotente), ` +
-      `${pulados} pulado(s) por sobreposição, ${semHistorico} criado(s) sem histórico ainda (aviso, não bloqueio).`,
+      `${comSobreposicao} criado(s) com linha compartilhada (push divide por item), ${semHistorico} criado(s) sem histórico ainda (aviso, não bloqueio).`,
   );
 }
 

@@ -124,6 +124,32 @@ export function linhasExclusivasDoVinculo<T extends { servicoOuPlano: string }>(
   return particionarPorReivindicacao(linhas, vinculoAtual, outrosAtivosDaMesmaCategoria).incluidas;
 }
 
+/**
+ * De qual vínculo é ESTE item de fatura (ADR-0028).
+ *
+ * Substitui, quando a linha tem detalhe por item, a pergunta grosseira "de quem
+ * é esta LINHA?" — que obrigava a dar uma fatura com 3 salas inteira a um só
+ * vínculo. Agora cada item vai pro seu dono e o dinheiro cai na sala certa.
+ *
+ * Item que nenhum vínculo casa devolve `null`, e é o comportamento certo: esse
+ * valor simplesmente não é espelhado no ClickUp, em vez de inflar quem estava
+ * por perto. O desempate (mais antigo vence) só age quando 2+ vínculos casam o
+ * MESMO item — ambiguidade real e muito mais rara que a de linha.
+ */
+export function donoDoItem(servicoItem: string, candidatos: VinculoAtivo[]): VinculoAtivo | null {
+  let dono: VinculoAtivo | null = null;
+  for (const c of candidatos) {
+    if (!bateAlgumPadrao(servicoItem, c.padroes)) continue;
+    if (dono === null) {
+      dono = c;
+      continue;
+    }
+    const diff = c.criadoEm.getTime() - dono.criadoEm.getTime();
+    if (diff < 0 || (diff === 0 && c.id < dono.id)) dono = c;
+  }
+  return dono;
+}
+
 export interface LinhaReivindicada<T> {
   linha: T;
   /** O vínculo mais antigo que ficou com esta linha (é dele que ela soma). */

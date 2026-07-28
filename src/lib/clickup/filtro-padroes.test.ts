@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   acharSobreposicoes,
   bateAlgumPadrao,
+  donoDoItem,
   linhasExclusivasDoVinculo,
   normalizarPadroes,
   particionarPorReivindicacao,
@@ -176,5 +177,42 @@ describe("particionarPorReivindicacao", () => {
     expect(particionarPorReivindicacao(linhas, atend02, [auditorio]).incluidas).toEqual(
       linhasExclusivasDoVinculo(linhas, atend02, [auditorio]),
     );
+  });
+});
+
+describe("donoDoItem (divisão por item — ADR-0028)", () => {
+  const D1 = new Date("2026-07-28T10:00:00Z");
+  const D2 = new Date("2026-07-28T11:00:00Z");
+  const cabine = { id: "v-cabine", clickUpTaskId: "t-cabine", padroes: ["[SEAWAY] - Cabine"], criadoEm: D1 };
+  const atend02 = { id: "v-a02", clickUpTaskId: "t-a02", padroes: ["SALA DE ATENDIMENTO 02"], criadoEm: D2 };
+  const atend03 = { id: "v-a03", clickUpTaskId: "t-a03", padroes: ["SALA DE ATENDIMENTO 03"], criadoEm: D2 };
+  const todos = [cabine, atend02, atend03];
+
+  it("cada item da fatura real 27320 vai pro seu próprio dono", () => {
+    expect(donoDoItem("[SEAWAY] - Cabine (SEAHUB COWORKING)", todos)?.clickUpTaskId).toBe("t-cabine");
+    expect(donoDoItem("[SEAWAY] - SALA DE ATENDIMENTO 02 - 3 pessoas (SEAHUB COWORKING)", todos)?.clickUpTaskId).toBe("t-a02");
+    expect(donoDoItem("[SEAWAY] - SALA DE ATENDIMENTO 03 - 3 pessoas (SEAHUB COWORKING)", todos)?.clickUpTaskId).toBe("t-a03");
+  });
+
+  it("item que nenhum vínculo casa não vai pra ninguém (não infla quem estava por perto)", () => {
+    expect(donoDoItem("[SEAWAY] - SALA DE REUNIÃO 07 (SEAHUB COWORKING)", todos)).toBeNull();
+  });
+
+  it("quando 2 vínculos casam o MESMO item, o mais antigo vence (desempate determinístico)", () => {
+    const generico = { id: "v-gen", clickUpTaskId: "t-gen", padroes: ["[SEAWAY]"], criadoEm: D1 };
+    const especifico = { id: "v-esp", clickUpTaskId: "t-esp", padroes: ["Cabine"], criadoEm: D2 };
+    expect(donoDoItem("[SEAWAY] - Cabine", [generico, especifico])?.clickUpTaskId).toBe("t-gen");
+    // Ordem da lista não muda o resultado.
+    expect(donoDoItem("[SEAWAY] - Cabine", [especifico, generico])?.clickUpTaskId).toBe("t-gen");
+  });
+
+  it("empate exato de criadoEm desempata por id, igual à regra de linha", () => {
+    const a = { id: "a-um", clickUpTaskId: "t-a", padroes: ["Cabine"], criadoEm: D1 };
+    const z = { id: "z-dois", clickUpTaskId: "t-z", padroes: ["Cabine"], criadoEm: D1 };
+    expect(donoDoItem("Cabine", [z, a])?.clickUpTaskId).toBe("t-a");
+  });
+
+  it("lista vazia de candidatos devolve null em vez de quebrar", () => {
+    expect(donoDoItem("[SEAWAY] - Cabine", [])).toBeNull();
   });
 });

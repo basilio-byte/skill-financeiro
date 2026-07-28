@@ -152,18 +152,44 @@ function PainelDetalhe({ detalhe }: { detalhe: DetalheState }) {
               </tr>
             </thead>
             <tbody>
-              {incluidas.map((l) => (
-                <tr key={l.id} className="border-t border-slate-100">
-                  <td className="px-2 py-1.5 tabular-nums text-slate-500">{l.crConexaId}</td>
-                  <td className="px-2 py-1.5">{l.razaoSocial ?? "—"}</td>
-                  <td className="px-2 py-1.5">
-                    {l.servicoOuPlano}
-                    <Marcadores linha={l} />
-                  </td>
-                  <td className="px-2 py-1.5 tabular-nums text-slate-500">{fmtData(l.dataCredito)}</td>
-                  <td className="px-2 py-1.5 text-right tabular-nums">{formatBRL(l.valorRecebidoCat)}</td>
-                </tr>
-              ))}
+              {incluidas.map((l) => {
+                // `dividida` vem decidido do servidor (comparação de Decimal) —
+                // comparar as strings aqui marcava toda mensalidade redonda como
+                // dividida, porque o Decimal do Prisma derruba zeros à direita.
+                const dividida = l.dividida;
+                return (
+                  <tr key={l.id} className="border-t border-slate-100">
+                    <td className="px-2 py-1.5 tabular-nums text-slate-500">{l.crConexaId}</td>
+                    <td className="px-2 py-1.5">{l.razaoSocial ?? "—"}</td>
+                    <td className="px-2 py-1.5">
+                      {/* Quando a fatura combina produtos, mostrar só o que é DESTE
+                          vínculo — repetir o texto concatenado inteiro faria parecer
+                          que ele recebeu tudo. */}
+                      {dividida && l.itensAtribuidos ? (
+                        <>
+                          {l.itensAtribuidos.map((it) => it.servicoItem).join("; ")}
+                          <span
+                            className="ml-1 rounded bg-seahub-100 px-1 py-0.5 text-[10px] text-seahub-700"
+                            title={`A fatura tem outros produtos além deste. Total da fatura nesta categoria: ${formatBRL(l.valorRecebidoCat)} — aqui entra só a parte deste vínculo.`}
+                          >
+                            parte da fatura
+                          </span>
+                        </>
+                      ) : (
+                        l.servicoOuPlano
+                      )}
+                      <Marcadores linha={l} />
+                    </td>
+                    <td className="px-2 py-1.5 tabular-nums text-slate-500">{fmtData(l.dataCredito)}</td>
+                    <td className="px-2 py-1.5 text-right tabular-nums">
+                      {formatBRL(l.valorAtribuido)}
+                      {dividida ? (
+                        <span className="block text-[10px] text-slate-400">de {formatBRL(l.valorRecebidoCat)}</span>
+                      ) : null}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
             <tfoot>
               <tr className="border-t border-slate-300 font-semibold">
@@ -198,34 +224,59 @@ function ExcluidasBloco({ excluidas }: { excluidas: LinhaExcluidaDaComposicao[] 
       </summary>
       <div className="border-t border-slate-100 px-3 py-2">
         <p className="mb-2 text-[11px] text-slate-500">
-          São faturas que combinam mais de um produto na mesma linha. Para o mesmo dinheiro não ser contado duas vezes,
-          o vínculo mais antigo fica com a linha inteira — estas não entram no total acima.
+          São faturas que combinam mais de um produto na mesma linha e em que este vínculo não ficou com nada. Quando a
+          fatura tem detalhe por item, ela é <strong>repartida</strong> entre as tarefas de cada produto (a coluna
+          mostra pra onde foi cada parte). Sem esse detalhe — fatura antiga, sem lançamento casado, ou linha corrigida à
+          mão — não dá pra dividir, e a tarefa mais antiga fica com a linha inteira.
         </p>
         <table className="w-full text-left text-xs">
           <thead className="text-slate-500">
             <tr>
               <th className="px-2 py-1">Fatura</th>
               <th className="px-2 py-1">Serviço/Plano (Conexa)</th>
-              <th className="px-2 py-1">Somando em</th>
+              <th className="px-2 py-1">Pra onde foi</th>
               <th className="px-2 py-1 text-right">Valor</th>
             </tr>
           </thead>
           <tbody>
             {excluidas.map((l) => (
-              <tr key={l.id} className="border-t border-slate-100 text-slate-500">
+              <tr key={l.id} className="border-t border-slate-100 align-top text-slate-500">
                 <td className="px-2 py-1 tabular-nums">{l.crConexaId}</td>
                 <td className="px-2 py-1">{l.servicoOuPlano}</td>
                 <td className="px-2 py-1">
-                  <a
-                    href={`https://app.clickup.com/t/${l.reivindicadaPorTaskId}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-seahub-600 hover:underline"
-                  >
-                    {l.reivindicadaPorTaskId}
-                  </a>
+                  {l.repartidaEntre && l.repartidaEntre.length > 0 ? (
+                    // Repartida: mostra cada parte e o seu destino. Dizer "R$ 123,75
+                    // somando na tarefa X" seria falso — X levou só a parte dele.
+                    l.repartidaEntre.map((p, i) => (
+                      <span key={`${p.taskId}-${i}`} className="block">
+                        <a
+                          href={`https://app.clickup.com/t/${p.taskId}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-seahub-600 hover:underline"
+                        >
+                          {p.taskId}
+                        </a>
+                        <span className="text-slate-400"> · {formatBRL(p.valor)}</span>
+                      </span>
+                    ))
+                  ) : (
+                    <a
+                      href={`https://app.clickup.com/t/${l.reivindicadaPorTaskId}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-seahub-600 hover:underline"
+                    >
+                      {l.reivindicadaPorTaskId}
+                    </a>
+                  )}
                 </td>
-                <td className="px-2 py-1 text-right tabular-nums">{formatBRL(l.valorRecebidoCat)}</td>
+                <td className="px-2 py-1 text-right tabular-nums">
+                  {formatBRL(l.valorRecebidoCat)}
+                  {l.repartidaEntre && l.repartidaEntre.length > 0 ? (
+                    <span className="block text-[10px] text-slate-400">total da fatura, repartido</span>
+                  ) : null}
+                </td>
               </tr>
             ))}
           </tbody>

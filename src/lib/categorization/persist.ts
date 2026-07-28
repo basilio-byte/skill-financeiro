@@ -56,6 +56,12 @@ function toLineData(l: CategorizedLine) {
     observacoes: l.observacoes || null,
     tags: l.tags || null,
     raw: l.raw as unknown as Prisma.InputJsonValue,
+    // Detalhe por item (ADR-0028). `?? Prisma.DbNull` e não `undefined`: numa
+    // linha SEM_LV (fatura sem LV casado) não existe item nenhum, e o upsert
+    // precisa GRAVAR null — deixar `undefined` faria o update preservar um
+    // valor antigo de uma rodada anterior em que a mesma linha tinha itens.
+    itensDetalhe: (l.itens as unknown as Prisma.InputJsonValue) ?? Prisma.DbNull,
+    ajusteArredondamento: l.ajusteArredondamento ?? null,
   };
 }
 

@@ -186,3 +186,86 @@ describe("categorizeInvoices", () => {
     expect(soma.toString()).toBe("100");
   });
 });
+
+/**
+ * Detalhe por item (ADR-0028). Duas invariantes que, se quebrarem, fazem a
+ * divisão do push creditar receita à sala errada — silenciosamente.
+ */
+describe("categorizeInvoices — itens por linha", () => {
+  it("guarda cada item com seu valor rateado, e a soma fecha com o valor da linha", () => {
+    // Caso real (fatura 27320): 3 salas na mesma categoria, valores distintos.
+    const resultado = categorizeInvoices(
+      [cr({ valorRecebido: money("123.75") })],
+      [
+        lv({ id: 10, servicoItem: "[SEAWAY] - SALA DE ATENDIMENTO 03", valor: money("48.75") }),
+        lv({ id: 11, servicoItem: "[SEAWAY] - SALA DE ATENDIMENTO 02", valor: money("48.75") }),
+        lv({ id: 12, servicoItem: "[SEAWAY] - Cabine", valor: money("26.25") }),
+      ],
+      [
+        { nome: "[SEAWAY] - SALA DE ATENDIMENTO 03", categoria: "Serviços de Espaço" },
+        { nome: "[SEAWAY] - SALA DE ATENDIMENTO 02", categoria: "Serviços de Espaço" },
+        { nome: "[SEAWAY] - Cabine", categoria: "Serviços de Espaço" },
+      ],
+    );
+
+    expect(resultado.linhas).toHaveLength(1);
+    const linha = resultado.linhas[0]!;
+    expect(linha.valorRecebidoCategoria.toString()).toBe("123.75");
+
+    // O detalhe que antes se perdia: 3 itens, com o valor de cada um.
+    expect(linha.itens).toHaveLength(3);
+    expect(linha.itens!.map((i) => i.valorRateado)).toEqual(["48.75", "48.75", "26.25"]);
+    expect(linha.itens!.map((i) => i.lvId)).toEqual([10, 11, 12]);
+
+    // INVARIANTE: soma(itens) + ajuste = valor da linha.
+    const somaItens = linha.itens!.reduce((acc, i) => acc.plus(money(i.valorRateado)), money("0"));
+    expect(somaItens.plus(money(linha.ajusteArredondamento ?? "0")).toString()).toBe(
+      linha.valorRecebidoCategoria.toString(),
+    );
+  });
+
+  it("a invariante soma(itens)+ajuste = valor vale para TODAS as linhas, inclusive com rateio entre categorias", () => {
+    // Rateio real: recebido (100) != soma bruta dos itens (120), 2 categorias.
+    const resultado = categorizeInvoices(
+      [cr({ valorRecebido: money("100") })],
+      [
+        lv({ id: 1, servicoItem: "Sala A", valor: money("70") }),
+        lv({ id: 2, servicoItem: "Serviço B", valor: money("50") }),
+      ],
+      [
+        { nome: "Sala A", categoria: "Categoria A" },
+        { nome: "Serviço B", categoria: "Categoria B" },
+      ],
+    );
+
+    for (const linha of resultado.linhas) {
+      const somaItens = linha.itens!.reduce((acc, i) => acc.plus(money(i.valorRateado)), money("0"));
+      expect(somaItens.plus(money(linha.ajusteArredondamento ?? "0")).toString()).toBe(
+        linha.valorRecebidoCategoria.toString(),
+      );
+    }
+    // E o total da fatura continua fechando exato.
+    const total = resultado.linhas.reduce((acc, l) => acc.plus(l.valorRecebidoCategoria), money("0"));
+    expect(total.toString()).toBe("100");
+  });
+
+  it("itens repetidos na mesma fatura viram entradas SEPARADAS (nome nunca é chave)", () => {
+    const resultado = categorizeInvoices(
+      [cr({ valorRecebido: money("60") })],
+      [
+        lv({ id: 1, servicoItem: "Sala A", valor: money("30") }),
+        lv({ id: 2, servicoItem: "Sala A", valor: money("30") }),
+      ],
+      [{ nome: "Sala A", categoria: "Categoria A" }],
+    );
+    const linha = resultado.linhas[0]!;
+    expect(linha.itens).toHaveLength(2);
+    expect(linha.itens!.map((i) => i.lvId)).toEqual([1, 2]);
+  });
+
+  it("fatura SEM LV casado não tem itens — quem consome precisa tratar a ausência", () => {
+    const resultado = categorizeInvoices([cr({ valorRecebido: money("100") })], [], []);
+    expect(resultado.linhas[0]!.proporcionado).toBe("SEM_LV");
+    expect(resultado.linhas[0]!.itens).toBeUndefined();
+  });
+});
