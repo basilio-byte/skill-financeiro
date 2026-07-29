@@ -36,12 +36,47 @@ describe("contrato entre escopo de meta e rules.ts", () => {
     );
   });
 
-  it("existe exatamente um escopo (unificado, 2026-07-24), cobrindo as 3 grafias que os fallbacks produzem", () => {
-    expect(ESCOPOS_INICIAIS).toHaveLength(1);
-    const [escopo] = ESCOPOS_INICIAIS;
+  it("o escopo de Serviços de Espaço cobre as 3 grafias que os fallbacks produzem", () => {
+    const escopo = ESCOPOS_INICIAIS.find((e) => e.slug === "servicos-de-espaco");
+    expect(escopo).toBeDefined();
     expect(escopo!.categorias).toContain(matcherSemRegras.match("[SEAWAY] - x").categoria);
     expect(escopo!.categorias).toContain(matcherSemRegras.match("[SEBRAE] - x").categoria);
     expect(escopo!.categorias).toContain(matcherSemRegras.match("[AYRTON SENNA] - x").categoria);
+  });
+
+  it("o escopo de Salas Privativas cobre a grafia que o fallback de Coworking Estação produz", () => {
+    // Único fallback de rules.ts que aponta pra Salas Privativas — se alguém
+    // mudar a grafia lá, a meta desta categoria para de somar essas linhas.
+    const escopo = ESCOPOS_INICIAIS.find((e) => e.slug === "salas-privativas");
+    expect(escopo).toBeDefined();
+    expect(escopo!.categorias).toContain(matcherSemRegras.match("Coworking Estação 08").categoria);
+  });
+
+  /**
+   * As grafias abaixo são hardcoded de propósito (ver doc no topo): elas
+   * precisam bater BYTE A BYTE com a `categoria` gravada em
+   * RevenueCategorizedLine, senão a meta soma zero em silêncio. Foram
+   * conferidas contra o banco real em 2026-07-28.
+   */
+  it("os 5 escopos existem, em ordem alfabética, com as grafias exatas das categorias reais", () => {
+    expect(ESCOPOS_INICIAIS.map((e) => e.slug)).toEqual([
+      "endereco-fiscal",
+      "meu-deposito",
+      "salas-privativas",
+      "seabox",
+      "servicos-de-espaco",
+    ]);
+    // `ordem` é o campo que ordena Panorama e /metas — precisa acompanhar.
+    expect(ESCOPOS_INICIAIS.map((e) => e.ordem)).toEqual([1, 2, 3, 4, 5]);
+
+    const porSlug = (slug: string) => ESCOPOS_INICIAIS.find((e) => e.slug === slug)!.categorias;
+    expect(porSlug("endereco-fiscal")).toEqual(["Endereço Fiscal"]);
+    expect(porSlug("meu-deposito")).toEqual(["Meu Depósito"]);
+    expect(porSlug("seabox")).toEqual(["SeaBox"]);
+    // Sebrae e Ayrton Senna com DOIS espaços depois do hífen; Seaway com UM.
+    expect(porSlug("salas-privativas")).toContain("Salas Privativas -  Sebrae");
+    expect(porSlug("salas-privativas")).toContain("Salas Privativas -  Ayrton Senna");
+    expect(porSlug("salas-privativas")).toContain("Salas Privativas - Seaway Center");
   });
 
   it("nenhuma categoria aparece duplicada dentro do escopo", () => {

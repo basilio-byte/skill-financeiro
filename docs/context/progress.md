@@ -1064,3 +1064,33 @@
   - Validado com dado real (meta mensal de R$ 12.000 + trimestral de R$ 35.000 no dev): visão
     mensal mostra as duas; trimestral mostra as duas; semestral/anual só a trimestral; semanal cai
     na mensagem de "não aplicável". Typecheck limpo, 178 testes. Ambiente limpo depois.
+
+## 2026-07-28 (continuação) — Metas para mais 4 escopos (Endereço Fiscal, Meu Depósito, Salas Privativas, SeaBox)
+
+- Pedido do usuário: além de "Serviços de Espaço", poder criar meta para Endereço Fiscal, Salas
+  Privativas, SeaBox e Meu Depósito, em ordem alfabética, aparecendo no Panorama junto das demais.
+- **As strings de categoria foram conferidas byte a byte antes de escritas** — errar uma faz a meta
+  somar ZERO em silêncio (a armadilha da ADR-0017). Verificado por 3 ângulos: linhas gravadas
+  (`revenue_categorized_lines`), tabela de regras (`revenue_category_rules`) e os `FIXED_FALLBACKS`
+  de `rules.ts`, com `replace(categoria,' ','·')` pra tornar espaço duplo visível e contagem de
+  char × octeto pra confirmar que os acentos são NFC (pré-compostos) e não há espaço sobrando.
+- **Achado**: "Salas Privativas" repete EXATAMENTE o split de grafia de "Serviços de Espaço" — dois
+  espaços após o hífen em Sebrae e Ayrton Senna, um só em Seaway Center. As duas grafias entram no
+  escopo pelo mesmo motivo defensivo do escopo antigo: subcontar dinheiro em silêncio é pior que
+  uma linha a mais na tela. "Endereço Fiscal", "SeaBox" e "Meu Depósito" são categorias únicas, sem
+  unidade e sem variante — nenhuma variante foi inventada.
+- `ordem` passou a ser alfabética (1..5), reordenando "Serviços de Espaço" de 1 para 5. É o campo
+  que ordena as duas telas. Espelhado em `scripts/seed-metas.mjs`, que roda a cada boot e é a fonte
+  de verdade da ESTRUTURA — então os escopos novos nascem sozinhos no próximo deploy, sem passo
+  manual (ADR-0008, zero-touch boot).
+- `escopos.test.ts`: o contrato que travava "existe exatamente 1 escopo" virou a trava dos 5 slugs,
+  da ordem, e das grafias exatas de cada categoria — mais um teste novo ligando o escopo de Salas
+  Privativas ao fallback "Coworking Estação", o único de `rules.ts` que produz essa categoria.
+- **Validado contra dado real**: rodado o seed no dev, um JOIN exato (`l.categoria = mc.categoria`)
+  confirmou que todos os 5 escopos casam receita — Endereço Fiscal 665 linhas / R$ 98.222,97; Meu
+  Depósito 8 / R$ 6.732,03; Salas Privativas 65 (= 12+8+45, as três grafias) / R$ 159.221,86;
+  SeaBox 15 / R$ 456,83; Serviços de Espaço 215 / R$ 43.089,77. **Zero categorias em mais de um
+  escopo** (sem dupla contagem), e as únicas categorias descobertas são Sem Categoria, Outros
+  Serviços e Hub Empreendedoras — nenhuma delas pedida.
+- Smoke test das telas: os 5 aparecem no Panorama em ordem alfabética (nos dois blocos, mensal e
+  trimestral) e em /metas, com o seletor do formulário oferecendo os 5. Typecheck limpo, 180 testes.

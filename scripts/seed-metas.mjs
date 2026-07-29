@@ -1,5 +1,6 @@
 /**
- * Cria o escopo de meta ("Serviços de Espaço", somando as 3 unidades).
+ * Cria os escopos de meta: Endereço Fiscal, Meu Depósito, Salas Privativas,
+ * SeaBox e Serviços de Espaço (este último somando as 3 unidades).
  *
  * Roda AUTOMATICAMENTE a cada boot, pelo docker-entrypoint.sh — e a cada boot
  * mesmo, diferente do seed de categorias, que só semeia quando a tabela está
@@ -27,11 +28,31 @@
  */
 import { PrismaClient } from "@prisma/client";
 
+// ORDEM ALFABÉTICA pelo nome (pedido do usuário 2026-07-28) — `ordem` é o campo
+// que ordena o Panorama e /metas. Espelha src/lib/metas/escopos.ts: qualquer
+// mudança aqui precisa ser feita lá também (e escopos.test.ts trava as grafias).
 const ESCOPOS = [
+  { slug: "endereco-fiscal", nome: "Endereço Fiscal", ordem: 1, categorias: ["Endereço Fiscal"] },
+  { slug: "meu-deposito", nome: "Meu Depósito", ordem: 2, categorias: ["Meu Depósito"] },
+  {
+    slug: "salas-privativas",
+    nome: "Salas Privativas",
+    ordem: 3,
+    // Mesmo split de grafia de "Serviços de Espaço": DOIS espaços em
+    // Sebrae/Ayrton Senna (o que está gravado), UM espaço como defesa.
+    categorias: [
+      "Salas Privativas - Seaway Center",
+      "Salas Privativas -  Sebrae",
+      "Salas Privativas - Sebrae",
+      "Salas Privativas -  Ayrton Senna",
+      "Salas Privativas - Ayrton Senna",
+    ],
+  },
+  { slug: "seabox", nome: "SeaBox", ordem: 4, categorias: ["SeaBox"] },
   {
     slug: "servicos-de-espaco",
     nome: "Serviços de Espaço",
-    ordem: 1,
+    ordem: 5,
     // DOIS espaços (FIXED_FALLBACKS) + UM espaço (seed de categorias normalizado)
     // para Sebrae/Ayrton Senna: as duas grafias da MESMA categoria existem no
     // sistema. Seaway Center não tem esse split. Ver escopos.ts.
