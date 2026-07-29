@@ -136,6 +136,7 @@ export function MetasPanel({ metas }: { metas: MetasDoPeriodo }) {
 
   const semNenhumaMeta = metas.totalMeta === null;
   const unidadePlural: "meses" | "trimestres" = metas.granularidade === "MES" ? "meses" : "trimestres";
+  const unidadeSingular: "mensal" | "trimestral" = metas.granularidade === "MES" ? "mensal" : "trimestral";
 
   return (
     <Card>
@@ -150,13 +151,33 @@ export function MetasPanel({ metas }: { metas: MetasDoPeriodo }) {
       </SectionTitle>
 
       {semNenhumaMeta ? (
-        <p className="mb-2 text-sm text-slate-500">
-          Nenhuma meta definida para este período. Os valores abaixo são o realizado —{" "}
-          <Link href="/metas" className="text-seahub-600 hover:underline">
-            definir metas
-          </Link>
-          .
-        </p>
+        // Se existe meta na OUTRA granularidade cobrindo este intervalo, dizer
+        // isso é obrigatório: sem esse aviso a tela afirma "nenhuma meta
+        // definida" para quem acabou de cadastrar uma, e a meta parece ter
+        // sumido. Mensal e trimestral são séries independentes (ADR-0026), mas
+        // o usuário não tem como adivinhar isso olhando um card vazio.
+        metas.metaNaOutraGranularidade ? (
+          <p className="mb-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-sm text-amber-900">
+            Nenhuma meta {unidadeSingular} para este período — mas existe meta{" "}
+            <strong>{metas.metaNaOutraGranularidade.granularidade === "MES" ? "mensal" : "trimestral"}</strong> em{" "}
+            {metas.metaNaOutraGranularidade.periodos.join(", ")}.{" "}
+            <Link
+              href={metas.metaNaOutraGranularidade.granularidade === "MES" ? "/?g=month" : "/?g=quarter"}
+              className="font-medium text-seahub-700 underline"
+            >
+              Ver por {metas.metaNaOutraGranularidade.granularidade === "MES" ? "mês" : "trimestre"}
+            </Link>
+            . Mensal e trimestral são metas separadas: cada uma aparece na sua própria visão.
+          </p>
+        ) : (
+          <p className="mb-2 text-sm text-slate-500">
+            Nenhuma meta definida para este período. Os valores abaixo são o realizado —{" "}
+            <Link href="/metas" className="text-seahub-600 hover:underline">
+              definir metas
+            </Link>
+            .
+          </p>
+        )
       ) : (
         <div className="mb-3 flex flex-wrap items-baseline gap-x-3">
           <span className="text-2xl font-semibold tabular-nums text-slate-900">

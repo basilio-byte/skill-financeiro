@@ -56,6 +56,17 @@ export interface MetasDoPeriodo {
   ritmoEsperadoPct: number | null;
   /** Existe pelo menos um escopo ativo cadastrado? Distingue "sem meta" de "sem escopo". */
   temEscopos: boolean;
+  /**
+   * Existe meta na OUTRA granularidade cobrindo este mesmo intervalo?
+   *
+   * Mensal e trimestral são séries independentes (ADR-0026), então a visão
+   * mensal não enxerga uma meta trimestral — e vice-versa. Sem este aviso a
+   * meta recém-criada "some" e a tela ainda afirma "nenhuma meta definida",
+   * que é falso do ponto de vista de quem acabou de cadastrar uma. Pior: o
+   * Panorama abre em Mensal e o formulário de meta abre em Trimestral, então o
+   * caminho mais natural levava exatamente a esse silêncio.
+   */
+  metaNaOutraGranularidade: { granularidade: MetaGranularidade; periodos: string[] } | null;
 }
 
 function pct(parte: Money, todo: Money): number | null {
@@ -83,6 +94,7 @@ export async function buildMetas(periodo: PeriodBounds, agora: Date): Promise<Me
     metaCompleta: false,
     ritmoEsperadoPct: null,
     temEscopos: escopos.length > 0,
+    metaNaOutraGranularidade: null,
   };
 
   if (!granularidade) {
@@ -93,7 +105,14 @@ export async function buildMetas(periodo: PeriodBounds, agora: Date): Promise<Me
   const escopoIds = escopos.map((e) => e.id);
   const todasCategorias = [...new Set(escopos.flatMap((e) => e.categorias.map((c) => c.categoria)))];
 
-  const [metasPeriodo, linhas] = await Promise.all([
+  // A granularidade OPOSTA cobrindo o mesmo intervalo — só pra poder avisar
+  // que a meta existe do outro lado, nunca pra somar junto (são séries
+  // independentes). `chavesDoPeriodo` resolve os dois sentidos: pra uma visão
+  // mensal devolve o trimestre que contém o mês; pra trimestral, os 3 meses.
+  const outraGranularidade: MetaGranularidade = granularidade === "MES" ? "TRIMESTRE" : "MES";
+  const chavesOutra = chavesDoPeriodo(periodo, outraGranularidade);
+
+  const [metasPeriodo, linhas, metasOutra] = await Promise.all([
     prisma.metaPeriodo.findMany({
       where: { escopoId: { in: escopoIds }, granularidade, periodoChave: { in: chaves } },
       select: { escopoId: true, periodoChave: true, valor: true },
@@ -107,7 +126,18 @@ export async function buildMetas(periodo: PeriodBounds, agora: Date): Promise<Me
           },
           select: { categoria: true, valorRecebidoCat: true, dataCredito: true },
         }),
+    prisma.metaPeriodo.findMany({
+      where: { escopoId: { in: escopoIds }, granularidade: outraGranularidade, periodoChave: { in: chavesOutra } },
+      select: { periodoChave: true },
+      distinct: ["periodoChave"],
+      orderBy: { periodoChave: "asc" },
+    }),
   ]);
+
+  const metaNaOutraGranularidade =
+    metasOutra.length > 0
+      ? { granularidade: outraGranularidade, periodos: metasOutra.map((m) => m.periodoChave) }
+      : null;
 
   // (escopoId → periodoChave → valor) e (categoria → escopoId)
   const metaPorEscopoChave = new Map<string, Map<string, Money>>();
@@ -190,6 +220,7 @@ export async function buildMetas(periodo: PeriodBounds, agora: Date): Promise<Me
 
   return {
     ...base,
+    metaNaOutraGranularidade,
     escopos: resolvidos,
     totalMeta: algumaMeta ? toAmountString(roundMoney(totalMeta)) : null,
     totalRealizado: toAmountString(roundMoney(totalRealizado)),

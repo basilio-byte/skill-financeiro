@@ -1024,3 +1024,25 @@
   somando na tarefa X" quando X levou R$ 26,25 — agora mostra a repartição real; (4) padrão com
   ";" zerava a receita silenciosamente — bloqueado na criação. Revalidado: totais idênticos aos de
   antes dos fixes.
+
+## 2026-07-28 (continuação) — Dois ajustes no Panorama pedidos pelo usuário
+
+- **Hora das sincronizações**: a tabela "Últimas sincronizações" mostrava só o PERÍODO coberto
+  (datas), sem dizer QUANDO a rodada aconteceu — impossível distinguir as várias sincronizações
+  automáticas de um mesmo dia. `iniciadoEm`/`concluidoEm` já vinham do banco mas não eram expostos
+  por `buildOverview`; agora são, e a tabela tem uma coluna "Quando" com data+hora no fuso do app
+  (mesmo padrão de `/integracoes/clickup`). Enquanto a rodada está RUNNING mostra o início, com a
+  marca "iniciada".
+- **Meta trimestral "sumindo" no Panorama** — investigado antes de mexer: **não era bug de dado nem
+  de cálculo** (a meta estava gravada certa, `2026-Q3`, e aparece normalmente em `/?g=quarter`).
+  Era uma armadilha de desenho criada hoje junto com a ADR-0026: o Panorama abre em **Mensal** e o
+  formulário de meta abre em **Trimestral**, então o caminho mais natural (criar meta → voltar ao
+  Panorama) garantia que ela não aparecesse — e o card ainda afirmava "Nenhuma meta definida para
+  este período", que é falso pra quem acabou de cadastrar uma.
+- **Corrigido na causa**: `buildMetas` agora também consulta a granularidade OPOSTA cobrindo o
+  mesmo intervalo (`metaNaOutraGranularidade`) — nunca pra somar junto (são séries independentes),
+  só pra poder avisar. O card do Panorama, quando não há meta na visão atual mas existe na outra,
+  mostra um aviso âmbar nomeando o período ("existe meta trimestral em 2026-Q3"), com link direto
+  pra visão certa e uma frase explicando que são metas separadas.
+- Validado com dado real: criada uma meta trimestral no dev, a visão mensal passou a avisar e a
+  trimestral mostra os R$ 35.000,00 normalmente. Typecheck limpo, 178 testes. Ambiente limpo.

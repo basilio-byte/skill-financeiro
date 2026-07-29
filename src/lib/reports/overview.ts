@@ -17,7 +17,17 @@ export interface OverviewData {
   porConta: BreakdownItem[];
   porConfianca: ConfiancaBreakdown;
   tendencia: PeriodPoint[];
-  ultimasRodadas: Array<{ id: string; periodoInicio: Date; periodoFim: Date; status: string; totalRecebido: string }>;
+  ultimasRodadas: Array<{
+    id: string;
+    periodoInicio: Date;
+    periodoFim: Date;
+    status: string;
+    totalRecebido: string;
+    /** QUANDO a sincronização rodou (não o período que ela cobriu) — a tela mostra data e hora. */
+    iniciadoEm: Date;
+    /** null enquanto RUNNING, ou se falhou antes de concluir. */
+    concluidoEm: Date | null;
+  }>;
 }
 
 /**
@@ -155,6 +165,8 @@ export async function buildOverview(kind: PeriodKind, ref?: string): Promise<Ove
       periodoFim: r.periodoFim,
       status: r.status,
       totalRecebido: r.totalRecebido.toString(),
+      iniciadoEm: r.iniciadoEm,
+      concluidoEm: r.concluidoEm,
     })),
   };
 }

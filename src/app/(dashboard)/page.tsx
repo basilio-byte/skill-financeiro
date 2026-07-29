@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { buildOverview } from "@/lib/reports/overview";
 import { buildMetas } from "@/lib/metas/metas";
 import { MetasPanel } from "@/components/metas-panel";
-import { PERIOD_KINDS, nowInAppTz, type PeriodKind } from "@/lib/dates";
+import { APP_TZ, PERIOD_KINDS, nowInAppTz, type PeriodKind } from "@/lib/dates";
 import { formatBRL, formatPercent } from "@/lib/money";
 import { Card, SectionTitle } from "@/components/ui";
 import { KpiCard } from "@/components/kpi-card";
@@ -15,8 +15,23 @@ import { PeriodControls } from "@/components/period-controls";
 
 export const metadata: Metadata = { title: "Panorama" };
 
+/**
+ * Datas do PERÍODO coberto pela rodada — vêm de campos de data pura, por isso
+ * formatadas em UTC (formatar no fuso local faria o dia 1 aparecer como o
+ * último dia do mês anterior).
+ */
 function fmtDate(d: Date): string {
   return d.toLocaleDateString("pt-BR", { timeZone: "UTC" });
+}
+
+/**
+ * QUANDO a rodada aconteceu — timestamp real, então formatado no fuso do app
+ * (mesmo padrão de /integracoes/clickup). Sem a hora não dá pra distinguir as
+ * várias sincronizações automáticas de um mesmo dia, que é justamente o que se
+ * quer saber ao olhar esta tabela.
+ */
+function fmtDataHora(d: Date): string {
+  return d.toLocaleString("pt-BR", { timeZone: APP_TZ });
 }
 
 const STATUS_LABEL: Record<string, string> = { RUNNING: "Sincronizando", DONE: "Concluída", FAILED: "Falhou" };
@@ -108,6 +123,7 @@ export default async function PanoramaPage({
           <table className="w-full text-left text-sm">
             <thead className="text-slate-500">
               <tr>
+                <th className="pb-2 pr-4">Quando</th>
                 <th className="pb-2 pr-4">Período</th>
                 <th className="pb-2 pr-4">Status</th>
                 <th className="pb-2 pr-4">Total</th>
@@ -115,7 +131,14 @@ export default async function PanoramaPage({
             </thead>
             <tbody>
               {report.ultimasRodadas.map((r) => (
-                <tr key={r.id} className="border-t border-slate-100">
+                <tr key={r.id} className="border-t border-slate-100 align-top">
+                  <td className="py-2 pr-4 tabular-nums">
+                    {/* Quando a rodada CONCLUIU; enquanto está rodando, quando começou. */}
+                    {fmtDataHora(r.concluidoEm ?? r.iniciadoEm)}
+                    {r.concluidoEm === null ? (
+                      <span className="block text-xs text-slate-400">iniciada</span>
+                    ) : null}
+                  </td>
                   <td className="py-2 pr-4">
                     <Link href={`/runs/${r.id}`} className="text-seahub-600 hover:underline">
                       {fmtDate(r.periodoInicio)} – {fmtDate(r.periodoFim)}
@@ -127,7 +150,7 @@ export default async function PanoramaPage({
               ))}
               {report.ultimasRodadas.length === 0 ? (
                 <tr>
-                  <td colSpan={3} className="py-6 text-center text-slate-400">
+                  <td colSpan={4} className="py-6 text-center text-slate-400">
                     Nenhuma sincronização ainda —{" "}
                     <Link href="/runs" className="text-seahub-600 hover:underline">
                       criar a primeira
