@@ -2,8 +2,8 @@ import "server-only";
 import { prisma } from "@/lib/db";
 import type { MetaGranularidade } from "@prisma/client";
 import { money, roundMoney, toAmountString, ZERO, type Money } from "@/lib/money";
-import type { PeriodBounds } from "@/lib/dates";
-import { fracaoDecorrida, chaveDaData, chavesDoPeriodo, granularidadeDoKind } from "@/lib/metas/periodo";
+import { getPeriodBounds, type PeriodBounds } from "@/lib/dates";
+import { fracaoDecorrida, chaveDaData, chavesDoPeriodo, periodoAceitaMeta } from "@/lib/metas/periodo";
 
 /**
  * Apuração de metas para o Panorama.
@@ -12,14 +12,25 @@ import { fracaoDecorrida, chaveDaData, chavesDoPeriodo, granularidadeDoKind } fr
  *  - `realizado` e `%` NUNCA vêm do banco — são calculados ao vivo a partir das
  *    linhas atuais, por `dataCredito` (regime de caixa, o mesmo que o resto do
  *    app usa). Persistir o realizado repetiria o erro que a ADR-0013 corrigiu.
- *  - Mensal e trimestral são SÉRIES INDEPENDENTES (2026-07-28): a visão de mês
- *    do Panorama usa metas MES; trimestre/semestre/ano usam metas TRIMESTRE —
- *    nunca uma é derivada da outra. Semestre/ano continuam somando os
- *    trimestres contidos, exatamente como antes de mês voltar a existir.
- *  - Quando só PARTE dos períodos-átomo (meses ou trimestres, conforme a
- *    granularidade) tem meta, o realizado é recortado para EXATAMENTE os
- *    mesmos períodos. Dividir a receita de 4 trimestres por 1 trimestre de
- *    meta produziria um "400% da meta" que parece apurado e é lixo.
+ *  - Mensal e trimestral são SÉRIES INDEPENDENTES (ADR-0026) — nunca uma é
+ *    derivada da outra.
+ *  - Quando só PARTE dos períodos-átomo tem meta, o realizado é recortado para
+ *    EXATAMENTE os mesmos períodos. Dividir a receita de 4 trimestres por 1
+ *    trimestre de meta produziria um "400% da meta" que parece apurado e é lixo.
+ *
+ * DOIS BLOCOS LADO A LADO (2026-07-28): o card mostra mensal E trimestral ao
+ * mesmo tempo, cada um apurado no SEU período, em vez de mostrar só a
+ * granularidade derivada da visão do Panorama. Antes, quem criava uma meta
+ * trimestral e voltava ao Panorama (que abre em Mensal) não via nada e a tela
+ * ainda afirmava "nenhuma meta definida" — a meta parecia ter sumido.
+ *
+ * Cada bloco carrega o RÓTULO do período que apurou ("julho de 2026", "3º
+ * trimestre de 2026"), porque os dois podem cobrir intervalos diferentes: numa
+ * visão mensal, o bloco trimestral apura o trimestre INTEIRO que contém o mês,
+ * então o realizado dele é legitimamente maior que o KPI da página. Sem o
+ * rótulo explícito, seriam dois números de receita na mesma tela sem dizer que
+ * são de recortes diferentes — exatamente o tipo de ambiguidade que este
+ * projeto trata como bug.
  */
 
 export interface MetaEscopoResolvido {
@@ -36,37 +47,32 @@ export interface MetaEscopoResolvido {
   periodosComMeta: number;
 }
 
-export interface MetasDoPeriodo {
-  /** false em dia/semana — mês e trimestre agora aceitam meta direta, dia/semana continuam sem resposta honesta. */
-  aplicavel: boolean;
-  motivo?: string;
-  /** Granularidade usada nesta apuração (MES pra visão de mês, TRIMESTRE pras demais); null quando !aplicavel. */
-  granularidade: MetaGranularidade | null;
+export interface BlocoMetas {
+  granularidade: MetaGranularidade;
+  /** Período REALMENTE apurado por este bloco, ex. "julho de 2026". */
+  label: string;
+  /** true quando este bloco apura um intervalo diferente do que a página mostra. */
+  difereDaVisao: boolean;
   escopos: MetaEscopoResolvido[];
   totalMeta: string | null;
   totalRealizado: string;
   percentualTotal: number | null;
-  periodosNoPeriodo: number;
-  /** Todos os períodos-átomo do intervalo têm meta? Se não, a comparação é recortada. */
+  /** Quantos períodos-átomo (meses ou trimestres) o intervalo cobre. */
+  periodosNoIntervalo: number;
+  /** Todos eles têm meta? Se não, a comparação é recortada. */
   metaCompleta: boolean;
-  /**
-   * Onde o ritmo LINEAR estaria hoje (0..100), ou null se o período não está
-   * em andamento. Referência, não previsão — ver fracaoDecorrida().
-   */
+  /** Ritmo LINEAR até hoje (0..100), ou null se o intervalo não está em andamento. */
   ritmoEsperadoPct: number | null;
+}
+
+export interface MetasDoPeriodo {
+  /** false em dia/semana — ratear meta por recorte tão fino inventaria número. */
+  aplicavel: boolean;
+  motivo?: string;
   /** Existe pelo menos um escopo ativo cadastrado? Distingue "sem meta" de "sem escopo". */
   temEscopos: boolean;
-  /**
-   * Existe meta na OUTRA granularidade cobrindo este mesmo intervalo?
-   *
-   * Mensal e trimestral são séries independentes (ADR-0026), então a visão
-   * mensal não enxerga uma meta trimestral — e vice-versa. Sem este aviso a
-   * meta recém-criada "some" e a tela ainda afirma "nenhuma meta definida",
-   * que é falso do ponto de vista de quem acabou de cadastrar uma. Pior: o
-   * Panorama abre em Mensal e o formulário de meta abre em Trimestral, então o
-   * caminho mais natural levava exatamente a esse silêncio.
-   */
-  metaNaOutraGranularidade: { granularidade: MetaGranularidade; periodos: string[] } | null;
+  /** Mensal e/ou trimestral, na ordem de exibição. Vazio quando !aplicavel ou sem escopos. */
+  blocos: BlocoMetas[];
 }
 
 function pct(parte: Money, todo: Money): number | null {
@@ -74,45 +80,26 @@ function pct(parte: Money, todo: Money): number | null {
   return Number(parte.div(todo).times(100).toFixed(1));
 }
 
-export async function buildMetas(periodo: PeriodBounds, agora: Date): Promise<MetasDoPeriodo> {
-  const escopos = await prisma.metaEscopo.findMany({
-    where: { ativo: true },
-    orderBy: [{ ordem: "asc" }, { nome: "asc" }],
-    include: { categorias: { select: { categoria: true } } },
-  });
+type EscopoComCategorias = {
+  id: string;
+  slug: string;
+  nome: string;
+  categorias: Array<{ categoria: string }>;
+};
 
-  const granularidade = granularidadeDoKind(periodo.kind);
-  const chaves = granularidade ? chavesDoPeriodo(periodo, granularidade) : [];
-  const base: MetasDoPeriodo = {
-    aplicavel: granularidade !== null,
-    granularidade,
-    escopos: [],
-    totalMeta: null,
-    totalRealizado: toAmountString(ZERO),
-    percentualTotal: null,
-    periodosNoPeriodo: chaves.length,
-    metaCompleta: false,
-    ritmoEsperadoPct: null,
-    temEscopos: escopos.length > 0,
-    metaNaOutraGranularidade: null,
-  };
-
-  if (!granularidade) {
-    return { ...base, motivo: "A meta é mensal ou trimestral — escolha Mensal, Trimestral, Semestral ou Anual." };
-  }
-  if (escopos.length === 0) return base;
-
+/** Apura UM bloco (uma granularidade, um intervalo) — o miolo que era o corpo de buildMetas. */
+async function calcularBloco(
+  escopos: EscopoComCategorias[],
+  granularidade: MetaGranularidade,
+  intervalo: PeriodBounds,
+  agora: Date,
+  difereDaVisao: boolean,
+): Promise<BlocoMetas> {
+  const chaves = chavesDoPeriodo(intervalo, granularidade);
   const escopoIds = escopos.map((e) => e.id);
   const todasCategorias = [...new Set(escopos.flatMap((e) => e.categorias.map((c) => c.categoria)))];
 
-  // A granularidade OPOSTA cobrindo o mesmo intervalo — só pra poder avisar
-  // que a meta existe do outro lado, nunca pra somar junto (são séries
-  // independentes). `chavesDoPeriodo` resolve os dois sentidos: pra uma visão
-  // mensal devolve o trimestre que contém o mês; pra trimestral, os 3 meses.
-  const outraGranularidade: MetaGranularidade = granularidade === "MES" ? "TRIMESTRE" : "MES";
-  const chavesOutra = chavesDoPeriodo(periodo, outraGranularidade);
-
-  const [metasPeriodo, linhas, metasOutra] = await Promise.all([
+  const [metasPeriodo, linhas] = await Promise.all([
     prisma.metaPeriodo.findMany({
       where: { escopoId: { in: escopoIds }, granularidade, periodoChave: { in: chaves } },
       select: { escopoId: true, periodoChave: true, valor: true },
@@ -122,24 +109,12 @@ export async function buildMetas(periodo: PeriodBounds, agora: Date): Promise<Me
       : prisma.revenueCategorizedLine.findMany({
           where: {
             categoria: { in: todasCategorias },
-            dataCredito: { gte: periodo.fromDate, lt: periodo.toDateExclusive },
+            dataCredito: { gte: intervalo.fromDate, lt: intervalo.toDateExclusive },
           },
           select: { categoria: true, valorRecebidoCat: true, dataCredito: true },
         }),
-    prisma.metaPeriodo.findMany({
-      where: { escopoId: { in: escopoIds }, granularidade: outraGranularidade, periodoChave: { in: chavesOutra } },
-      select: { periodoChave: true },
-      distinct: ["periodoChave"],
-      orderBy: { periodoChave: "asc" },
-    }),
   ]);
 
-  const metaNaOutraGranularidade =
-    metasOutra.length > 0
-      ? { granularidade: outraGranularidade, periodos: metasOutra.map((m) => m.periodoChave) }
-      : null;
-
-  // (escopoId → periodoChave → valor) e (categoria → escopoId)
   const metaPorEscopoChave = new Map<string, Map<string, Money>>();
   for (const m of metasPeriodo) {
     const porChave = metaPorEscopoChave.get(m.escopoId) ?? new Map<string, Money>();
@@ -151,11 +126,9 @@ export async function buildMetas(periodo: PeriodBounds, agora: Date): Promise<Me
     for (const c of e.categorias) escopoDaCategoria.set(c.categoria, e.id);
   }
 
-  // Receita por (escopo, período-átomo) — o recorte é o que permite comparar
-  // só os períodos que têm meta quando a configuração está incompleta.
   const realizadoPorEscopoChave = new Map<string, Map<string, Money>>();
   for (const l of linhas) {
-    if (!l.dataCredito) continue; // sem data não pertence a período nenhum
+    if (!l.dataCredito) continue;
     const escopoId = escopoDaCategoria.get(l.categoria);
     if (!escopoId) continue;
     const chave = chaveDaData(l.dataCredito, granularidade);
@@ -175,14 +148,11 @@ export async function buildMetas(periodo: PeriodBounds, agora: Date): Promise<Me
     const chavesComMeta = chaves.filter((c) => metasDoEscopo?.has(c));
 
     if (chavesComMeta.length === 0) {
-      // Sem meta: ainda assim mostramos o realizado do intervalo inteiro, que
-      // é informação honesta e ajuda a calibrar a meta a ser definida.
+      // Sem meta: ainda assim mostramos o realizado do intervalo inteiro, que é
+      // informação honesta e ajuda a calibrar a meta a ser definida. NÃO marca
+      // o bloco como incompleto — "incompleto" é ter meta em alguns
+      // períodos-átomo e não em todos, que é quando o realizado é recortado.
       const realizadoTotal = chaves.reduce<Money>((acc, c) => acc.plus(realizadoDoEscopo?.get(c) ?? ZERO), ZERO);
-      // NÃO marca o período como incompleto: um escopo sem meta NENHUMA já se
-      // explica sozinho na própria linha ("sem meta definida"). "Incompleto" é
-      // outra coisa — escopo que tem meta em alguns períodos-átomo do
-      // intervalo e não em todos, que é o caso em que o realizado precisa ser
-      // recortado.
       return {
         slug: e.slug,
         nome: e.nome,
@@ -198,7 +168,6 @@ export async function buildMetas(periodo: PeriodBounds, agora: Date): Promise<Me
     algumaMeta = true;
 
     const metaSoma = chavesComMeta.reduce<Money>((acc, c) => acc.plus(metasDoEscopo!.get(c)!), ZERO);
-    // Recorte deliberado: só os períodos que têm meta entram no realizado.
     const realizadoSoma = chavesComMeta.reduce<Money>((acc, c) => acc.plus(realizadoDoEscopo?.get(c) ?? ZERO), ZERO);
 
     totalMeta = totalMeta.plus(metaSoma);
@@ -216,16 +185,63 @@ export async function buildMetas(periodo: PeriodBounds, agora: Date): Promise<Me
     };
   });
 
-  const fracao = fracaoDecorrida(periodo, agora);
+  const fracao = fracaoDecorrida(intervalo, agora);
 
   return {
-    ...base,
-    metaNaOutraGranularidade,
+    granularidade,
+    label: intervalo.label,
+    difereDaVisao,
     escopos: resolvidos,
     totalMeta: algumaMeta ? toAmountString(roundMoney(totalMeta)) : null,
     totalRealizado: toAmountString(roundMoney(totalRealizado)),
     percentualTotal: algumaMeta ? pct(totalRealizado, totalMeta) : null,
+    periodosNoIntervalo: chaves.length,
     metaCompleta: algumaMeta && todasChavesComMeta,
     ritmoEsperadoPct: fracao === null ? null : Number((fracao * 100).toFixed(1)),
   };
+}
+
+/**
+ * Quais blocos aparecem para cada visão do Panorama.
+ *
+ * - **mês**: mensal (o próprio mês) + trimestral (o trimestre que o CONTÉM —
+ *   intervalo maior que a visão, por isso `difereDaVisao`).
+ * - **trimestre**: mensal (os 3 meses do trimestre) + trimestral (o trimestre).
+ * - **semestre/ano**: só trimestral, cobrindo o período inteiro. Não existe
+ *   bloco mensal aqui de propósito: somar 6 ou 12 metas mensais produziria um
+ *   número que ninguém definiu, e a ADR-0026 já fixou que mês nunca soma pra
+ *   cima — semestre/ano são a soma dos TRIMESTRES contidos.
+ */
+function blocosDaVisao(periodo: PeriodBounds): Array<{ granularidade: MetaGranularidade; intervalo: PeriodBounds }> {
+  const trimestral = {
+    granularidade: "TRIMESTRE" as const,
+    intervalo: periodo.kind === "month" ? getPeriodBounds("quarter", periodo.fromKey) : periodo,
+  };
+  if (periodo.kind === "month" || periodo.kind === "quarter") {
+    return [{ granularidade: "MES" as const, intervalo: periodo }, trimestral];
+  }
+  return [trimestral];
+}
+
+export async function buildMetas(periodo: PeriodBounds, agora: Date): Promise<MetasDoPeriodo> {
+  const escopos = await prisma.metaEscopo.findMany({
+    where: { ativo: true },
+    orderBy: [{ ordem: "asc" }, { nome: "asc" }],
+    include: { categorias: { select: { categoria: true } } },
+  });
+
+  const base: MetasDoPeriodo = { aplicavel: periodoAceitaMeta(periodo.kind), temEscopos: escopos.length > 0, blocos: [] };
+
+  if (!base.aplicavel) {
+    return { ...base, motivo: "A meta é mensal ou trimestral — escolha Mensal, Trimestral, Semestral ou Anual." };
+  }
+  if (escopos.length === 0) return base;
+
+  const blocos = await Promise.all(
+    blocosDaVisao(periodo).map((b) =>
+      calcularBloco(escopos, b.granularidade, b.intervalo, agora, b.intervalo.fromKey !== periodo.fromKey || b.intervalo.kind !== periodo.kind),
+    ),
+  );
+
+  return { ...base, blocos };
 }

@@ -1,19 +1,25 @@
 import Link from "next/link";
 import { formatBRL, formatPercent } from "@/lib/money";
 import { Card, SectionTitle } from "@/components/ui";
-import type { MetasDoPeriodo, MetaEscopoResolvido } from "@/lib/metas/metas";
+import type { BlocoMetas, MetasDoPeriodo, MetaEscopoResolvido } from "@/lib/metas/metas";
 
 /**
  * Metas do período no Panorama.
  *
- * Forma: um medidor horizontal por escopo. Não usa bullet chart nem um KPI
- * card por unidade — com 3 escopos, medidores empilhados dão comparação
- * imediata entre eles e sobra espaço para o valor absoluto ao lado, que é o
- * que o financeiro realmente lê.
+ * Mensal e trimestral aparecem LADO A LADO, cada uma apurada no seu próprio
+ * período (ADR-0026 + ajuste de 2026-07-28). Antes o card mostrava só a
+ * granularidade derivada da visão da página, então quem criava uma meta
+ * trimestral e voltava ao Panorama — que abre em Mensal — não via nada, e a
+ * tela ainda dizia "nenhuma meta definida".
  *
- * Cor NUNCA é o único indicador (o projeto já corrigiu um bug real de
- * contraste, ver progress.md): o percentual vem escrito, e o estado também
- * aparece no texto de apoio.
+ * Cada bloco DIZ o período que apurou. Isso não é decoração: numa visão mensal
+ * o bloco trimestral cobre o trimestre inteiro, então o realizado dele é
+ * legitimamente maior que o KPI da página. Dois números de receita na mesma
+ * tela só não enganam se cada um disser de que recorte é.
+ *
+ * Forma: um medidor horizontal por escopo. Cor NUNCA é o único indicador (o
+ * projeto já corrigiu um bug real de contraste, ver progress.md): o percentual
+ * vem escrito, e o estado também aparece no texto de apoio.
  */
 
 /** Largura da barra: satura em 100% — o excedente é dito em texto, não desenhado. */
@@ -99,6 +105,64 @@ function MetaRow({
   );
 }
 
+function BlocoCard({ bloco }: { bloco: BlocoMetas }) {
+  const ehMensal = bloco.granularidade === "MES";
+  const unidadePlural = ehMensal ? "meses" : "trimestres";
+  const semMeta = bloco.totalMeta === null;
+
+  return (
+    <section className="rounded-lg border border-slate-200 p-4">
+      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <h3 className="text-sm font-semibold text-slate-700">{ehMensal ? "Mensal" : "Trimestral"}</h3>
+        {/* O período apurado, sempre explícito — é o que impede confundir o
+            realizado deste bloco com o KPI da página quando os recortes diferem. */}
+        <span className="text-xs capitalize text-slate-500">{bloco.label}</span>
+      </div>
+
+      {semMeta ? (
+        <p className="mb-2 text-sm text-slate-500">
+          Nenhuma meta {ehMensal ? "mensal" : "trimestral"} para {bloco.label}. O valor abaixo é o realizado —{" "}
+          <Link href="/metas" className="text-seahub-600 hover:underline">
+            definir
+          </Link>
+          .
+        </p>
+      ) : (
+        <div className="mb-3 flex flex-wrap items-baseline gap-x-3">
+          <span className="text-2xl font-semibold tabular-nums text-slate-900">
+            {formatPercent(bloco.percentualTotal)}
+          </span>
+          <span className="text-sm text-slate-600">
+            {formatBRL(bloco.totalRealizado)} de {formatBRL(bloco.totalMeta as string)}
+          </span>
+        </div>
+      )}
+
+      {!bloco.metaCompleta && !semMeta ? (
+        <p className="mb-3 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+          Nem todos os {bloco.periodosNoIntervalo} {unidadePlural} deste intervalo têm meta. Para não comparar coisas
+          diferentes, o realizado considera <strong>apenas os {unidadePlural} que têm meta</strong> — não é a receita
+          total do intervalo.
+        </p>
+      ) : null}
+
+      <ul className="divide-y divide-slate-100">
+        {bloco.escopos.map((e) => (
+          <MetaRow key={e.slug} escopo={e} ritmo={bloco.ritmoEsperadoPct} unidadePlural={unidadePlural} />
+        ))}
+      </ul>
+
+      {bloco.ritmoEsperadoPct !== null && !semMeta ? (
+        <p className="mt-2 text-xs text-slate-400">
+          O traço marca {formatPercent(bloco.ritmoEsperadoPct)} — onde o intervalo estaria se a receita entrasse por
+          igual todos os dias. É referência, não previsão: a Data de Crédito se concentra nos vencimentos, então ficar
+          atrás do traço no começo é normal.
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
 export function MetasPanel({ metas }: { metas: MetasDoPeriodo }) {
   if (!metas.aplicavel) {
     return (
@@ -134,82 +198,27 @@ export function MetasPanel({ metas }: { metas: MetasDoPeriodo }) {
     );
   }
 
-  const semNenhumaMeta = metas.totalMeta === null;
-  const unidadePlural: "meses" | "trimestres" = metas.granularidade === "MES" ? "meses" : "trimestres";
-  const unidadeSingular: "mensal" | "trimestral" = metas.granularidade === "MES" ? "mensal" : "trimestral";
+  // Só avisa da diferença de recorte quando ela existe de verdade (visão mensal
+  // mostrando o trimestre inteiro ao lado). Sem isso, o realizado maior do
+  // bloco trimestral pareceria contradizer o KPI da página.
+  const algumBlocoDifere = metas.blocos.some((b) => b.difereDaVisao);
 
   return (
     <Card>
-      <SectionTitle
-        hint={
-          metas.ritmoEsperadoPct !== null
-            ? `período em andamento — a marca no traço é o ritmo linear até hoje (${formatPercent(metas.ritmoEsperadoPct)})`
-            : "por Data de Crédito da Cobrança"
-        }
-      >
-        Metas
-      </SectionTitle>
+      <SectionTitle hint="por Data de Crédito da Cobrança">Metas</SectionTitle>
 
-      {semNenhumaMeta ? (
-        // Se existe meta na OUTRA granularidade cobrindo este intervalo, dizer
-        // isso é obrigatório: sem esse aviso a tela afirma "nenhuma meta
-        // definida" para quem acabou de cadastrar uma, e a meta parece ter
-        // sumido. Mensal e trimestral são séries independentes (ADR-0026), mas
-        // o usuário não tem como adivinhar isso olhando um card vazio.
-        metas.metaNaOutraGranularidade ? (
-          <p className="mb-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-sm text-amber-900">
-            Nenhuma meta {unidadeSingular} para este período — mas existe meta{" "}
-            <strong>{metas.metaNaOutraGranularidade.granularidade === "MES" ? "mensal" : "trimestral"}</strong> em{" "}
-            {metas.metaNaOutraGranularidade.periodos.join(", ")}.{" "}
-            <Link
-              href={metas.metaNaOutraGranularidade.granularidade === "MES" ? "/?g=month" : "/?g=quarter"}
-              className="font-medium text-seahub-700 underline"
-            >
-              Ver por {metas.metaNaOutraGranularidade.granularidade === "MES" ? "mês" : "trimestre"}
-            </Link>
-            . Mensal e trimestral são metas separadas: cada uma aparece na sua própria visão.
-          </p>
-        ) : (
-          <p className="mb-2 text-sm text-slate-500">
-            Nenhuma meta definida para este período. Os valores abaixo são o realizado —{" "}
-            <Link href="/metas" className="text-seahub-600 hover:underline">
-              definir metas
-            </Link>
-            .
-          </p>
-        )
-      ) : (
-        <div className="mb-3 flex flex-wrap items-baseline gap-x-3">
-          <span className="text-2xl font-semibold tabular-nums text-slate-900">
-            {formatPercent(metas.percentualTotal)}
-          </span>
-          <span className="text-sm text-slate-600">
-            {formatBRL(metas.totalRealizado)} de {formatBRL(metas.totalMeta as string)} no total
-          </span>
-        </div>
-      )}
-
-      {!metas.metaCompleta && !semNenhumaMeta ? (
-        <p className="mb-3 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
-          Nem todos os {metas.periodosNoPeriodo} {unidadePlural} deste período têm meta definida. Para não comparar
-          coisas diferentes, o realizado mostrado considera <strong>apenas os {unidadePlural} que têm meta</strong> —
-          então este número não é a receita total do período.
+      {algumBlocoDifere ? (
+        <p className="mb-3 text-xs text-slate-500">
+          Metas mensais e trimestrais são independentes — cada bloco abaixo é apurado no seu próprio período, então o
+          realizado de um pode ser maior que o do outro.
         </p>
       ) : null}
 
-      <ul className="divide-y divide-slate-100">
-        {metas.escopos.map((e) => (
-          <MetaRow key={e.slug} escopo={e} ritmo={metas.ritmoEsperadoPct} unidadePlural={unidadePlural} />
+      <div className={`grid grid-cols-1 gap-4 ${metas.blocos.length > 1 ? "lg:grid-cols-2" : ""}`}>
+        {metas.blocos.map((b) => (
+          <BlocoCard key={b.granularidade} bloco={b} />
         ))}
-      </ul>
-
-      {metas.ritmoEsperadoPct !== null && !semNenhumaMeta ? (
-        <p className="mt-3 text-xs text-slate-400">
-          O traço vertical marca {formatPercent(metas.ritmoEsperadoPct)} — onde o período estaria se a receita entrasse por
-          igual todos os dias. É só uma referência: como a Data de Crédito se concentra nas datas de
-          vencimento, ficar atrás do traço no começo do período é normal.
-        </p>
-      ) : null}
+      </div>
     </Card>
   );
 }

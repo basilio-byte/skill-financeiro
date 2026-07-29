@@ -1046,3 +1046,21 @@
   pra visão certa e uma frase explicando que são metas separadas.
 - Validado com dado real: criada uma meta trimestral no dev, a visão mensal passou a avisar e a
   trimestral mostra os R$ 35.000,00 normalmente. Typecheck limpo, 178 testes. Ambiente limpo.
+- **Iteração seguinte, a pedido do usuário**: em vez de um aviso com link (ou de uma guia que
+  trocasse o período do Panorama inteiro — cheguei a começar por esse caminho e o usuário
+  interrompeu, com razão), o card de Metas passou a mostrar **mensal e trimestral LADO A LADO**,
+  cada bloco apurado no SEU próprio período e exibindo o rótulo dele ("julho de 2026", "3º
+  trimestre de 2026"). O Panorama não muda de período ao olhar as duas.
+  - `buildMetas` foi refatorado: o miolo virou `calcularBloco(escopos, granularidade, intervalo)`
+    e `blocosDaVisao(periodo)` decide quais blocos existem — visão mensal mostra o mês + o
+    trimestre que o CONTÉM (intervalo maior que a página, marcado com `difereDaVisao`); visão
+    trimestral mostra os 3 meses + o trimestre; semestre/ano mostram só o trimestral cobrindo o
+    período inteiro, porque somar 6 ou 12 metas mensais produziria um número que ninguém definiu
+    (a ADR-0026 já fixou que mês nunca soma pra cima).
+  - O rótulo do período em cada bloco não é decoração: numa visão mensal o bloco trimestral apura
+    o trimestre inteiro, então o realizado dele é legitimamente MAIOR que o KPI da página. Sem
+    dizer o recorte de cada número, seriam duas receitas na mesma tela sem explicação — e há uma
+    frase de apoio avisando disso quando os intervalos diferem.
+  - Validado com dado real (meta mensal de R$ 12.000 + trimestral de R$ 35.000 no dev): visão
+    mensal mostra as duas; trimestral mostra as duas; semestral/anual só a trimestral; semanal cai
+    na mensagem de "não aplicável". Typecheck limpo, 178 testes. Ambiente limpo depois.
