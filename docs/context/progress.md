@@ -1124,3 +1124,37 @@
   o KPI "Total recebido no período"). O Docker Desktop caiu no meio do trabalho e o banco de dev
   ficou inacessível — a checagem precisa ser feita quando ele voltar, ANTES de considerar isto
   fechado.
+
+### Validação contra dado real — feita (2026-07-30)
+
+Docker voltou; migration `20260728180000_escopo_todas_categorias` aplicada no dev e
+`seed-metas.mjs` rodado (6 escopos, `total-recebido` com `todasCategorias=true` e ZERO categorias
+ligadas — como esperado, ele soma por flag).
+
+Conferência do número, por dois caminhos independentes (SQL cru vs. página renderizada):
+
+| | valor |
+|---|---|
+| SQL: `sum(valorRecebidoCat)` de julho/2026, 1036 linhas | **R$ 326.932,90** |
+| KPI "Total recebido no período" no Panorama | **R$ 326.932,90** |
+| Escopo "Total recebido" no card de Metas | **R$ 326.932,90** |
+
+Os 5 escopos de categoria somam R$ 307.723,46 (665/8/65/15/215 linhas — os mesmos números já
+validados em 28/07). A diferença de R$ 19.209,44 é Outros Serviços + Hub Empreendedoras + Sem
+Categoria — exatamente a receita que a Duda quer dentro da meta dela e que uma lista de categorias
+teria deixado de fora.
+
+Os dois casos de borda que motivaram o código foram exercitados na tela, com meta inserida no banco:
+
+1. **Meta SÓ no escopo global** (o caso da Duda): bloco Trimestral mostrou "R$ 326.932,90 de
+   R$ 900.000,00 — 36,3% — Faltam R$ 573.067,10", e **não** apareceu nenhuma mensagem de "nenhuma
+   meta trimestral". Sem o `temAlgumaMeta`, a meta dela ficaria invisível — o mesmo bug corrigido
+   horas antes na visão trimestral.
+2. **Meta no global E numa categoria**: agregado do bloco mostrou 98,2% (R$ 98.222,97 de
+   R$ 100.000,00 — só Endereço Fiscal) com a ressalva `não inclui "todas as categorias"`. Se o
+   global entrasse no agregado daria 42,5% (R$ 425.155,87 de R$ 1.000.000), contando Endereço
+   Fiscal duas vezes.
+
+`/metas` mostra o texto explicativo + aviso de sobreposição no card do escopo, e "Total recebido"
+aparece no seletor do formulário, em 6º lugar (ordem alfabética). Dados de teste removidos
+(0 metas, 0 sessões de smoke test no dev).
