@@ -64,8 +64,6 @@ export interface BlocoMetas {
   totalMeta: string | null;
   totalRealizado: string;
   percentualTotal: number | null;
-  /** Algum escopo tem meta neste intervalo — INCLUSIVE um "Total recebido". */
-  temAlgumaMeta: boolean;
   /** Quantos períodos-átomo (meses ou trimestres) o intervalo cobre. */
   periodosNoIntervalo: number;
   /** Todos eles têm meta? Se não, a comparação é recortada. */
@@ -233,7 +231,6 @@ async function calcularBloco(
     totalMeta: algumMetaNaoGlobal ? toAmountString(roundMoney(totalMeta)) : null,
     totalRealizado: toAmountString(roundMoney(totalRealizado)),
     percentualTotal: algumMetaNaoGlobal ? pct(totalRealizado, totalMeta) : null,
-    temAlgumaMeta: algumaMeta,
     periodosNoIntervalo: chaves.length,
     metaCompleta: algumaMeta && todasChavesComMeta,
     ritmoEsperadoPct: fracao === null ? null : Number((fracao * 100).toFixed(1)),

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { comInicialMaiuscula } from "@/lib/dates";
 import { formatBRL, formatPercent } from "@/lib/money";
 import { Card, SectionTitle } from "@/components/ui";
 import type { BlocoMetas, MetasDoPeriodo, MetaEscopoResolvido } from "@/lib/metas/metas";
@@ -20,12 +21,35 @@ import type { BlocoMetas, MetasDoPeriodo, MetaEscopoResolvido } from "@/lib/meta
  * Forma: um medidor horizontal por escopo. Cor NUNCA é o único indicador (o
  * projeto já corrigiu um bug real de contraste, ver progress.md): o percentual
  * vem escrito, e o estado também aparece no texto de apoio.
+ *
+ * Cada bloco mostra SÓ os escopos com meta naquele período (2026-07-30). Com 6
+ * escopos e meta em 1, as outras 5 linhas de "sem meta definida" viravam ruído
+ * numa tela cujo assunto é progresso contra meta. Não é omissão silenciosa: o
+ * rodapé do bloco diz quantos ficaram de fora, e o realizado por categoria
+ * continua no breakdown "por categoria" do próprio Panorama.
  */
 
 /** Largura da barra: satura em 100% — o excedente é dito em texto, não desenhado. */
 function larguraPct(percentual: number | null): number {
   if (percentual === null) return 0;
   return Math.max(0, Math.min(100, percentual));
+}
+
+/**
+ * "Tem meta" para efeito de EXIBIÇÃO: meta definida E comparável.
+ *
+ * Uma meta de R$ 0,00 é aceita pelo formulário (`min="0"`, e a action só recusa
+ * negativo) e pelo banco (`CHECK "valor" >= 0`), mas não produz percentual —
+ * `pct()` devolve null quando o alvo é <= 0. A convenção registrada na própria
+ * migration é que a UI trata 0 como "sem meta definida".
+ *
+ * Este predicado é usado nos DOIS lugares que decidem sobre meta: quem entra na
+ * lista e como a linha é desenhada. Se eles discordassem, uma meta de R$ 0,00
+ * produziria uma lista com uma única linha escrita "sem meta definida" — tendo
+ * escondido as outras justamente por não terem meta.
+ */
+function temMetaComparavel(escopo: MetaEscopoResolvido): boolean {
+  return escopo.meta !== null && escopo.percentual !== null;
 }
 
 function corDaBarra(percentual: number | null, ritmo: number | null): string {
@@ -45,7 +69,7 @@ function MetaRow({
   ritmo: number | null;
   unidadePlural: "meses" | "trimestres";
 }) {
-  const temMeta = escopo.meta !== null && escopo.percentual !== null;
+  const temMeta = temMetaComparavel(escopo);
   const largura = larguraPct(escopo.percentual);
 
   return (
@@ -56,7 +80,9 @@ function MetaRow({
           {escopo.abrangeTudo ? (
             <span
               className="ml-1.5 rounded bg-slate-200 px-1 py-0.5 align-middle text-[10px] font-normal text-slate-600"
-              title="Soma toda a receita do período, sem filtrar categoria — inclui a dos outros escopos desta lista. Por isso não entra no total acima: somar tudo contaria o mesmo dinheiro duas vezes."
+              // Não cita "os outros escopos desta lista": desde que o card passou a
+              // mostrar só quem tem meta, essa lista pode ter só esta linha.
+              title="Soma toda a receita do período, sem filtrar categoria — inclui a dos demais escopos. Por isso não entra no total acima: somar tudo contaria o mesmo dinheiro duas vezes."
             >
               todas as categorias
             </span>
@@ -122,9 +148,21 @@ function BlocoCard({ bloco }: { bloco: BlocoMetas }) {
   // definir só a meta de Total recebido, `totalMeta` fica null (ele não entra no
   // agregado) e a mensagem de "nenhuma meta" faria a meta dela parecer
   // inexistente — o mesmo bug que já corrigimos hoje na visão trimestral.
-  const semMeta = !bloco.temAlgumaMeta;
-  const temAgregado = bloco.totalMeta !== null;
-  const globalComMeta = bloco.escopos.some((e) => e.abrangeTudo && e.meta !== null);
+  const comMeta = bloco.escopos.filter(temMetaComparavel);
+  // Fallback ESTRUTURAL, não estético: sem meta comparável no período a lista
+  // ficaria vazia e o bloco não diria nada. Nesse caso mostra todos como
+  // realizado — é o estado em que a pessoa está calibrando quanto pedir.
+  // (A lista em si não ser vazia vem do gate `temEscopos` em MetasPanel.)
+  const visiveis = comMeta.length > 0 ? comMeta : bloco.escopos;
+  const ocultos = bloco.escopos.length - visiveis.length;
+
+  // Tudo abaixo deriva de `comMeta`, e não de um campo separado vindo do
+  // servidor: é o que garante que a mensagem não contradiga as linhas exibidas.
+  const semMeta = comMeta.length === 0;
+  // percentualTotal só é null quando totalMeta é <= 0, então este par também
+  // impede um cabeçalho "—%" sobre "de R$ 0,00".
+  const temAgregado = bloco.totalMeta !== null && bloco.percentualTotal !== null;
+  const globalComMeta = comMeta.some((e) => e.abrangeTudo);
 
   return (
     <section className="rounded-lg border border-slate-200 p-4">
@@ -132,7 +170,7 @@ function BlocoCard({ bloco }: { bloco: BlocoMetas }) {
         <h3 className="text-sm font-semibold text-slate-700">{ehMensal ? "Mensal" : "Trimestral"}</h3>
         {/* O período apurado, sempre explícito — é o que impede confundir o
             realizado deste bloco com o KPI da página quando os recortes diferem. */}
-        <span className="text-xs capitalize text-slate-500">{bloco.label}</span>
+        <span className="text-xs text-slate-500">{comInicialMaiuscula(bloco.label)}</span>
       </div>
 
       {semMeta ? (
@@ -169,10 +207,28 @@ function BlocoCard({ bloco }: { bloco: BlocoMetas }) {
       ) : null}
 
       <ul className="divide-y divide-slate-100">
-        {bloco.escopos.map((e) => (
+        {visiveis.map((e) => (
           <MetaRow key={e.slug} escopo={e} ritmo={bloco.ritmoEsperadoPct} unidadePlural={unidadePlural} />
         ))}
       </ul>
+
+      {/* Diz o que ficou de fora. Sem esta linha, um escopo que existe e tem
+          receita simplesmente não estaria na tela — e "some sem avisar" é
+          exatamente o que este projeto trata como bug em tela de dinheiro. */}
+      {/* slate-600 (7,6:1) e não slate-400 (2,55:1, reprova WCAG 1.4.3): esta
+          linha não é nota de rodapé, é a única coisa que avisa que escopos com
+          receita real saíram da lista. Se ela é o que desaparece num monitor
+          claro, a omissão volta a ser silenciosa. */}
+      {ocultos > 0 ? (
+        <p className="mt-2 text-xs text-slate-600">
+          {ocultos === 1 ? "1 escopo sem meta" : `${ocultos} escopos sem meta`} {ehMensal ? "mensal" : "trimestral"} —
+          fora desta lista.{" "}
+          <Link href="/metas" className="text-seahub-600 hover:underline">
+            Definir
+          </Link>
+          .
+        </p>
+      ) : null}
 
       {bloco.ritmoEsperadoPct !== null && !semMeta ? (
         <p className="mt-2 text-xs text-slate-400">

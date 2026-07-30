@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { buildOverview } from "@/lib/reports/overview";
 import { buildMetas } from "@/lib/metas/metas";
 import { MetasPanel } from "@/components/metas-panel";
-import { APP_TZ, PERIOD_KINDS, nowInAppTz, type PeriodKind } from "@/lib/dates";
+import { APP_TZ, PERIOD_KINDS, comInicialMaiuscula, nowInAppTz, type PeriodKind } from "@/lib/dates";
 import { formatBRL, formatPercent } from "@/lib/money";
 import { Card, SectionTitle } from "@/components/ui";
 import { KpiCard } from "@/components/kpi-card";
@@ -56,7 +56,8 @@ export default async function PanoramaPage({
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold text-slate-900">Panorama</h1>
-          <p className="text-sm capitalize text-slate-500">{report.periodo.label}</p>
+          {/* Não usar `capitalize`: maiúscula CADA palavra ("Julho De 2026"). */}
+          <p className="text-sm text-slate-500">{comInicialMaiuscula(report.periodo.label)}</p>
         </div>
         <PeriodControls kind={kind} fromKey={report.periodo.fromKey} />
       </div>

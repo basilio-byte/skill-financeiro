@@ -1158,3 +1158,109 @@ Os dois casos de borda que motivaram o código foram exercitados na tela, com me
 `/metas` mostra o texto explicativo + aviso de sobreposição no card do escopo, e "Total recebido"
 aparece no seletor do formulário, em 6º lugar (ordem alfabética). Dados de teste removidos
 (0 metas, 0 sessões de smoke test no dev).
+
+## 2026-07-30 — Card de Metas mostra só os escopos COM meta (+ dois bugs no rótulo do período)
+
+Com o escopo "Total recebido" no ar, o usuário viu na produção o que o pedido da Duda pedia
+("trimestral sem categorizar") ainda não entregando: o bloco Trimestral trazia a meta dela em cima
+de **5 linhas "sem meta definida"** das categorias. Relato dele: *"os itens que eram por categoria
+nas metas trimestrais não foram ocultos, e não achei opção para remover"*.
+
+Confirmado antes de mexer que não era problema de descoberta: `MetaEscopo.ativo` só é LIDO no
+código (`where: { ativo: true }` em dois lugares), nunca escrito por nenhuma tela — a opção de
+remover realmente não existia.
+
+**Escolha do usuário entre 3 desenhos** (ocultar / recolher atrás de "ver mais" / ocultar + poder
+desativar escopo em `/metas`): **ocultar**. O card é sobre progresso contra meta; uma linha "sem
+meta definida" não é progresso, é convite a definir — e o link "definir" do bloco já convida uma
+vez. Não se criou tela de desativar escopo: desativar valeria para mensal E trimestral ao mesmo
+tempo, o que é mais permanente do que o problema pedia.
+
+- `visiveis = comMeta.length > 0 ? comMeta : bloco.escopos`. O fallback é **estrutural, não
+  estético**: sem meta nenhuma no período a lista ficaria vazia e o bloco não diria nada, então
+  nesse estado mostra todos como realizado (é quando a pessoa está calibrando quanto pedir).
+  Deriva de `comMeta.length` e não de `temAlgumaMeta` de propósito — hoje os dois são equivalentes
+  por construção em `calcularBloco`, mas assim é impossível renderizar bloco vazio se um dia
+  divergirem.
+- **Não é omissão silenciosa:** rodapé "N escopos sem meta mensal/trimestral — fora desta lista.
+  Definir." Um escopo com receita real que desaparece sem aviso é o tipo de coisa que este projeto
+  trata como bug em tela de dinheiro.
+
+**Dois bugs no rótulo do período, o segundo encontrado pelo próprio teste que escrevi:**
+1. `capitalize` do Tailwind é `text-transform:capitalize`, que maiúscula CADA palavra — a tela
+   mostrava "Julho De 2026" e "3º Trimestre De 2026".
+2. A primeira tentativa de correção, `first-letter:uppercase`, age no primeiro CARACTERE: no
+   rótulo trimestral é o dígito "3", então o trimestral ficaria todo minúsculo ao lado de um
+   mensal maiúsculo. Trocado por `comInicialMaiuscula()` em `dates.ts` (junto de
+   `formatPeriodLabel`, que produz os rótulos), com 5 testes.
+   - Buscar `\p{L}` **não** resolve: **"º" (U+00BA) É letra Unicode** (categoria Lo) e não tem
+     maiúscula, então a busca parava nele e devolvia a string intacta.
+   - Buscar "o primeiro caractere que muda ao virar maiúsculo" também não: isso é a primeira
+     MINÚSCULA, então "Julho de 2026" virava "JUlho de 2026" — um teste de idempotência pegou.
+   - Regra final: primeiro caractere **que tem caixa** (`toLowerCase !== toUpperCase`). Limitação
+     documentada e testada: no formato de DIA ("30 de julho de 2026") a primeira letra com caixa é
+     o "d" de "de"; nenhum título usa rótulo de dia hoje (o card nem existe em visão diária).
+
+**Validado na tela, com meta real no banco, nos 4 estados que importam** (banco de dev, julho/2026):
+
+| estado | Mensal | Trimestral |
+|---|---|---|
+| nenhuma meta | 6 escopos como realizado + "definir", sem rodapé | idem |
+| meta só no global (= produção) | 6 como realizado | **1 linha** (Total recebido 86,5%) + "5 escopos sem meta trimestral" |
+| global + 1 categoria | — | agregado 98,2% só de Endereço Fiscal + ressalva, 2 linhas, "4 escopos sem meta" |
+| 1 categoria no mensal | agregado 86,2%, 1 linha, "5 escopos sem meta mensal" | — |
+
+Contagem do rodapé confere em todos (6−1=5, 6−2=4). 187 testes, typecheck limpo. Dados de teste
+removidos do dev.
+
+### Revisão adversarial da mudança (12 agentes, 23 achados → 5 reais)
+
+Rodada antes do commit, como manda a prática do projeto para tela de dinheiro. A maioria dos
+achados foi refutada na verificação (vários descreviam estados inalcançáveis — p.ex. "o bloco
+trimestral esconde tudo quando só existe meta mensal", que é falso: sem meta trimestral o bloco cai
+no fallback e mostra todos). O que se sustentou:
+
+1. **Bug que a própria mudança introduziu — meta de R$ 0,00.** O formulário aceita 0 (`min="0"`, a
+   action só recusa negativo) e o banco também (`CHECK "valor" >= 0`, migration 20260722173330, cujo
+   comentário registra "a UI trata '0' como sem meta definida"). Meu filtro usava `meta !== null`,
+   mas `MetaRow` desenha a linha por `meta !== null && percentual !== null` — e `pct()` devolve null
+   quando o alvo é <= 0. Resultado: com uma única meta de R$ 0,00, o bloco mostrava **uma linha
+   escrita "sem meta definida"** tendo escondido as outras 5 justamente por não terem meta, e o
+   cabeçalho exibia "—%" sobre "de R$ 0,00". Corrigido com um predicado único
+   `temMetaComparavel()` usado nos dois lugares; `semMeta` e `temAgregado` passaram a derivar dele.
+   Verificado na tela: agora cai no fallback honesto ("Nenhuma meta mensal... o valor abaixo é o
+   realizado") em vez da tela contraditória.
+   - Efeito colateral bom: `BlocoMetas.temAlgumaMeta` (criado ontem) ficou sem uso e foi removido —
+     a decisão de exibição agora sai toda de `comMeta`, então a mensagem não pode contradizer as
+     linhas. Campo exportado que ninguém lê, com comentário dizendo governar uma mensagem que já não
+     governa, é pior que campo nenhum.
+2. **O bug do `capitalize` continuava no subtítulo da própria página** (`page.tsx`), sobre a MESMA
+   string: a tela mostrava "Julho De 2026" no h1 e "Julho de 2026" no card, lado a lado. Passou a
+   usar o mesmo `comInicialMaiuscula()`. Um grep por `capitalize` em `src/` já não acha nenhum uso.
+3. **Contraste do aviso de ocultos**: `text-slate-400` sobre branco é ~2,55:1, reprova WCAG 1.4.3
+   (mínimo 4,5:1). Essa linha não é nota de rodapé — é a única coisa que avisa que escopos com
+   receita real saíram da lista; se ela é o que desaparece num monitor claro, a omissão volta a ser
+   silenciosa. Subiu para `text-slate-600` (~7,6:1).
+4. **Tooltip do selo "todas as categorias"** dizia "inclui a dos outros escopos desta lista" — desde
+   que o card mostra só quem tem meta, essa lista pode ter uma linha só. Trocado por "dos demais
+   escopos".
+5. **Comentário que prometia mais do que o código entrega**: dizia ser "impossível renderizar bloco
+   vazio", mas o fallback não cobre `escopos.length === 0` (hoje inalcançável — quem garante isso é
+   o gate `temEscopos` em `MetasPanel`, não o fallback). Comentário corrigido para afirmar só o que
+   é verdade.
+
+**Achados reais NÃO corrigidos, por decisão de escopo** (o usuário pediu para ocultar, não para
+redesenhar o card):
+- Num bloco cuja janela difere da visão da página (bloco Trimestral em visão Mensal), o realizado
+  dos escopos ocultos não está em nenhum outro lugar da tela — o KPI e o breakdown por categoria são
+  do MÊS. Aceito: é consequência direta de ocultar, e o estado em que a Duda está hoje (meta
+  trimestral no Total recebido) não cai nisso.
+- O rodapé conta escopos e não diz dinheiro, então "5 escopos sem meta" se lê igual escondendo R$ 0
+  ou R$ 180 mil. Não incluí o valor porque somar os ocultos exigiria excluir o escopo global (a
+  receita dele contém a dos outros) e a contagem passaria a divergir do valor — um número novo, e
+  possivelmente errado, numa tela de dinheiro.
+- O argumento "está no breakdown por categoria" é meia-verdade: o breakdown é por STRING de
+  categoria, e um escopo agrega até 5 grafias (Salas Privativas). O comentário no código foi ajustado
+  para não prometer o que o breakdown não entrega.
+- Não há teste cobrindo a renderização do card; a parte pura de `calcularBloco` é inatingível por
+  teste hoje (o módulo importa `server-only` e `prisma`). Extrair fica como dívida anotada.

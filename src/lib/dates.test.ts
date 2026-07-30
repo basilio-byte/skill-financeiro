@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getPeriodBounds, shiftPeriodKey } from "@/lib/dates";
+import { comInicialMaiuscula, getPeriodBounds, shiftPeriodKey } from "@/lib/dates";
 
 describe("getPeriodBounds", () => {
   it("dia: fromKey e toKey são o mesmo dia da referência", () => {
@@ -81,5 +81,44 @@ describe("shiftPeriodKey", () => {
 
   it("ano: -1 volta um ano", () => {
     expect(shiftPeriodKey("2026-07-21", "year", -1)).toBe("2025-07-21");
+  });
+});
+
+describe("comInicialMaiuscula", () => {
+  // Os rótulos abaixo NÃO são inventados: são os formatos que
+  // formatPeriodLabel() produz de fato para cada PeriodKind. Se alguém mudar o
+  // formato, este teste é o lugar onde a mudança aparece.
+  it("mês: maiúscula na primeira letra", () => {
+    expect(comInicialMaiuscula("julho de 2026")).toBe("Julho de 2026");
+  });
+
+  it("trimestre: pula o dígito E o ordinal 'º', que É letra Unicode sem maiúscula", () => {
+    // A armadilha real desta função: /\p{L}/ casa com "º" (categoria Lo) e
+    // toUpperCase("º") === "º", então uma implementação por \p{L} devolveria a
+    // string intacta e o trimestral ficaria minúsculo ao lado do mensal.
+    expect(comInicialMaiuscula("3º trimestre de 2026")).toBe("3º Trimestre de 2026");
+    expect(comInicialMaiuscula("1º semestre de 2026")).toBe("1º Semestre de 2026");
+  });
+
+  it("limitação conhecida e aceita: no formato de DIA a primeira letra é o 'd' de 'de'", () => {
+    // Documentado, não desejado. Nenhum título usa o rótulo de dia hoje (o card
+    // de Metas nem existe em visão diária). Se um dia usar, trate lá — este
+    // teste é o aviso de que o resultado seria este.
+    expect(comInicialMaiuscula("30 de julho de 2026")).toBe("30 De julho de 2026");
+  });
+
+  it("rótulos sem nenhuma letra voltam intactos, sem estourar", () => {
+    expect(comInicialMaiuscula("2026")).toBe("2026");
+    expect(comInicialMaiuscula("27/07 – 02/08/2026")).toBe("27/07 – 02/08/2026");
+    expect(comInicialMaiuscula("")).toBe("");
+  });
+
+  it("idempotente — aplicar duas vezes não maiúscula a SEGUNDA letra", () => {
+    // Este teste existe porque a primeira implementação buscava "o primeiro
+    // caractere que muda ao virar maiúsculo", ou seja a primeira MINÚSCULA:
+    // em "Julho de 2026" isso é o "u", e o resultado era "JUlho de 2026".
+    expect(comInicialMaiuscula(comInicialMaiuscula("julho de 2026"))).toBe("Julho de 2026");
+    expect(comInicialMaiuscula("Julho de 2026")).toBe("Julho de 2026");
+    expect(comInicialMaiuscula("3º Trimestre de 2026")).toBe("3º Trimestre de 2026");
   });
 });

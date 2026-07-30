@@ -166,6 +166,39 @@ function formatPeriodLabel(kind: PeriodKind, start: Date, end: Date): string {
   }
 }
 
+/**
+ * Rótulo de período com inicial maiúscula, para quando ele aparece como TÍTULO
+ * e não dentro de uma frase: "julho de 2026" → "Julho de 2026",
+ * "3º trimestre de 2026" → "3º Trimestre de 2026".
+ *
+ * Não use CSS para isso. `capitalize` do Tailwind é text-transform:capitalize,
+ * que maiúscula CADA palavra ("Julho De 2026"). `first-letter:uppercase` age no
+ * primeiro CARACTERE, que no rótulo trimestral é o dígito "3" — o trimestre
+ * ficaria todo minúsculo enquanto o mês virava maiúsculo.
+ *
+ * Também não serve procurar `\p{L}`: "º" (U+00BA, ordinal masculino) É uma letra
+ * Unicode (categoria Lo) e não tem forma maiúscula, então a busca pararia nele e
+ * devolveria a string intacta.
+ *
+ * A condição é "primeiro caractere que TEM CAIXA" (`toLowerCase !== toUpperCase`),
+ * e não "primeiro caractere que muda ao virar maiúsculo": este segundo critério
+ * acha a primeira MINÚSCULA, então "Julho de 2026" viraria "JUlho de 2026" (um
+ * teste de idempotência pegou isso). Dígitos, "/", "–" e "º" são pulados
+ * naturalmente; rótulo sem letra nenhuma ("2026") volta intacto.
+ *
+ * Limitação conhecida: serve para os rótulos de mês/trimestre/semestre/ano, os
+ * únicos que aparecem como título hoje. No formato de DIA ("30 de julho de
+ * 2026") o primeiro caractere com caixa é o "d" de "de", resultando em "30 De
+ * julho de 2026" — se um dia um título usar dia ou semana, trate o caso lá.
+ */
+export function comInicialMaiuscula(label: string): string {
+  const chars = [...label];
+  const i = chars.findIndex((c) => c.toLowerCase() !== c.toUpperCase());
+  if (i === -1) return label;
+  chars[i] = chars[i]!.toUpperCase();
+  return chars.join("");
+}
+
 /** Desloca uma chave 'yyyy-MM-dd' em `amount` períodos de `kind` (±1 para navegação). */
 export function shiftPeriodKey(fromKey: string, kind: PeriodKind, amount: number): string {
   const base = parseCalendarKey(fromKey);
