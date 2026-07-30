@@ -1264,3 +1264,36 @@ redesenhar o card):
   para não prometer o que o breakdown não entrega.
 - Não há teste cobrindo a renderização do card; a parte pura de `calcularBloco` é inatingível por
   teste hoje (o módulo importa `server-only` e `prisma`). Extrair fica como dívida anotada.
+
+### Ajuste na mesma tarde: sem meta, não aparece — sem exceção
+
+O usuário viu na produção os dois blocos cheios de "sem meta definida" e perguntou: *"Não seria melhor:
+sem meta, não aparecer na tela do panorama?"*. (Antes disso ele achou que a meta de R$ 378.000 tinha
+sumido por causa do deploy — investigado e descartado: `seed-metas.mjs` nunca encosta em
+`MetaPeriodo`, e a única migration com `DELETE FROM "meta_periodos"` não é idempotente, então uma
+reexecução teria derrubado o boot em vez de bootar limpo. Ele mesmo havia apagado a meta.)
+
+Removido o fallback "sem meta, mostra todos como realizado". A regra virou única e sem exceção:
+
+- bloco com meta → só os escopos com meta, + rodapé de quantos ficaram fora;
+- bloco sem meta → só a mensagem e o link (o rodapé de ocultos é suprimido: com nada visível ele
+  seria a mesma frase duas vezes);
+- **nenhum** bloco com meta → o card inteiro vira uma linha ("Nenhuma meta mensal (julho de 2026) nem
+  trimestral (3º trimestre de 2026) — definir em Metas"), em vez de duas caixas lado a lado com uma
+  frase quase idêntica cada. O predicado é o MESMO dos blocos, para a decisão do card não poder
+  discordar da decisão de cada bloco.
+
+**Texto que precisava mudar junto, senão a tela mentiria:** a mensagem dizia "Nenhuma meta mensal
+para julho de 2026. **O valor abaixo é o realizado** — definir" e agora não há valor abaixo nenhum.
+Virou "Nenhuma meta mensal para julho de 2026 — definir". Os dois links "definir" ganharam
+`aria-label` próprio (mensal/trimestral), que num leitor de tela eram duas entradas idênticas.
+
+**Custo declarado no cabeçalho do componente:** o realizado POR ESCOPO sai da tela quando não há
+meta. A receita continua toda no Panorama (KPI + breakdown por categoria), mas o breakdown é por
+STRING de categoria e um escopo agrega até 5 grafias — ele não substitui o número do escopo. Escolha
+explícita do usuário, feita duas vezes.
+
+Validado na tela nos 3 estados que mudaram: nenhuma meta em lugar nenhum (card = 1 linha), meta só no
+Total recebido trimestral (mensal = 1 frase, trimestral = 1 linha + rodapé), e meta de R$ 0,00 no
+mensal junto de meta real no trimestral (o zero não é comparável, então o mensal cai na frase e o
+trimestral apura normal). 187 testes, typecheck limpo.

@@ -24,9 +24,16 @@ import type { BlocoMetas, MetasDoPeriodo, MetaEscopoResolvido } from "@/lib/meta
  *
  * Cada bloco mostra SÓ os escopos com meta naquele período (2026-07-30). Com 6
  * escopos e meta em 1, as outras 5 linhas de "sem meta definida" viravam ruído
- * numa tela cujo assunto é progresso contra meta. Não é omissão silenciosa: o
- * rodapé do bloco diz quantos ficaram de fora, e o realizado por categoria
- * continua no breakdown "por categoria" do próprio Panorama.
+ * numa tela cujo assunto é progresso contra meta. A regra não tem exceção: sem
+ * meta no período o bloco fica só com a mensagem e o link, e quando NENHUM
+ * bloco tem meta o card inteiro vira um recado de uma linha.
+ *
+ * O que isso custa, declarado: o realizado POR ESCOPO sai da tela quando não há
+ * meta. A receita em si continua toda no Panorama (KPI do período + breakdown
+ * "por categoria") — mas o breakdown é por STRING de categoria, e um escopo pode
+ * agregar várias grafias (Salas Privativas soma 5), então ele não substitui o
+ * número do escopo. Foi escolha explícita do usuário, duas vezes: o card é sobre
+ * meta, e escopo sem meta não tem o que mostrar aqui.
  */
 
 /** Largura da barra: satura em 100% — o excedente é dito em texto, não desenhado. */
@@ -144,21 +151,18 @@ function MetaRow({
 function BlocoCard({ bloco }: { bloco: BlocoMetas }) {
   const ehMensal = bloco.granularidade === "MES";
   const unidadePlural = ehMensal ? "meses" : "trimestres";
-  // Considera TODOS os escopos, inclusive o "todas as categorias": se a Duda
-  // definir só a meta de Total recebido, `totalMeta` fica null (ele não entra no
-  // agregado) e a mensagem de "nenhuma meta" faria a meta dela parecer
-  // inexistente — o mesmo bug que já corrigimos hoje na visão trimestral.
+  // REGRA ÚNICA: só aparece escopo com meta no período (pedido do usuário,
+  // 2026-07-30). Não há fallback "mostra todos como realizado" — sem meta o
+  // bloco fica só com a mensagem e o link, e é isso que o usuário quer ver.
   const comMeta = bloco.escopos.filter(temMetaComparavel);
-  // Fallback ESTRUTURAL, não estético: sem meta comparável no período a lista
-  // ficaria vazia e o bloco não diria nada. Nesse caso mostra todos como
-  // realizado — é o estado em que a pessoa está calibrando quanto pedir.
-  // (A lista em si não ser vazia vem do gate `temEscopos` em MetasPanel.)
-  const visiveis = comMeta.length > 0 ? comMeta : bloco.escopos;
-  const ocultos = bloco.escopos.length - visiveis.length;
 
   // Tudo abaixo deriva de `comMeta`, e não de um campo separado vindo do
   // servidor: é o que garante que a mensagem não contradiga as linhas exibidas.
   const semMeta = comMeta.length === 0;
+  // Sem meta nenhuma não há "ficaram de fora": a mensagem já diz que não há
+  // meta, e um rodapé "6 escopos sem meta" abaixo dela seria a mesma frase duas
+  // vezes. O aviso existe para o caso em que ALGO aparece e algo não.
+  const ocultos = semMeta ? 0 : bloco.escopos.length - comMeta.length;
   // percentualTotal só é null quando totalMeta é <= 0, então este par também
   // impede um cabeçalho "—%" sobre "de R$ 0,00".
   const temAgregado = bloco.totalMeta !== null && bloco.percentualTotal !== null;
@@ -174,9 +178,15 @@ function BlocoCard({ bloco }: { bloco: BlocoMetas }) {
       </div>
 
       {semMeta ? (
-        <p className="mb-2 text-sm text-slate-500">
-          Nenhuma meta {ehMensal ? "mensal" : "trimestral"} para {bloco.label}. O valor abaixo é o realizado —{" "}
-          <Link href="/metas" className="text-seahub-600 hover:underline">
+        // NÃO prometer "o valor abaixo é o realizado": desde que o fallback
+        // saiu, não há valor abaixo nenhum.
+        <p className="text-sm text-slate-500">
+          Nenhuma meta {ehMensal ? "mensal" : "trimestral"} para {bloco.label} —{" "}
+          <Link
+            href="/metas"
+            className="text-seahub-600 hover:underline"
+            aria-label={ehMensal ? "Definir meta mensal" : "Definir meta trimestral"}
+          >
             definir
           </Link>
           .
@@ -207,7 +217,7 @@ function BlocoCard({ bloco }: { bloco: BlocoMetas }) {
       ) : null}
 
       <ul className="divide-y divide-slate-100">
-        {visiveis.map((e) => (
+        {comMeta.map((e) => (
           <MetaRow key={e.slug} escopo={e} ritmo={bloco.ritmoEsperadoPct} unidadePlural={unidadePlural} />
         ))}
       </ul>
@@ -269,6 +279,25 @@ export function MetasPanel({ metas }: { metas: MetasDoPeriodo }) {
           Nenhum escopo de meta cadastrado ainda —{" "}
           <Link href="/metas" className="text-seahub-600 hover:underline">
             configurar em Metas
+          </Link>
+          .
+        </p>
+      </Card>
+    );
+  }
+
+  // Nenhum bloco tem meta: em vez de duas caixas lado a lado com uma frase
+  // quase idêntica cada, um recado só. Mesmo predicado dos blocos, para a
+  // decisão do card não poder discordar da decisão de cada bloco.
+  if (metas.blocos.every((b) => !b.escopos.some(temMetaComparavel))) {
+    const periodos = metas.blocos.map((b) => `${b.granularidade === "MES" ? "mensal" : "trimestral"} (${b.label})`);
+    return (
+      <Card>
+        <SectionTitle hint="por Data de Crédito da Cobrança">Metas</SectionTitle>
+        <p className="text-sm text-slate-500">
+          Nenhuma meta {periodos.join(" nem ")} —{" "}
+          <Link href="/metas" className="text-seahub-600 hover:underline">
+            definir em Metas
           </Link>
           .
         </p>
