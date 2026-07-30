@@ -51,7 +51,17 @@ function MetaRow({
   return (
     <li className="py-3">
       <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <span className="text-sm font-medium text-slate-800">{escopo.nome}</span>
+        <span className="text-sm font-medium text-slate-800">
+          {escopo.nome}
+          {escopo.abrangeTudo ? (
+            <span
+              className="ml-1.5 rounded bg-slate-200 px-1 py-0.5 align-middle text-[10px] font-normal text-slate-600"
+              title="Soma toda a receita do período, sem filtrar categoria — inclui a dos outros escopos desta lista. Por isso não entra no total acima: somar tudo contaria o mesmo dinheiro duas vezes."
+            >
+              todas as categorias
+            </span>
+          ) : null}
+        </span>
         <span className="text-sm tabular-nums text-slate-600">
           {temMeta ? (
             <>
@@ -108,7 +118,13 @@ function MetaRow({
 function BlocoCard({ bloco }: { bloco: BlocoMetas }) {
   const ehMensal = bloco.granularidade === "MES";
   const unidadePlural = ehMensal ? "meses" : "trimestres";
-  const semMeta = bloco.totalMeta === null;
+  // Considera TODOS os escopos, inclusive o "todas as categorias": se a Duda
+  // definir só a meta de Total recebido, `totalMeta` fica null (ele não entra no
+  // agregado) e a mensagem de "nenhuma meta" faria a meta dela parecer
+  // inexistente — o mesmo bug que já corrigimos hoje na visão trimestral.
+  const semMeta = !bloco.temAlgumaMeta;
+  const temAgregado = bloco.totalMeta !== null;
+  const globalComMeta = bloco.escopos.some((e) => e.abrangeTudo && e.meta !== null);
 
   return (
     <section className="rounded-lg border border-slate-200 p-4">
@@ -127,7 +143,7 @@ function BlocoCard({ bloco }: { bloco: BlocoMetas }) {
           </Link>
           .
         </p>
-      ) : (
+      ) : temAgregado ? (
         <div className="mb-3 flex flex-wrap items-baseline gap-x-3">
           <span className="text-2xl font-semibold tabular-nums text-slate-900">
             {formatPercent(bloco.percentualTotal)}
@@ -135,8 +151,14 @@ function BlocoCard({ bloco }: { bloco: BlocoMetas }) {
           <span className="text-sm text-slate-600">
             {formatBRL(bloco.totalRealizado)} de {formatBRL(bloco.totalMeta as string)}
           </span>
+          {/* Sem esta ressalva, o agregado pareceria estar ignorando a meta de
+              "Total recebido" por engano, quando na verdade ela é excluída de
+              propósito (a receita dela contém a dos outros escopos). */}
+          {globalComMeta ? (
+            <span className="text-xs text-slate-400">não inclui &quot;todas as categorias&quot;</span>
+          ) : null}
         </div>
-      )}
+      ) : null}
 
       {!bloco.metaCompleta && !semMeta ? (
         <p className="mb-3 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">

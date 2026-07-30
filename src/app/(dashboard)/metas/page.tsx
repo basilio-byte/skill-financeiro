@@ -145,20 +145,35 @@ export default async function MetasPage({ searchParams }: { searchParams: Promis
               {escopo.nome}
             </SectionTitle>
 
-            <p className="mb-3 text-xs text-slate-500">
-              Soma as categorias:{" "}
-              {escopo.categorias.map((c, i) => (
-                <span key={c.categoria}>
-                  {i > 0 ? " + " : ""}
-                  <code className="rounded bg-slate-100 px-1 py-0.5">{c.categoria}</code>
-                </span>
-              ))}
-              {escopo.categorias.length > 1 ? (
+            {escopo.todasCategorias ? (
+              <p className="mb-3 text-xs text-slate-500">
+                Soma <strong>toda a receita do período</strong>, sem filtrar categoria — é o mesmo número do
+                &quot;Total recebido no período&quot; do Panorama. Categoria nova criada em{" "}
+                <Link href="/categorias" className="text-seahub-600 hover:underline">
+                  Categorias
+                </Link>{" "}
+                já entra aqui sozinha.
                 <span className="block pt-1 text-slate-400">
-                  São grafias diferentes (ou unidades diferentes) da mesma categoria — todas somam nesta meta.
+                  Atenção: este escopo se sobrepõe aos outros (a receita dele inclui a deles), então não somar as
+                  metas de todos — daria dinheiro contado duas vezes.
                 </span>
-              ) : null}
-            </p>
+              </p>
+            ) : (
+              <p className="mb-3 text-xs text-slate-500">
+                Soma as categorias:{" "}
+                {escopo.categorias.map((c, i) => (
+                  <span key={c.categoria}>
+                    {i > 0 ? " + " : ""}
+                    <code className="rounded bg-slate-100 px-1 py-0.5">{c.categoria}</code>
+                  </span>
+                ))}
+                {escopo.categorias.length > 1 ? (
+                  <span className="block pt-1 text-slate-400">
+                    São grafias diferentes (ou unidades diferentes) da mesma categoria — todas somam nesta meta.
+                  </span>
+                ) : null}
+              </p>
+            )}
 
             {(
               [

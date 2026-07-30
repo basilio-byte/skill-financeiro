@@ -1094,3 +1094,33 @@
   Serviços e Hub Empreendedoras — nenhuma delas pedida.
 - Smoke test das telas: os 5 aparecem no Panorama em ordem alfabética (nos dois blocos, mensal e
   trimestral) e em /metas, com o seletor do formulário oferecendo os 5. Typecheck limpo, 180 testes.
+
+## 2026-07-28 (continuação) — Meta sobre o valor recebido TOTAL, sem categorizar (pedido da Duda)
+
+- Pedido repassado por print: *"trimestral eu queria colocar valor recebido, sem categorizar sabe?
+  como meta"*. Confirmado com o usuário que "valor recebido" = TUDO que entrou no período
+  (inclusive Outros Serviços, Hub Empreendedoras e Sem Categoria, ~R$ 19 mil em julho) — o mesmo
+  número do KPI "Total recebido no período", que a Duda já vê no topo do Panorama.
+- **Implementado como FLAG, não como lista de categorias**: novo campo `MetaEscopo.todasCategorias`
+  (migration `20260728180000_escopo_todas_categorias`, coluna booleana com default — alteração só
+  de metadado no PG 11+, segura em tabela populada). Uma lista fixa com "todas as categorias de
+  hoje" deixaria de fora, em silêncio, qualquer categoria criada depois em /categorias — o mesmo
+  modo de falha da ADR-0017. Com a flag, o escopo soma o que existir hoje e amanhã, sem manutenção.
+- Novo escopo `total-recebido` ("Total recebido", ordem 6, alfabeticamente após Serviços de Espaço),
+  em `escopos.ts` e `seed-metas.mjs` (que roda a cada boot, então nasce sozinho no deploy).
+- **Cuidado que evitou um bug de dupla contagem**: o cabeçalho de cada bloco soma os escopos, e um
+  escopo que abrange tudo JÁ CONTÉM a receita dos outros — somá-lo contaria dinheiro duas vezes.
+  O agregado passou a excluir escopos `todasCategorias`, com ressalva na tela ("não inclui 'todas as
+  categorias'"), e o escopo aparece na própria linha com a marca "todas as categorias" explicando
+  a sobreposição.
+- **E evitou repetir o bug de hoje**: se a Duda definir SÓ a meta de Total recebido, `totalMeta`
+  (agregado) fica null — antes isso dispararia "nenhuma meta definida" e a meta dela pareceria não
+  existir. Novo campo `temAlgumaMeta` (inclui o escopo global) governa essa mensagem.
+- `/metas` mostra, para esse escopo, "Soma toda a receita do período, sem filtrar categoria" em vez
+  da lista, com o aviso de sobreposição e link para /categorias.
+- Typecheck limpo, 182 testes (2 novos travando o contrato: o escopo total usa flag e lista vazia;
+  só ele abrange tudo, os demais têm categorias listadas).
+- **PENDENTE**: validação contra dado real (confirmar que o realizado do escopo bate ao centavo com
+  o KPI "Total recebido no período"). O Docker Desktop caiu no meio do trabalho e o banco de dev
+  ficou inacessível — a checagem precisa ser feita quando ele voltar, ANTES de considerar isto
+  fechado.

@@ -49,6 +49,8 @@ const ESCOPOS = [
     ],
   },
   { slug: "seabox", nome: "SeaBox", ordem: 4, categorias: ["SeaBox"] },
+  // "Total recebido" (ordem 6, abaixo): soma TUDO via flag `todasCategorias`,
+  // sem listar categoria — pedido da Duda. Ver escopos.ts.
   {
     slug: "servicos-de-espaco",
     nome: "Serviços de Espaço",
@@ -64,15 +66,17 @@ const ESCOPOS = [
       "Serviços de Espaço - Ayrton Senna",
     ],
   },
+  { slug: "total-recebido", nome: "Total recebido", ordem: 6, categorias: [], todasCategorias: true },
 ];
 
 const prisma = new PrismaClient();
 try {
   for (const e of ESCOPOS) {
+    const todasCategorias = e.todasCategorias === true;
     const escopo = await prisma.metaEscopo.upsert({
       where: { slug: e.slug },
-      update: { nome: e.nome, ordem: e.ordem },
-      create: { slug: e.slug, nome: e.nome, ordem: e.ordem },
+      update: { nome: e.nome, ordem: e.ordem, todasCategorias },
+      create: { slug: e.slug, nome: e.nome, ordem: e.ordem, todasCategorias },
     });
     for (const categoria of e.categorias) {
       await prisma.metaEscopoCategoria.upsert({

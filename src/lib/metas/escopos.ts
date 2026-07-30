@@ -35,6 +35,12 @@ export interface EscopoInicial {
   nome: string;
   ordem: number;
   categorias: string[];
+  /**
+   * Soma TODA a receita do período, ignorando `categorias` (que fica vazia).
+   * Ver o comentário do campo em `MetaEscopo` (schema.prisma) para o motivo de
+   * ser flag e não lista, e para o aviso de sobreposição com os outros escopos.
+   */
+  todasCategorias?: boolean;
 }
 
 /**
@@ -96,5 +102,20 @@ export const ESCOPOS_INICIAIS: EscopoInicial[] = [
       "Serviços de Espaço -  Ayrton Senna", // DOIS espaços — FIXED_FALLBACKS
       "Serviços de Espaço - Ayrton Senna", // UM espaço — RevenueCategoryRule
     ],
+  },
+  {
+    // Pedido da Duda (2026-07-28): meta sobre o valor recebido, sem recorte por
+    // categoria. Sem `categorias` de propósito — a flag faz somar tudo, então
+    // categoria nova criada em /categorias já entra sozinha.
+    //
+    // O realizado dele é o MESMO número do KPI "Total recebido no período" do
+    // Panorama, o que dá pra Duda conferir a meta contra algo que ela já vê.
+    // Em contrapartida ele SE SOBREPÕE aos outros escopos (contém a receita de
+    // todos), e a UI marca isso — somar as barras contaria dinheiro 2x.
+    slug: "total-recebido",
+    nome: "Total recebido",
+    ordem: 6,
+    categorias: [],
+    todasCategorias: true,
   },
 ];

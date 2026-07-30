@@ -45,6 +45,8 @@ export interface MetaEscopoResolvido {
   /** Quanto falta para bater a meta; 0 se já bateu. */
   falta: string | null;
   periodosComMeta: number;
+  /** Escopo que soma TODA a receita — se sobrepõe aos demais, a UI avisa. */
+  abrangeTudo: boolean;
 }
 
 export interface BlocoMetas {
@@ -54,9 +56,16 @@ export interface BlocoMetas {
   /** true quando este bloco apura um intervalo diferente do que a página mostra. */
   difereDaVisao: boolean;
   escopos: MetaEscopoResolvido[];
+  /**
+   * Agregado do bloco — soma APENAS os escopos que não abrangem tudo. Um escopo
+   * "Total recebido" já contém a receita dos outros, então somá-lo aqui
+   * contaria dinheiro duas vezes. null = nenhum escopo por categoria tem meta.
+   */
   totalMeta: string | null;
   totalRealizado: string;
   percentualTotal: number | null;
+  /** Algum escopo tem meta neste intervalo — INCLUSIVE um "Total recebido". */
+  temAlgumaMeta: boolean;
   /** Quantos períodos-átomo (meses ou trimestres) o intervalo cobre. */
   periodosNoIntervalo: number;
   /** Todos eles têm meta? Se não, a comparação é recortada. */
@@ -85,6 +94,8 @@ type EscopoComCategorias = {
   slug: string;
   nome: string;
   categorias: Array<{ categoria: string }>;
+  /** true = soma TODA a receita do período, ignorando `categorias` (ver schema.prisma). */
+  todasCategorias: boolean;
 };
 
 /** Apura UM bloco (uma granularidade, um intervalo) — o miolo que era o corpo de buildMetas. */
@@ -97,18 +108,26 @@ async function calcularBloco(
 ): Promise<BlocoMetas> {
   const chaves = chavesDoPeriodo(intervalo, granularidade);
   const escopoIds = escopos.map((e) => e.id);
-  const todasCategorias = [...new Set(escopos.flatMap((e) => e.categorias.map((c) => c.categoria)))];
+
+  // Escopos "todas as categorias" (ex. Total recebido) somam a receita INTEIRA
+  // do período. Se existir algum, a busca não pode filtrar por categoria —
+  // filtrar pela união das categorias dos OUTROS escopos deixaria de fora
+  // justamente o que ainda não tem escopo (Outros Serviços, Sem Categoria...),
+  // e o total pararia de bater com o KPI "Total recebido no período".
+  const escoposGlobais = escopos.filter((e) => e.todasCategorias);
+  const categoriasDosEscopos = [...new Set(escopos.flatMap((e) => e.categorias.map((c) => c.categoria)))];
+  const semNadaPraBuscar = escoposGlobais.length === 0 && categoriasDosEscopos.length === 0;
 
   const [metasPeriodo, linhas] = await Promise.all([
     prisma.metaPeriodo.findMany({
       where: { escopoId: { in: escopoIds }, granularidade, periodoChave: { in: chaves } },
       select: { escopoId: true, periodoChave: true, valor: true },
     }),
-    todasCategorias.length === 0
+    semNadaPraBuscar
       ? Promise.resolve([])
       : prisma.revenueCategorizedLine.findMany({
           where: {
-            categoria: { in: todasCategorias },
+            ...(escoposGlobais.length === 0 ? { categoria: { in: categoriasDosEscopos } } : {}),
             dataCredito: { gte: intervalo.fromDate, lt: intervalo.toDateExclusive },
           },
           select: { categoria: true, valorRecebidoCat: true, dataCredito: true },
@@ -123,23 +142,34 @@ async function calcularBloco(
   }
   const escopoDaCategoria = new Map<string, string>();
   for (const e of escopos) {
+    if (e.todasCategorias) continue; // não tem categoria própria: pega tudo abaixo
     for (const c of e.categorias) escopoDaCategoria.set(c.categoria, e.id);
   }
 
   const realizadoPorEscopoChave = new Map<string, Map<string, Money>>();
+  const somar = (escopoId: string, chave: string, valor: Money) => {
+    const porChave = realizadoPorEscopoChave.get(escopoId) ?? new Map<string, Money>();
+    porChave.set(chave, (porChave.get(chave) ?? ZERO).plus(valor));
+    realizadoPorEscopoChave.set(escopoId, porChave);
+  };
+
   for (const l of linhas) {
     if (!l.dataCredito) continue;
-    const escopoId = escopoDaCategoria.get(l.categoria);
-    if (!escopoId) continue;
     const chave = chaveDaData(l.dataCredito, granularidade);
-    const porChave = realizadoPorEscopoChave.get(escopoId) ?? new Map<string, Money>();
-    porChave.set(chave, (porChave.get(chave) ?? ZERO).plus(money(l.valorRecebidoCat.toString())));
-    realizadoPorEscopoChave.set(escopoId, porChave);
+    const valor = money(l.valorRecebidoCat.toString());
+    // Uma linha entra no escopo da SUA categoria (se houver) e, além disso, em
+    // TODO escopo global. Os dois não competem: o global existe justamente para
+    // se sobrepor — a UI avisa disso para ninguém somar as barras.
+    const escopoId = escopoDaCategoria.get(l.categoria);
+    if (escopoId) somar(escopoId, chave, valor);
+    for (const g of escoposGlobais) somar(g.id, chave, valor);
   }
 
   let totalMeta = ZERO;
   let totalRealizado = ZERO;
   let algumaMeta = false;
+  // Só os escopos que NÃO abrangem tudo entram no agregado do bloco.
+  let algumMetaNaoGlobal = false;
   let todasChavesComMeta = true;
 
   const resolvidos: MetaEscopoResolvido[] = escopos.map((e) => {
@@ -161,6 +191,7 @@ async function calcularBloco(
         percentual: null,
         falta: null,
         periodosComMeta: 0,
+        abrangeTudo: e.todasCategorias,
       };
     }
 
@@ -170,8 +201,14 @@ async function calcularBloco(
     const metaSoma = chavesComMeta.reduce<Money>((acc, c) => acc.plus(metasDoEscopo!.get(c)!), ZERO);
     const realizadoSoma = chavesComMeta.reduce<Money>((acc, c) => acc.plus(realizadoDoEscopo?.get(c) ?? ZERO), ZERO);
 
-    totalMeta = totalMeta.plus(metaSoma);
-    totalRealizado = totalRealizado.plus(realizadoSoma);
+    // Escopo que abrange TUDO fica FORA do agregado do bloco: a receita dele já
+    // inclui a dos outros, então somá-lo contaria dinheiro duas vezes. Ele
+    // aparece na própria linha, com a marca de "todas as categorias".
+    if (!e.todasCategorias) {
+      totalMeta = totalMeta.plus(metaSoma);
+      totalRealizado = totalRealizado.plus(realizadoSoma);
+      algumMetaNaoGlobal = true;
+    }
 
     const faltante = metaSoma.minus(realizadoSoma);
     return {
@@ -182,6 +219,7 @@ async function calcularBloco(
       percentual: pct(realizadoSoma, metaSoma),
       falta: toAmountString(roundMoney(faltante.isNegative() ? ZERO : faltante)),
       periodosComMeta: chavesComMeta.length,
+      abrangeTudo: e.todasCategorias,
     };
   });
 
@@ -192,9 +230,10 @@ async function calcularBloco(
     label: intervalo.label,
     difereDaVisao,
     escopos: resolvidos,
-    totalMeta: algumaMeta ? toAmountString(roundMoney(totalMeta)) : null,
+    totalMeta: algumMetaNaoGlobal ? toAmountString(roundMoney(totalMeta)) : null,
     totalRealizado: toAmountString(roundMoney(totalRealizado)),
-    percentualTotal: algumaMeta ? pct(totalRealizado, totalMeta) : null,
+    percentualTotal: algumMetaNaoGlobal ? pct(totalRealizado, totalMeta) : null,
+    temAlgumaMeta: algumaMeta,
     periodosNoIntervalo: chaves.length,
     metaCompleta: algumaMeta && todasChavesComMeta,
     ritmoEsperadoPct: fracao === null ? null : Number((fracao * 100).toFixed(1)),

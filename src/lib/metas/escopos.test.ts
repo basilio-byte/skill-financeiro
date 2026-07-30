@@ -58,16 +58,17 @@ describe("contrato entre escopo de meta e rules.ts", () => {
    * RevenueCategorizedLine, senão a meta soma zero em silêncio. Foram
    * conferidas contra o banco real em 2026-07-28.
    */
-  it("os 5 escopos existem, em ordem alfabética, com as grafias exatas das categorias reais", () => {
+  it("os escopos existem, em ordem alfabética, com as grafias exatas das categorias reais", () => {
     expect(ESCOPOS_INICIAIS.map((e) => e.slug)).toEqual([
       "endereco-fiscal",
       "meu-deposito",
       "salas-privativas",
       "seabox",
       "servicos-de-espaco",
+      "total-recebido",
     ]);
     // `ordem` é o campo que ordena Panorama e /metas — precisa acompanhar.
-    expect(ESCOPOS_INICIAIS.map((e) => e.ordem)).toEqual([1, 2, 3, 4, 5]);
+    expect(ESCOPOS_INICIAIS.map((e) => e.ordem)).toEqual([1, 2, 3, 4, 5, 6]);
 
     const porSlug = (slug: string) => ESCOPOS_INICIAIS.find((e) => e.slug === slug)!.categorias;
     expect(porSlug("endereco-fiscal")).toEqual(["Endereço Fiscal"]);
@@ -86,6 +87,24 @@ describe("contrato entre escopo de meta e rules.ts", () => {
         expect(vistas.has(cat), `"${cat}" repetida em ${escopo.slug}`).toBe(false);
         vistas.add(cat);
       }
+    }
+  });
+
+  it('o escopo Total recebido soma TUDO por flag, sem listar categoria', () => {
+    // Pedido da Duda: meta sobre o valor recebido, sem categorizar. Precisa ser
+    // FLAG e nao lista: categoria criada depois em /categorias entraria sozinha.
+    // Uma lista fixa deixaria a receita nova de fora em silencio (ADR-0017).
+    const total = ESCOPOS_INICIAIS.find((e) => e.slug === 'total-recebido');
+    expect(total).toBeDefined();
+    expect(total!.todasCategorias).toBe(true);
+    expect(total!.categorias).toEqual([]);
+  });
+
+  it('somente o Total recebido abrange tudo — os demais somam categorias listadas', () => {
+    for (const e of ESCOPOS_INICIAIS) {
+      if (e.slug === 'total-recebido') continue;
+      expect(e.todasCategorias ?? false, e.slug).toBe(false);
+      expect(e.categorias.length, e.slug).toBeGreaterThan(0);
     }
   });
 

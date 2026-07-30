@@ -303,6 +303,20 @@ model MetaEscopo {
   ativo Boolean @default(true)
   ordem Int     @default(0)
 
+  /// Escopo que soma TODA a receita do período, sem filtrar categoria nenhuma
+  /// (pedido da Duda, 2026-07-28: "trimestral eu queria colocar valor recebido,
+  /// sem categorizar"). Quando true, `categorias` é ignorado.
+  ///
+  /// É uma FLAG e não uma lista com todas as categorias de propósito: a tabela
+  /// de categorias é editável em /categorias e cresce com o tempo, então uma
+  /// lista fixa deixaria de fora, em silêncio, toda categoria criada depois —
+  /// exatamente o modo de falha que a ADR-0017 já produziu uma vez.
+  ///
+  /// ATENÇÃO: um escopo assim SE SOBREPÕE a todos os outros (a receita dele
+  /// inclui a dos demais). Somar as barras do Panorama passaria a contar
+  /// dinheiro duas vezes — por isso a UI marca esse escopo explicitamente.
+  todasCategorias Boolean @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
