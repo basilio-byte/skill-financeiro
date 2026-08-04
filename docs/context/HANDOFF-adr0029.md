@@ -1,22 +1,18 @@
-# Retomada da ADR-0029 — leia só isto para continuar
+# ADR-0029 — status e pendências (não é mais preciso reestudar a causa)
 
-Escrito em 2026-08-04, no fim de uma sessão. Objetivo: **retomar sem reestudar nada.**
+Escrito em 2026-08-04. **A correção em si está CONCLUÍDA e validada em produção** (ver seção
+"Status" abaixo). O que resta são achados colaterais que precisam de decisão da Duda, não código.
 Fonte completa: ADR-0029 em `decisions.md`, estado ANTES em `snapshot-antes-2026-08-04.md`,
-histórico em `progress.md`.
+histórico completo (Fases 0 a 3) em `progress.md`.
 
-## Onde o trabalho parou
+## Status (2026-08-04, atualizado após a Fase 3)
 
-**Dois commits LOCAIS, deliberadamente NÃO enviados:**
-
-| commit | o que é |
-|---|---|
-| `f35bf78` | Fase 1 v1 — coluna `mesCredito` + chave única + migration |
-| `9048256` | Fase 1 v2 — corrige os 2 bugs críticos que a revisão adversarial achou |
-
-> **`git push` neste projeto dispara deploy automático em produção** (push → GitHub Actions →
-> GHCR `:latest` → Easypanel puxa sozinho). Por isso não foi enviado: a Fase 2 não aconteceu.
-
-Estado: typecheck limpo, **204 testes passando**, migration aplicada **só no dev**.
+**Deployado e confirmado em produção:** commits `f35bf78`/`9048256` (+ `a751e5b`) enviados,
+GitHub Actions publicou a imagem, Easypanel subiu limpo. Sincronização manual de julho rodada em
+produção: **`totalRecebido` = R$ 376.965,94, exato** (histórico em `/runs` confirma). A Fase 2
+(validação contra cópia real de produção, com as 29 linhas revisadas manualmente) também passou —
+detalhe em `progress.md`. **Não há mais nada pendente de código para a ADR-0029 propriamente
+dita.**
 
 ## O problema, em uma frase
 
@@ -72,33 +68,54 @@ Regra final, em `orfas.ts` (`decidirOrfas`, puro e testado):
 - mês que a rodada **não cobriu** → só é órfã se sumiu da lista de Data Crédito do Conexa;
 - fatura ausente da rodada ou sem lista legível → julga só dentro da janela, silêncio fora.
 
-## O que falta
+## Fases 2 e 3 — CONCLUÍDAS (2026-08-04)
 
-### Fase 2 — validar contra cópia do dado real (BLOQUEIA o push)
+**Fase 2** (validar contra cópia real de produção): porta do Postgres exposta temporariamente
+(autorização explícita do usuário), `pg_dump -Fc` completo (produção é PG 17.10, precisa do
+client `postgres:17-alpine`), restaurado num container PG17 descartável (já removido). O obstáculo
+do 307/login foi contornado chamando `startCategorizationRun` direto via `tsx` (função pura, sem
+HTTP) — precisa de `NODE_OPTIONS="--conditions=react-server"` pra `import "server-only"` não
+lançar fora do bundler do Next. As 4 conferências pedidas passaram: julho exato, reconciliação
+zero, as 29 linhas manuais idênticas byte a byte, zero linhas apagadas — inclusive num teste extra
+de janela cruzando meses (o cenário exato dos 2 bugs críticos). Detalhe completo em `progress.md`.
 
-Precisa ser com cópia de produção, não com o dev: **produção tem 29 linhas revisadas manualmente
-e o dev tem 0** — o caminho que mais importa proteger não é exercitado localmente.
+**Fase 3** (rodar em produção de verdade): push feito, deploy confirmado limpo, sincronização
+manual de 01/07 a 31/07 rodada em produção — **`totalRecebido` = R$ 376.965,94, exato** (visível
+no histórico de `/runs`). **A ADR-0029 está tecnicamente concluída.**
 
-1. Restaurar o dump num banco isolado (ver "Backup" abaixo).
-2. Aplicar a migration `20260804150000_mes_credito_na_identidade`.
-3. Rodar uma sincronização de **julho** e depois uma de **agosto**, nessa ordem.
-4. Conferir: julho volta a **R$ 376.965,94**, agosto não perde nada, as 29 revisadas manualmente
-   continuam intactas, e nenhuma linha é apagada indevidamente (o `deleteMany` agora loga).
+## Pendências abertas (decisão da Duda, não código)
 
-**Obstáculo conhecido:** o smoke test via `POST /api/runs` com sessão forjada respondeu **307 para
-/login** — o caminho de auth da API difere do das páginas (a sessão forjada funciona em GET de
-páginas: ver `scratchpad/mint.mjs`). Resolver isso, ou disparar a sincronização pela UI.
+O Panorama de julho mostra **R$ 378.063,86** — R$ 1.097,92 A MAIS que o R$ 376.965,94 real. Isso
+**não é bug**: o Panorama soma a tabela persistida direto sem dedup (ADR-0013), e há 4 faturas em
+`/conflitos` com duas linhas coexistindo (uma manual, uma automática) que ainda não foram
+resolvidas. A diferença bate exato: 75,00 + 25,00 + 64,50 + 933,42 = 1.097,92.
 
-### Fase 3 — restaurar julho (depois do deploy)
+1. **17132/17133 (já conhecidas, não são erro de dinheiro):** categoria mudou de mês pra mês
+   (revisão humana em julho vs. regra em agosto). A Duda decide qual fica.
+2. **15734/15476 (novas, achado desta sessão) — CORREÇÃO: não são `manual_superada`, são
+   `ambiguo`.** Eu tinha classificado errado antes de ver o resultado real em produção —
+   `classificarConflito` (`src/lib/categorization/classificar-conflito.ts`) só oferece resolução
+   automática quando a categoria manual e a automática CONCORDAM; aqui elas DIVERGEM (ex.: manual
+   "Salas Privativas - Seaway Center" vs. automática "Serviços de Espaço - Sebrae"), por isso não
+   tem botão de um clique — é decisão de negócio mesmo. As duas faturas têm
+   `servicoOuPlano = "Cliente Avulso"` — investigação com
+   `node scripts/diagnostico-cliente-avulso.mjs "Cliente Avulso"` (ou o `node -e` equivalente, se o
+   script ainda não foi commitado/deployado) mostrou **13 linhas / só 4 clientes reais**, e **9
+   dessas 13 (69%) já estão categorizadas como "Serviços de Espaço - Sebrae" sem NENHUMA revisão
+   manual concorrente pra contestar** — ou seja, podem estar erradas do mesmo jeito que 15476/15734,
+   só que silenciosamente (sem revisão manual pra comparar, `/conflitos` nunca acusa). Nenhum dos 4
+   clientes reais (EMR Terapia Ocupacional, Vox Áudio e Mídias, Fernanda Coelho Paiva Serviços
+   Médicos, Veritas) parece ter relação óbvia com "Sebrae". **Recomendado à Duda:** conferir a
+   regra "Cliente Avulso" → "Serviços de Espaço - Sebrae" em `/categorias` — provavelmente "Cliente
+   Avulso" não deveria ter regra automática nenhuma, já que é um nome de plano genérico usado por
+   clientes sem relação entre si (o mesmo risco que a ADR-0020 já tinha documentado).
 
-Sincronização manual de 01/07 a 31/07, já com a correção no ar. Conferir contra R$ 376.965,94.
+## Depois, e só depois
 
-### Depois, e só depois
-
-- **Backfill de junho e anteriores.** ⚠️ **NÃO fazer antes da correção**: hoje sincronizar junho
-  puxaria as recorrentes de volta e as arrancaria de julho e agosto.
-- Ponta solta para a Duda: faturas 17132/17133 estão como "Outros Serviços" em julho (revisão
-  humana) e "Serviços de Espaço - Sebrae" em agosto (regra). Não é erro de dinheiro; ela decide.
+- **Backfill de junho e anteriores — agora SEGURO** (a correção já está no ar): antes da ADR-0029,
+  sincronizar junho puxaria as recorrentes de volta e as arrancaria de julho/agosto; com
+  `mesCredito` na chave, cada mês guarda a sua parcela. Ainda assim, recomendado resolver as 4
+  pendências acima primeiro, pra não somar mais confusão em cima de conflitos já abertos.
 
 ## Backup e reversão
 

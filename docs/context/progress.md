@@ -1446,3 +1446,75 @@ do dado real de produção (29 linhas revisadas manualmente; dev tem 0).
 `docs/context/HANDOFF-adr0029.md` foi escrito para ser **o único arquivo necessário** para
 continuar: estado dos commits, números para conferir sem recalcular, decisões que não devem ser
 reabertas, os três bugs já corrigidos, o que falta nas Fases 2 e 3, e onde está o backup.
+
+### Fase 2 — validada contra cópia real de produção (2026-08-04, mesma sessão de retomada)
+
+O obstáculo do smoke test (307 no `/api/runs` com sessão forjada) foi contornado chamando
+`startCategorizationRun` direto (é uma função pura, sem HTTP) via `tsx`, contra um banco isolado —
+nunca contra produção nem contra o dev.
+
+**Como o dado real chegou até o teste, sem tocar produção:** porta do Postgres de produção exposta
+temporariamente no Easypanel (autorização explícita do usuário, revertida depois), `pg_dump -Fc`
+completo do banco `odoo` (produção é PostgreSQL 17.10 — precisou do client `postgres:17-alpine`, o
+client 16 do container de dev local recusa com "server version mismatch"), restaurado num
+container Postgres 17 descartável (`adr0029-test-pg`, removido ao final). Rodar o script via `tsx`
+exigiu `NODE_OPTIONS="--conditions=react-server"` — sem isso, `import "server-only"` (presente em
+`db.ts`/`env.ts`) lança em qualquer execução Node fora do bundler do Next; a condição de export
+`react-server` do pacote aponta pro `empty.js` em vez do `index.js` que lança.
+
+**Estado restaurado (produção, agora mesmo — já maior que o snapshot de Fase 0 pelo auto-sync
+rodando sem parar com o código antigo):** 1410 linhas, 1200 faturas, R$ 443.695,75, **29 revisadas
+manualmente**. Migration aplicada limpa: `mesCredito` 100% preenchido, zero colisões sob a chave
+nova, total intacto.
+
+**As três verificações que a ADR pedia, todas passaram:**
+
+1. Sincronização de julho (01–31/07): `totalRecebido` = **R$ 376.965,94** — bate ao centavo com o
+   número-alvo. `diferencaConferencia = 0`. Zero linhas apagadas (o log de exclusão só dispara
+   quando `idsParaApagar.length > 0`, e não disparou).
+2. Sincronização de agosto (01–31/08) logo em seguida: `diferencaConferencia = 0`, zero linhas
+   apagadas, nada de julho foi tocado.
+3. **As 29 linhas revisadas manualmente ficaram byte a byte idênticas** antes e depois das duas
+   rodadas (diff exato do snapshot antes/depois, nenhuma mudou categoria, valor ou mês).
+
+**Verificação adversarial extra, não pedida no HANDOFF mas justificada pelo risco** (é o cenário
+exato dos dois bugs críticos da revisão da sessão anterior): rodada com janela cruzando julho→agosto
+(20/07 a 10/08), replicando como "Aplicar agora" em `/categorias` monta a janela. Total geral
+idêntico antes/depois (R$ 445.980,74), julho e agosto mantiveram cada um o seu total, as 29
+revisadas continuaram intactas. 3 linhas foram removidas (órfãs legítimas — bucket que mudou de
+categoria dentro do mês coberto) sem alterar nenhum total, confirmando que a distinção "mês
+coberto vs. não coberto" de `orfas.ts` está funcionando como desenhado.
+
+**Achado real para a Fase 3, não é bug:** a sincronização de julho revelou **2 conflitos novos** —
+faturas 15734 (R$ 64,50) e 15476 (R$ 933,42) — que **hoje não aparecem em `/conflitos`** porque o
+auto-sync nunca retoca julho; só surgem quando alguém sincroniza julho manualmente. Confirmado
+contra o dump original intocado que a linha automática ("Serviços de Espaço - Sebrae") NÃO existia
+antes do teste — foi criada pela minha sincronização de teste, prova de que é um conflito latente,
+não uma inflação já visível hoje. Soma ao lado dos 2 já conhecidos (17132/17133): R$ 1.097,92 de
+dupla contagem temporária na tela até alguém resolver — a reconciliação da rodada
+(`diferencaConferencia`) já fecha em zero porque ela mede o motor, não a tabela persistida; é a
+tabela persistida (e o Panorama, que soma `valorRecebidoCat` direto sem dedup — ADR-0013) que fica
+inflada até a resolução.
+
+> **Correção (2026-08-04, Fase 3 real):** eu tinha classificado esses 2 como `manual_superada`
+> (mesma categoria, resolvível com um clique) — **errado**. Rodando em produção de verdade,
+> `/conflitos` não mostrou botão de resolução automática: `classificarConflito` classificou como
+> `ambiguo`, porque as categorias DIVERGEM (manual "Salas Privativas - Seaway Center"/"Endereço
+> Fiscal" vs. automática "Serviços de Espaço - Sebrae" — nenhuma é claramente a duplicata). Eu tinha
+> checado só que o padrão de forma era igual ao de manual_superada sem confirmar que a categoria
+> batia — não bati. Ver `src/lib/categorization/classificar-conflito.ts`. As duas faturas têm
+> `servicoOuPlano = "Cliente Avulso"` (o nome genérico que a ADR-0020 já apontou como o caso
+> clássico que o motor nunca mapeia sozinho) — parece que uma regra real foi criada para "Cliente
+> Avulso" → "Serviços de Espaço - Sebrae" depois das revisões manuais, e agora pode estar
+> discordando de clientes reais que usam o mesmo nome de plano genérico mas são de categorias
+> diferentes. **Precisa de decisão da Duda, não é mecânico.** Script de apoio:
+> `scripts/diagnostico-cliente-avulso.mjs "Cliente Avulso"` — mede quantas faturas/clientes
+> distintos usam esse nome de plano e como a regra está categorizando cada um, pra saber se é só
+> essas 2 faturas ou uma regra mais ampla errando silenciosamente em outras (sem revisão manual pra
+> comparar, essas outras nunca aparecem em `/conflitos`).
+
+Scripts de teste (`scripts/tmp-fase2-*.ts`), o dump e o container descartável foram todos apagados
+ao final — nada disso é para persistir no repo.
+
+**Ainda sem push.** Fase 3 (rodar em produção de verdade) depende de decisão explícita do usuário —
+push neste projeto é deploy automático.

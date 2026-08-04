@@ -1524,7 +1524,10 @@ informação exibida. Typecheck limpo, 178 testes.
 
 ## ADR-0029 — A identidade da linha de receita passa a incluir o MÊS do crédito
 
-**Data:** 2026-08-04 · **Status:** aprovado pelo usuário, em implementação
+**Data:** 2026-08-04 · **Status:** implementado, validado contra cópia real de produção (Fase 2) e
+em produção (Fase 3) — julho confirmado em R$ 376.965,94. Detalhe da validação e das pendências
+remanescentes (decisão da Duda sobre conflitos pré-existentes, não código) em
+`docs/context/HANDOFF-adr0029.md`.
 **Gatilho:** a Duda encontrou divergência no fechamento de julho e pediu conferência.
 
 ### O problema, medido e provado
