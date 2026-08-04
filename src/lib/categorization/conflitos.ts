@@ -39,14 +39,22 @@ export async function listarConflitos(): Promise<FaturaConflito[]> {
     include: { revisadoPor: { select: { name: true, email: true } } },
   });
 
-  const porFatura = new Map<number, typeof linhas>();
+  // Agrupa por (fatura, MÊS de crédito), não por fatura (ADR-0029). O valor de
+  // referência abaixo (`valorRecebidoTotal`) é o de UMA parcela — o Conexa
+  // exporta uma parcela por cobrança. Uma recorrente parcelada em 12 tem 12
+  // linhas legítimas, uma por mês; agrupá-las juntas somaria 12 parcelas contra
+  // o valor de 1 e acusaria conflito em TODA fatura parcelada. (Isso já
+  // acontecia antes desta correção, em menor escala, com as faturas 17132/17133.)
+  const porFaturaMes = new Map<string, typeof linhas>();
   for (const l of linhas) {
-    if (!porFatura.has(l.crConexaId)) porFatura.set(l.crConexaId, []);
-    porFatura.get(l.crConexaId)!.push(l);
+    const chave = `${l.crConexaId}::${l.mesCredito}`;
+    if (!porFaturaMes.has(chave)) porFaturaMes.set(chave, []);
+    porFaturaMes.get(chave)!.push(l);
   }
 
   const conflitos: FaturaConflito[] = [];
-  for (const [crConexaId, ls] of porFatura.entries()) {
+  for (const ls of porFaturaMes.values()) {
+    const crConexaId = ls[0]!.crConexaId;
     const valorTotal = money(ls[0]!.valorRecebidoTotal.toString());
     const soma = ls.reduce((acc, l) => acc.plus(money(l.valorRecebidoCat.toString())), ZERO);
     const diferenca = soma.minus(valorTotal);

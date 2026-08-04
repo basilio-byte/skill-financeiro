@@ -215,6 +215,20 @@ model RevenueCategorizedLine {
   emissao     DateTime? @db.Date
   dataCredito DateTime? @db.Date
 
+  /// Mês do crédito, "yyyy-MM", derivado de `dataCredito` (ver mes-credito.ts).
+  ///
+  /// Faz parte da IDENTIDADE da linha (ADR-0029). Uma cobrança recorrente tem uma
+  /// LISTA de datas de crédito — uma por parcela — e entrega o mesmo valor em cada
+  /// mês da lista. Sem o mês na chave, a rodada de agosto reescrevia a
+  /// `dataCredito` da linha de julho e a receita MIGRAVA de mês (provado em
+  /// produção: 10 faturas, R$ 1.097,07, todas no dia exato previsto pela lista).
+  ///
+  /// É o MÊS e não a data crua de propósito: o Conexa exporta UMA parcela por
+  /// cobrança mesmo com duas datas na janela, então chavear pela data faria uma
+  /// sincronização manual de período diferente criar uma SEGUNDA linha no mesmo
+  /// mês — dobrando a receita. Ver ADR-0029.
+  mesCredito  String
+
   conta       String?
   observacoes String?
   tags        String?
@@ -266,7 +280,11 @@ model RevenueCategorizedLine {
   categoriaOriginal        String?
   valorRecebidoCatOriginal Decimal?  @db.Decimal(14, 2)
 
-  @@unique([crConexaId, chaveLinha])
+  // ADR-0029: o mês entra na identidade. Antes era @@unique([crConexaId,
+  // chaveLinha]) — uma linha por fatura, que a rodada do mês seguinte
+  // sobrescrevia, fazendo a receita da parcela migrar de mês.
+  @@unique([crConexaId, chaveLinha, mesCredito])
+  @@index([mesCredito])
   @@index([clienteConexaId])
   @@index([dataCredito])
   @@map("revenue_categorized_lines")

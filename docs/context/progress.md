@@ -1373,3 +1373,31 @@ crédito em 02/07 e 02/08, R$ 75 em cada mês é o valor CERTO — duas parcelas
 Isso é a melhor evidência disponível de que o desenho da ADR-0029 funciona: **quando a chave
 difere, os dois meses coexistem com o valor correto.** A coluna `mesCredito` só fará de propósito,
 para todas as recorrentes, o que aqui aconteceu por acidente.
+
+### Fase 1 — código da ADR-0029 escrito (commit LOCAL, **sem push**: push = deploy automático)
+
+Quatro pontos dependiam da chave, e o perigoso não era o óbvio:
+
+1. `mes-credito.ts` (novo, puro, 9 testes): `mesDoCredito` lê em **UTC**. `dataCredito` é `@db.Date`
+   e chega meia-noite UTC; lido no fuso do app (UTC−3) o dia 1º vira o mês ANTERIOR. Como o mês
+   agora é IDENTIDADE, esse erro não mostraria número errado — criaria linha duplicada. Mesmo bug
+   de fuso que o projeto já corrigiu duas vezes (ADR-0013 e ADR-0023).
+2. **A limpeza de órfãs foi reescopada ao mês da rodada** — o ponto de maior risco. O
+   `crConexaId IN (...)` de `existentes` não tinha escopo de data; com o mês na chave, a rodada de
+   agosto traria as linhas de JULHO da mesma recorrente, elas não estariam no resultado de agosto,
+   seriam classificadas como órfãs e **apagadas**. Trocaríamos "a receita migra de mês" por "a
+   receita some de vez". Dois cintos: o escopo na query e um `continue` explícito antes de
+   qualquer linha virar candidata a órfã.
+3. **A conferência de conflito passou a ser por (fatura, mês)**. O valor de referência é o de UMA
+   parcela; somar os meses todos de uma recorrente acusaria conflito em toda parcelada, todo mês.
+4. **`/conflitos` idem** — agrupava por fatura. Isso já produz falso positivo HOJE nas faturas
+   17132/17133 (R$ 75 + R$ 75 contra um `valorRecebidoTotal` de R$ 75), então a correção também
+   apaga um alarme falso que já existia.
+
+Migration com o padrão defensivo da ADR-0026: coluna nullable → backfill → `SET NOT NULL` →
+índice novo → só então derruba o antigo. Aplicada no dev: 1036 linhas, total intacto
+(R$ 326.932,90), zero colisões. Typecheck limpo, **196 testes** (9 novos).
+
+**Ainda NÃO foi para produção.** Falta a Fase 2 (validar num banco isolado com cópia do dado real
+— produção tem 29 linhas revisadas manualmente e o dev tem 0, então nenhum teste local exercita
+esse caminho) e a revisão adversarial do reescopo das órfãs.

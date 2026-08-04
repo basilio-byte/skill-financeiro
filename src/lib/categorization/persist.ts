@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { money, toAmountString, ZERO } from "@/lib/money";
 import type { CategorizedLine } from "@/lib/categorization/types";
+import { mesDoCreditoOuSentinela, mesesNoIntervalo } from "@/lib/categorization/mes-credito";
 
 export interface PersistResumo {
   totalLinhasNovas: number;
@@ -52,6 +53,11 @@ function toLineData(l: CategorizedLine) {
     competencia: l.competencia,
     emissao: l.emissao,
     dataCredito: l.dataCredito,
+    // Parte da IDENTIDADE da linha (ADR-0029), derivada aqui e não recebida
+    // pronta: uma única fonte para o valor que vai para a coluna e para o
+    // `where` do upsert — se os dois pudessem divergir, o upsert criaria linha
+    // nova achando que não existe.
+    mesCredito: mesDoCreditoOuSentinela(l.dataCredito),
     conta: l.conta || null,
     observacoes: l.observacoes || null,
     tags: l.tags || null,
@@ -65,13 +71,25 @@ function toLineData(l: CategorizedLine) {
   };
 }
 
-const chaveExistente = (crConexaId: number, chaveLinha: string) => `${crConexaId}::${chaveLinha}`;
+/**
+ * Identidade da linha em memória — precisa ser EXATAMENTE a mesma tripla do
+ * `@@unique([crConexaId, chaveLinha, mesCredito])`. Se as duas divergirem, o
+ * upsert acha que está criando e o banco acusa violação de índice, ou pior: a
+ * detecção de órfã passa a comparar maçã com laranja e apaga linha boa.
+ */
+const chaveExistente = (crConexaId: number, chaveLinha: string, mesCredito: string) =>
+  `${crConexaId}::${chaveLinha}::${mesCredito}`;
 
 /**
- * Persiste as linhas de uma rodada via UPSERT por (crConexaId, chaveLinha) —
- * ver ADR-0013. Nunca cria linhas novas por rodada: cada bucket de fatura tem
- * UMA linha atual, atualizada in-place — é isso que permite sincronizar a
- * cada 15 min sem crescer a tabela sem limite.
+ * Persiste as linhas de uma rodada via UPSERT por
+ * (crConexaId, chaveLinha, mesCredito) — ADR-0013 + ADR-0029. Cada bucket de
+ * fatura tem UMA linha atual POR MÊS DE CRÉDITO, atualizada in-place: é isso que
+ * permite sincronizar a cada 15 min sem crescer a tabela sem limite.
+ *
+ * O mês entra na identidade porque cobrança recorrente tem uma LISTA de datas de
+ * crédito, uma por parcela, e entrega o mesmo valor em cada mês. Sem ele, a
+ * rodada de agosto reescrevia a `dataCredito` da linha de julho e a receita
+ * migrava de mês (ADR-0029: 10 faturas, R$ 1.097,07, provado em produção).
  *
  * Proteção da revisão manual (financial-rigor.md #9/#10): quando a linha
  * existente já foi revisada manualmente, `categoria`/`valorRecebidoCat` são
@@ -79,16 +97,25 @@ const chaveExistente = (crConexaId: number, chaveLinha: string) => `${crConexaId
  * todo o resto (datas, status, raw, etc — dados factuais do Conexa, não
  * decisões da skill) continua atualizando normalmente mesmo em linhas revisadas.
  *
- * Órfãs: uma linha existente cujo (crConexaId, chaveLinha) não aparece mais
- * no resultado desta rodada (ex.: a composição de itens da fatura mudou, ou
- * uma revisão manual "adivinhou" uma categoria que passou a ser mapeada de
- * verdade) é apagada — EXCETO se estiver revisada manualmente, caso em que é
- * preservada e contada em `totalLinhasOrfasPreservadas` (nunca some
- * silenciosamente — regra #8). Quando isso acontece, a fatura é conferida:
- * se a soma de TODAS as suas linhas atuais não bater com o valor total dela,
- * é sinal de dupla contagem (a linha preservada + um bucket novo cobrindo a
- * mesma receita) — contado em `totalFaturasComConflito` e logado alto, nunca
- * corrigido sozinho (só um humano decide qual versão é a certa).
+ * Órfãs: uma linha existente cuja tripla não aparece mais no resultado desta
+ * rodada (ex.: a composição de itens da fatura mudou, ou uma revisão manual
+ * "adivinhou" uma categoria que passou a ser mapeada de verdade) é apagada —
+ * EXCETO se estiver revisada manualmente, caso em que é preservada e contada em
+ * `totalLinhasOrfasPreservadas` (nunca some silenciosamente — regra #8).
+ *
+ * **Só é candidata a órfã a linha cujo `mesCredito` está entre os meses DESTA
+ * rodada** (ADR-0029). Sem esse escopo, a rodada de agosto veria as linhas de
+ * julho da mesma fatura recorrente — que legitimamente não estão no resultado
+ * dela — e as apagaria, trocando "a receita migra de mês" por "a receita some de
+ * vez". É o ponto de maior risco desta mudança.
+ *
+ * Quando há órfã preservada, a fatura é conferida POR MÊS: se a soma das linhas
+ * daquele mês não bater com o valor da fatura, é sinal de dupla contagem (a
+ * linha preservada + um bucket novo cobrindo a mesma receita) — contado em
+ * `totalFaturasComConflito` e logado alto, nunca corrigido sozinho (só um humano
+ * decide qual versão é a certa). A conferência é por mês e não por fatura porque
+ * o valor de referência é o de UMA parcela: somar os meses todos de uma
+ * recorrente acusaria conflito em toda fatura parcelada, todo mês.
  *
  * Faturas que SOMEM por completo (achado real, 2026-07-24 — R$6.029,12 em 28
  * faturas): o `existentes` abaixo busca por `dataCredito` dentro do período
@@ -135,38 +162,61 @@ export async function persistLinhasCategorizadas(
 
       const crConexaIds = [...new Set(linhas.map((l) => l.crId))];
 
-      // OR com dataCredito no período: pega também faturas que sumiram por
-      // completo do resultado desta rodada (ver comentário do arquivo acima).
+      // Meses que ESTA rodada é responsável por manter em dia. Tudo o que estiver
+      // fora deles é assunto de outra rodada e não pode ser tocado aqui.
+      const mesesDaRodada = mesesNoIntervalo(periodoInicio, periodoFim);
+
+      // O `crConexaId IN (...)` é ESCOPADO POR MÊS — e isso não é otimização, é o
+      // ponto mais perigoso da ADR-0029. Sem o escopo, a rodada de agosto traria
+      // para `existentes` as linhas de JULHO da mesma fatura recorrente; elas não
+      // aparecem no resultado de agosto (mês diferente = chave diferente), seriam
+      // classificadas como órfãs e APAGADAS. Trocaríamos "a receita migra de mês"
+      // por "a receita some de vez" — estrago maior que o bug original.
+      //
+      // O segundo ramo (dataCredito dentro do período) já é escopado por
+      // construção e continua fazendo o trabalho da ADR-0020: pegar faturas que
+      // sumiram por completo do resultado desta rodada.
       const existentes = await tx.revenueCategorizedLine.findMany({
         where: {
           OR: [
-            ...(crConexaIds.length ? [{ crConexaId: { in: crConexaIds } }] : []),
+            ...(crConexaIds.length && mesesDaRodada.length
+              ? [{ crConexaId: { in: crConexaIds }, mesCredito: { in: mesesDaRodada } }]
+              : []),
             { dataCredito: { gte: periodoInicio, lte: periodoFim } },
           ],
         },
-        select: { id: true, crConexaId: true, chaveLinha: true, revisadoManualmente: true },
+        select: { id: true, crConexaId: true, chaveLinha: true, mesCredito: true, revisadoManualmente: true },
       });
 
       const revisadaAntes = new Map<string, boolean>();
       for (const e of existentes) {
-        revisadaAntes.set(chaveExistente(e.crConexaId, e.chaveLinha), e.revisadoManualmente);
+        revisadaAntes.set(chaveExistente(e.crConexaId, e.chaveLinha, e.mesCredito), e.revisadoManualmente);
       }
 
-      const chavesNovasPorFatura = new Map<number, Set<string>>();
+      // Conjunto das identidades COMPLETAS produzidas por esta rodada.
+      const chavesNovas = new Set<string>();
       for (const l of linhas) {
-        if (!chavesNovasPorFatura.has(l.crId)) chavesNovasPorFatura.set(l.crId, new Set());
-        chavesNovasPorFatura.get(l.crId)!.add(l.chaveLinha);
+        chavesNovas.add(chaveExistente(l.crId, l.chaveLinha, mesDoCreditoOuSentinela(l.dataCredito)));
       }
 
       let totalLinhasOrfasPreservadas = 0;
       const idsOrfasParaApagar: string[] = [];
-      const faturasComOrfaPreservada = new Set<number>();
+      const faturasComOrfaPreservada = new Set<string>();
       for (const e of existentes) {
-        const aindaExisteNestaRodada = chavesNovasPorFatura.get(e.crConexaId)?.has(e.chaveLinha) ?? false;
+        // Cinto de segurança além do escopo da query: mesmo que algo entre em
+        // `existentes` fora dos meses desta rodada (o segundo ramo do OR pode
+        // trazer uma linha cuja dataCredito foi corrigida para outro mês), ela
+        // NUNCA é candidata a órfã aqui.
+        if (!mesesDaRodada.includes(e.mesCredito)) continue;
+        const aindaExisteNestaRodada = chavesNovas.has(chaveExistente(e.crConexaId, e.chaveLinha, e.mesCredito));
         if (aindaExisteNestaRodada) continue;
         if (e.revisadoManualmente) {
           totalLinhasOrfasPreservadas += 1;
-          faturasComOrfaPreservada.add(e.crConexaId);
+          // Guarda fatura + MÊS: a conferência abaixo compara a soma das linhas
+          // com o valor da fatura, e esse valor é de UMA parcela. Somar as linhas
+          // de todos os meses de uma recorrente daria "conflito" em toda fatura
+          // parcelada, todo mês — alarme falso em massa.
+          faturasComOrfaPreservada.add(`${e.crConexaId}::${e.mesCredito}`);
         } else {
           idsOrfasParaApagar.push(e.id);
         }
@@ -178,7 +228,8 @@ export async function persistLinhasCategorizadas(
       let totalLinhasNovas = 0;
       let totalLinhasAtualizadas = 0;
       for (const l of linhas) {
-        const chave = chaveExistente(l.crId, l.chaveLinha);
+        const mesCredito = mesDoCreditoOuSentinela(l.dataCredito);
+        const chave = chaveExistente(l.crId, l.chaveLinha, mesCredito);
         const estadoAnterior = revisadaAntes.get(chave);
         if (estadoAnterior === undefined) totalLinhasNovas += 1;
         else totalLinhasAtualizadas += 1;
@@ -190,7 +241,9 @@ export async function persistLinhasCategorizadas(
         const protegeRevisaoManual = estadoAnterior === true;
 
         await tx.revenueCategorizedLine.upsert({
-          where: { crConexaId_chaveLinha: { crConexaId: l.crId, chaveLinha: l.chaveLinha } },
+          where: {
+            crConexaId_chaveLinha_mesCredito: { crConexaId: l.crId, chaveLinha: l.chaveLinha, mesCredito },
+          },
           create: { ...dados, ultimaRodadaId: syncRunId },
           update: {
             ...dados,
@@ -213,26 +266,35 @@ export async function persistLinhasCategorizadas(
       // exceção, e nunca é revertida sozinha). Em vez disso, detecta e nunca
       // deixa passar em silêncio (regra #8): confere, por fatura, se a soma
       // de TODAS as linhas atuais bate com o valor total da fatura.
+      //
+      // ADR-0029: a conferência é por (fatura, MÊS), não por fatura. O valor de
+      // referência (`valorRecebidoTotal`) é o de UMA parcela — o Conexa exporta
+      // uma parcela por cobrança. Somar as linhas de todos os meses de uma
+      // recorrente daria diferença em toda fatura parcelada, todo mês, e o alarme
+      // que existe para achar dupla contagem de verdade viraria ruído constante.
       let totalFaturasComConflito = 0;
       if (faturasComOrfaPreservada.size > 0) {
-        const totalPorFatura = new Map<number, string>();
+        const totalPorFaturaMes = new Map<string, string>();
         for (const l of linhas) {
-          if (faturasComOrfaPreservada.has(l.crId) && !totalPorFatura.has(l.crId)) {
-            totalPorFatura.set(l.crId, toAmountString(l.valorRecebidoTotal));
+          const chaveFaturaMes = `${l.crId}::${mesDoCreditoOuSentinela(l.dataCredito)}`;
+          if (faturasComOrfaPreservada.has(chaveFaturaMes) && !totalPorFaturaMes.has(chaveFaturaMes)) {
+            totalPorFaturaMes.set(chaveFaturaMes, toAmountString(l.valorRecebidoTotal));
           }
         }
-        for (const crConexaId of faturasComOrfaPreservada) {
-          const valorTotal = totalPorFatura.get(crConexaId);
-          if (!valorTotal) continue; // fatura não fez parte desta rodada (raro; nada a conferir agora)
+        for (const chaveFaturaMes of faturasComOrfaPreservada) {
+          const valorTotal = totalPorFaturaMes.get(chaveFaturaMes);
+          if (!valorTotal) continue; // fatura/mês não fez parte desta rodada (raro; nada a conferir agora)
+          const [crConexaIdTexto, mesCredito] = chaveFaturaMes.split("::");
+          const crConexaId = Number(crConexaIdTexto);
           const linhasAtuais = await tx.revenueCategorizedLine.findMany({
-            where: { crConexaId },
+            where: { crConexaId, mesCredito },
             select: { valorRecebidoCat: true },
           });
           const somaAtual = linhasAtuais.reduce((acc, l) => acc.plus(money(l.valorRecebidoCat.toString())), ZERO);
           if (somaAtual.minus(money(valorTotal)).abs().greaterThan(TOLERANCIA_CONFERENCIA)) {
             totalFaturasComConflito += 1;
             console.error(
-              `[persist] CONFLITO: fatura crConexaId=${crConexaId} tem soma de linhas (${somaAtual.toString()}) ` +
+              `[persist] CONFLITO: fatura crConexaId=${crConexaId} em ${mesCredito} tem soma de linhas (${somaAtual.toString()}) ` +
                 `diferente do valor total da fatura (${valorTotal}) — provável dupla contagem entre uma linha ` +
                 `revisada manualmente preservada e um bucket novo criado após a categoria ser mapeada de verdade. ` +
                 `Requer revisão humana em /revisar ou /runs.`,
