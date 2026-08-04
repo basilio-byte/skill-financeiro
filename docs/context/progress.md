@@ -1346,3 +1346,30 @@ Fase 0):
 
 Testado contra o banco de dev: roda limpo e **confirma o diagnóstico de forma independente** — a
 seção 4 mostra 0 faturas em mais de um mês, que é exatamente a assinatura da sobrescrita.
+
+### Fase 0 concluída — estado ANTES capturado em produção (2026-08-04T14:35Z)
+
+Registro completo em `docs/context/snapshot-antes-2026-08-04.md`. Backup binário:
+`/tmp/antes-adr0029-2026-08-04.dump` (313K).
+
+**Armadilha real:** a primeira tentativa de `pg_dump` foi feita dentro do psql (prompt `odoo=#`) e
+falhou em silêncio — `pg_dump` e `ls` são comandos de shell, o psql não os executa e não reclamou.
+O que denunciou foi o `ls -lh` não ter retornado nada. Precisa ser na aba **Bash** do serviço do
+Postgres (ou `\! pg_dump ...`). Sempre conferir o tamanho do arquivo depois; sem isso o "backup"
+é uma suposição.
+
+Números do ANTES: 1406 linhas, 1196 faturas, R$ 443.053,63, **29 revisadas manualmente** (em dev
+são 0 — nenhum teste local exercita esse caminho), junho R$ 44.572,10 / julho R$ 375.868,87 /
+agosto R$ 22.612,66. Nenhuma colisão sob a chave nova (a migration não vai falhar). sha256 do
+inventário registrado para conferir uma eventual reversão sem comparar 1406 linhas na mão.
+
+**As 2 faturas que aparecem em dois meses eram uma suspeita minha de dupla contagem, e eu estava
+errado.** São 17132/17133, com `chaveLinha` DIFERENTE nos dois meses ("Sem Categoria" em julho,
+"Serviços de Espaço -  Sebrae" em agosto): a skill não sabia mapear o serviço em julho, um humano
+revisou a linha, depois uma regra foi criada em `/categorias` e a categoria da skill mudou. Chave
+diferente ⇒ a rodada de agosto criou linha nova em vez de sobrescrever. E como essas cobranças têm
+crédito em 02/07 e 02/08, R$ 75 em cada mês é o valor CERTO — duas parcelas.
+
+Isso é a melhor evidência disponível de que o desenho da ADR-0029 funciona: **quando a chave
+difere, os dois meses coexistem com o valor correto.** A coluna `mesCredito` só fará de propósito,
+para todas as recorrentes, o que aqui aconteceu por acidente.
