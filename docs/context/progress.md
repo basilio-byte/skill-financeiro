@@ -1440,3 +1440,9 @@ não pode ser silencioso.
 rodou — o POST em `/api/runs` respondeu 307 para login com a sessão forjada, caminho de auth
 diferente do das páginas. Isso pertence à Fase 2 de qualquer forma, que precisa ser contra cópia
 do dado real de produção (29 linhas revisadas manualmente; dev tem 0).
+
+### Retomada em sessão nova
+
+`docs/context/HANDOFF-adr0029.md` foi escrito para ser **o único arquivo necessário** para
+continuar: estado dos commits, números para conferir sem recalcular, decisões que não devem ser
+reabertas, os três bugs já corrigidos, o que falta nas Fases 2 e 3, e onde está o backup.
