@@ -1297,3 +1297,37 @@ Validado na tela nos 3 estados que mudaram: nenhuma meta em lugar nenhum (card =
 Total recebido trimestral (mensal = 1 frase, trimestral = 1 linha + rodapé), e meta de R$ 0,00 no
 mensal junto de meta real no trimestral (o zero não é comparável, então o mensal cai na frase e o
 trimestral apura normal). 187 testes, typecheck limpo.
+
+## 2026-08-04 — Divergência do fechamento de julho: receita migrando de mês (ADR-0029)
+
+A Duda achou divergência no fechamento de julho e mandou a planilha do Conexa. Investigação
+completa antes de qualquer alteração, a pedido do usuário ("nossa dashboard está quase 100%
+estável, não quero regredir").
+
+**Resultado:** R$ 376.965,94 (Conexa) contra R$ 375.868,87 (dashboard) = **R$ 1.097,07 a menos**.
+Provado que são 10 cobranças que foram **reescritas de julho para agosto** — 10/10 no dia exato
+previsto pela lista de datas. Causa, efeito e desenho da correção estão na ADR-0029.
+
+**Duas hipóteses minhas caíram no caminho, ambas por medição:**
+1. "Julho parou de sincronizar em 01/08 e faltam lançamentos retroativos" — havia 2 cobranças
+   operadas em agosto (R$ 3.545,22) que pareciam explicar, mas o diagnóstico mostrou que elas
+   ESTÃO no banco e que as faltantes eram outras 10.
+2. "Escolher uma data determinística por fatura" (a opção que eu recomendei e o usuário aprovou)
+   — invalidada ao descobrir que cada data é uma PARCELA. Teria descartado 11 de 12 parcelas de
+   cada recorrente. Avisado ao usuário antes de escrever qualquer linha de código.
+
+**Um achado separado, e maior, para a Duda:** nenhum mês anterior a julho é confiável — junho tem
+R$ 44,5 mil no banco contra R$ 324,2 mil no Conexa, porque **nunca foi ingerido** (o app começou
+em julho e o sync automático só cobre o mês corrente). Não é bug, é ingestão que não houve.
+Confirmado pelo usuário. O backfill só pode ser feito DEPOIS da ADR-0029: hoje, sincronizar junho
+puxaria as recorrentes de volta e as arrancaria de julho e agosto.
+
+### Fase 0 — registro do estado ANTES (esta entrega, nada alterado ainda)
+
+- `scripts/snapshot-antes.mjs` — somente leitura. Totais gerais, por mês, por mês×categoria,
+  inventário linha a linha, e a checagem de **colisões sob a chave nova** (se houver, a migration
+  falharia — mesma classe do incidente P3009 da ADR-0026, e é a razão de conferir ANTES).
+- ADR-0029 com o desenho, a limitação declarada (2 parcelas no mesmo mês contam 1, igual ao
+  Conexa) e o **procedimento de reversão escrito junto com o de ida**, incluindo a ordem correta
+  (apagar as linhas novas ANTES de restaurar o índice antigo, senão falha por duplicidade) e a
+  regra de parar se alguma linha revisada manualmente estiver no caminho.

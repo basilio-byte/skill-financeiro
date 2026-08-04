@@ -1521,3 +1521,130 @@ do commit:
 Revalidado após os fixes: os 23 vínculos que mudam de valor e os totais (R$ 137.146,71 →
 R$ 134.230,28) ficaram IDÊNTICOS aos de antes das correções — confirmando que elas só tocaram
 informação exibida. Typecheck limpo, 178 testes.
+
+## ADR-0029 — A identidade da linha de receita passa a incluir o MÊS do crédito
+
+**Data:** 2026-08-04 · **Status:** aprovado pelo usuário, em implementação
+**Gatilho:** a Duda encontrou divergência no fechamento de julho e pediu conferência.
+
+### O problema, medido e provado
+
+Conexa (arquivo dela, filtrado por Data Crédito 01–31/07): **R$ 376.965,94** em 1011 cobranças.
+Dashboard: **R$ 375.868,87**. Diferença: **R$ 1.097,07**, o dashboard a menos.
+
+Descartado antes de acusar causa: não é filtro de status (as 1011 são "Quitada"/"Quitada (Gerada
+por Negociação)", ambos aceitos), não é formato de data (zero datas fora de `dd/mm/yyyy`), não é
+coluna errada (`Valor Bruto` daria R$ 552.752,95 — o erro clássico da tela "Quitadas", ADR-0019).
+
+`scripts/diagnostico-residuo-motor.mjs 2026-07` fechou a conta ao centavo: **10 faturas presentes
+no Conexa e ausentes do banco, somando exatamente R$ 1.097,07**, e ZERO faturas sobrando.
+
+A causa: **elas não sumiram, foram reescritas para agosto.** Consulta direta no banco de produção:
+
+| CR | dia de agosto previsto pela lista de datas | `dataCredito` no banco |
+|---|---|---|
+| 17097 | 1 | 2026-08-01 |
+| 22633 | 2 | 2026-08-02 |
+| 16660, 19353, 21631, 24926, 24945 | 3 | 2026-08-03 |
+| 20596, 21851, 23970 | 4 | 2026-08-04 |
+
+**10 de 10 no dia exato previsto**, `revisadoManualmente = false` em todas.
+
+### Por que acontece
+
+`RevenueCategorizedLine` é chaveada por `(crConexaId, chaveLinha)` (ADR-0013) — **sem a data**.
+Uma linha por fatura, atualizada no lugar. Mas cobrança recorrente tem uma LISTA de datas de
+crédito, uma por parcela. Quando a rodada de agosto processa a mesma fatura e escolhe a data de
+agosto, ela **sobrescreve a data de julho na mesma linha**. A receita migra de mês.
+
+Este é o risco que a **ADR-0018 registrou e o usuário aceitou explicitamente** ("a mesma fatura
+recorrente pode trocar de mês entre rodadas"). Ele nunca tinha aparecido porque nunca havíamos
+cruzado uma virada de mês com sync de 15 em 15 min e alguém conferindo o mês anterior.
+
+Não é só julho: **95 cobranças, R$ 16.659,90 (4,4% de julho), ainda vão migrar** conforme agosto
+avança. Todo mês anterior perde receita continuamente.
+
+### Duas medições que definiram o desenho (e mataram a primeira proposta)
+
+**1. Cada data da lista é uma PARCELA, não uma data alternativa do mesmo crédito.**
+Em 125 de 129 cobranças multi-data, `Valor Recebido` = `Valor Bruto ÷ nº de datas`, ao centavo;
+zero casos de valor cheio com várias datas. Confirmado cruzando com o fechamento de JUNHO: das
+116 cobranças presentes nos dois meses, **115 têm o mesmo `Valor Recebido` nos dois**.
+
+> Isto invalidou a proposta inicial (e aprovada) de "escolher UMA data determinística por
+> fatura". Numa parcelada em 12, isso contaria 1 parcela e descartaria 11 — trocaria um erro de
+> R$ 1.097 por uma subcontagem estrutural permanente. **A opção A foi descartada por evidência.**
+
+**2. O Conexa exporta UMA parcela por cobrança, mesmo com duas datas na janela.**
+7 de 129 cobranças têm 2 parcelas no mesmo mês civil (máx. 2). Teste com as 3 que têm 2 datas em
+junho (IDs 21864, 21713, 22538): o export de junho traz **uma linha só**, com o valor de UMA
+parcela (ex. 21864: crédito em 01/06 e 30/06, export = R$ 93,73 = 1124,76/12).
+
+> Por isso a chave é o **MÊS** do crédito, não a data crua. Com a data crua, um sync manual de
+> período diferente escolheria outra data da mesma fatura e criaria uma SEGUNDA linha no mesmo
+> mês — **dobrando** a receita dela. Com o mês, qualquer rodada que toque julho produz a mesma
+> chave e faz upsert na mesma linha.
+
+**Limitação aceita e declarada:** quando 2 parcelas caem no mesmo mês, contamos UMA — igual ao
+export do Conexa e igual ao fechamento da Duda. Não "corrigimos" isso por conta própria; diverge
+da fonte que a área financeira usa (regra permanente do projeto, financial-rigor #6).
+
+### Decisão
+
+Nova coluna `mesCredito` ("yyyy-MM", derivada de `dataCredito`) e a chave única passa de
+`(crConexaId, chaveLinha)` para **`(crConexaId, chaveLinha, mesCredito)`**.
+
+**O ponto de maior risco não é a chave, é a limpeza de órfãs.** Hoje ela apaga linhas da fatura
+que não voltaram no resultado da rodada. Sem reescopá-la ao mês da rodada, a rodada de agosto
+apagaria as linhas de julho da mesma fatura — trocando "migra de mês" por "some de vez". É onde
+a revisão adversarial vai se concentrar.
+
+### Efeito esperado
+
+- Nenhuma linha existente é apagada ou alterada de valor pela migration.
+- A partir da correção, cada mês guarda a sua parcela e para de perder receita.
+- **Re-sincronizar um mês passado vira operação segura** (hoje não é: puxaria as recorrentes de
+  volta e as arrancaria dos meses seguintes). Só depois disso o backfill de junho e anteriores
+  pode ser feito — junho hoje tem R$ 44,5 mil de R$ 324,2 mil reais, porque **nunca foi
+  ingerido**: o app começou em julho e o sync automático só cobre o mês corrente.
+- Julho volta a R$ 376.965,94 após um sync manual do mês, já com a correção no ar.
+
+### Estado ANTES e procedimento de reversão
+
+Registrado por exigência do usuário. Dois artefatos, nenhum substitui o outro:
+
+1. **Backup da tabela** (Console do Postgres): restaura os dados.
+   ```
+   pg_dump -U postgres -d odoo -t revenue_categorized_lines -F c \
+     -f /tmp/antes-adr0029-2026-08-04.dump
+   ```
+2. **Números de conferência** (`scripts/snapshot-antes.mjs`, somente leitura): provam se a
+   restauração ficou correta. Saída commitada em `docs/context/snapshot-antes-2026-08-04.md`.
+   Inclui totais por mês, por mês×categoria, o inventário linha a linha, e — importante — a
+   checagem de **colisões sob a chave nova**: se houver qualquer grupo duplicado, a migration
+   falharia e precisa ser resolvido ANTES (mesma classe de erro do incidente P3009 da ADR-0026).
+
+**Reverter** não é só rodar a migration de volta: enquanto existirem linhas criadas sob a chave
+nova, restaurar o índice antigo falha por duplicidade. A ordem é:
+
+```sql
+-- 1. Quais linhas nasceram depois do corte (guardar o resultado antes de apagar):
+SELECT * FROM revenue_categorized_lines WHERE "criadoEm" >= '<timestamp do deploy>';
+
+-- 2. Apagar apenas essas, PRESERVANDO revisão manual:
+DELETE FROM revenue_categorized_lines
+ WHERE "criadoEm" >= '<timestamp do deploy>' AND NOT "revisadoManualmente";
+
+-- 3. Só então restaurar o índice antigo:
+DROP INDEX IF EXISTS "revenue_categorized_lines_crConexaId_chaveLinha_mesCredito_key";
+CREATE UNIQUE INDEX "revenue_categorized_lines_crConexaId_chaveLinha_key"
+  ON revenue_categorized_lines ("crConexaId", "chaveLinha");
+ALTER TABLE revenue_categorized_lines DROP COLUMN "mesCredito";
+```
+
+Se o passo 2 acusar linha com `revisadoManualmente = true`, **parar**: é correção humana e a
+decisão de o que fazer com ela é da Duda, não do script (financial-rigor #9). Em último caso,
+restaurar do dump do passo 1 acima.
+
+O SQL de volta será testado contra uma cópia real antes de a ida ir para produção — não escrito
+na hora do aperto.
