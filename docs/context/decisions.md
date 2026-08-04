@@ -1625,26 +1625,49 @@ Registrado por exigência do usuário. Dois artefatos, nenhum substitui o outro:
    falharia e precisa ser resolvido ANTES (mesma classe de erro do incidente P3009 da ADR-0026).
 
 **Reverter** não é só rodar a migration de volta: enquanto existirem linhas criadas sob a chave
-nova, restaurar o índice antigo falha por duplicidade. A ordem é:
+nova, restaurar o índice antigo falha por duplicidade.
+
+> **Não existe coluna de criação nesta tabela.** `RevenueCategorizedLine` tem `atualizadoEm`
+> (`@updatedAt`), que toda rodada reescreve, e nenhum `criadoEm` — então "apagar o que nasceu
+> depois do deploy" é impossível de expressar. Uma primeira versão desta ADR trazia esse SQL e
+> ele não rodaria. A regra abaixo não depende de timestamp nenhum: ela reconstrói exatamente o
+> estado ao qual o modelo antigo teria convergido — **uma linha por (fatura, categoria), a do
+> mês mais recente**, que é o que a sobrescrita produzia.
 
 ```sql
--- 1. Quais linhas nasceram depois do corte (guardar o resultado antes de apagar):
-SELECT * FROM revenue_categorized_lines WHERE "criadoEm" >= '<timestamp do deploy>';
+-- 1. Ver os grupos que impedem o índice antigo (guardar esta saída):
+SELECT "crConexaId", "chaveLinha", count(*) AS n,
+       min("dataCredito") AS primeira, max("dataCredito") AS ultima,
+       bool_or("revisadoManualmente") AS tem_revisada
+FROM revenue_categorized_lines
+GROUP BY 1, 2 HAVING count(*) > 1
+ORDER BY n DESC;
 
--- 2. Apagar apenas essas, PRESERVANDO revisão manual:
+-- 2. PARAR se algum grupo tiver tem_revisada = true: é correção humana, e quem
+--    decide o que fazer com ela é a Duda, não o script (financial-rigor #9).
+
+-- 3. Manter UMA linha por grupo. A ordem de preferência é explícita:
+--    revisada manualmente > mês mais recente > maior id. NULLS LAST porque
+--    dataCredito é nullable e NULL em comparação não elimina duplicata.
+WITH ranked AS (
+  SELECT id, row_number() OVER (
+           PARTITION BY "crConexaId", "chaveLinha"
+           ORDER BY "revisadoManualmente" DESC, "dataCredito" DESC NULLS LAST, id DESC
+         ) AS rn
+  FROM revenue_categorized_lines
+)
 DELETE FROM revenue_categorized_lines
- WHERE "criadoEm" >= '<timestamp do deploy>' AND NOT "revisadoManualmente";
+ WHERE id IN (SELECT id FROM ranked WHERE rn > 1);
 
--- 3. Só então restaurar o índice antigo:
+-- 4. Só então restaurar o índice antigo e remover a coluna:
 DROP INDEX IF EXISTS "revenue_categorized_lines_crConexaId_chaveLinha_mesCredito_key";
 CREATE UNIQUE INDEX "revenue_categorized_lines_crConexaId_chaveLinha_key"
   ON revenue_categorized_lines ("crConexaId", "chaveLinha");
 ALTER TABLE revenue_categorized_lines DROP COLUMN "mesCredito";
 ```
 
-Se o passo 2 acusar linha com `revisadoManualmente = true`, **parar**: é correção humana e a
-decisão de o que fazer com ela é da Duda, não do script (financial-rigor #9). Em último caso,
-restaurar do dump do passo 1 acima.
+Em último caso, restaurar do dump: `pg_restore -U postgres -d odoo -c -t
+revenue_categorized_lines /tmp/antes-adr0029-2026-08-04.dump`.
 
 O SQL de volta será testado contra uma cópia real antes de a ida ir para produção — não escrito
 na hora do aperto.

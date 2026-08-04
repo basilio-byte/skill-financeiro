@@ -100,18 +100,30 @@ try {
     for (const c of colisoes) console.log(`   CR ${c.crConexaId} | ${c.mes} | n=${c.n} | ${c.chaveLinha}`);
   }
 
-  // ------------------------------------------ inventário das recorrentes
-  // O grupo de risco: são exatamente estas que migram de mês hoje.
-  const recorrentes = await prisma.$queryRawUnsafe(`
+  // ------------------------------------------------------ inventário
+  // Por padrão NÃO despeja linha a linha: são milhares, e ninguém copia isso de
+  // um console web — além de ser redundante com o pg_dump, que é o artefato de
+  // restauração de verdade. O que fica aqui é uma IMPRESSÃO DIGITAL: se o hash
+  // bater depois de uma reversão, o inventário voltou idêntico, sem precisar
+  // comparar milhares de linhas na mão. Use `--completo` para despejar tudo.
+  const inventario = await prisma.$queryRawUnsafe(`
     SELECT "crConexaId", to_char("dataCredito", 'YYYY-MM-DD') AS data,
            "valorRecebidoCat"::text AS valor, categoria, "revisadoManualmente"
     FROM revenue_categorized_lines
-    WHERE "dataCredito" IS NOT NULL
-    ORDER BY "crConexaId", categoria`);
-  console.log(`\n## 6. Inventário COMPLETO das linhas (${recorrentes.length}) — para diff exato depois`);
-  console.log("   crConexaId;dataCredito;valorRecebidoCat;categoria;revisadoManualmente");
-  for (const r of recorrentes) {
-    console.log(`   ${r.crConexaId};${r.data};${r.valor};${r.categoria};${r.revisadoManualmente ? "S" : "N"}`);
+    ORDER BY "crConexaId", categoria, "dataCredito"`);
+  const serial = inventario
+    .map((r) => `${r.crConexaId};${r.data ?? ""};${r.valor};${r.categoria};${r.revisadoManualmente ? "S" : "N"}`)
+    .join("\n");
+  const { createHash } = await import("node:crypto");
+  console.log("\n## 6. Impressão digital do inventário");
+  console.log(`   linhas no inventário ... ${inventario.length}`);
+  console.log(`   sha256 ................. ${createHash("sha256").update(serial).digest("hex")}`);
+  console.log("   (mesmo hash depois = inventário idêntico. Dados completos: use o pg_dump.)");
+
+  if (process.argv.includes("--completo")) {
+    console.log("\n## 6b. Inventário linha a linha");
+    console.log("   crConexaId;dataCredito;valorRecebidoCat;categoria;revisadoManualmente");
+    for (const l of serial.split("\n")) console.log(`   ${l}`);
   }
 
   linha();

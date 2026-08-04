@@ -1331,3 +1331,18 @@ puxaria as recorrentes de volta e as arrancaria de julho e agosto.
   Conexa) e o **procedimento de reversão escrito junto com o de ida**, incluindo a ordem correta
   (apagar as linhas novas ANTES de restaurar o índice antigo, senão falha por duplicidade) e a
   regra de parar se alguma linha revisada manualmente estiver no caminho.
+
+**Dois erros meus corrigidos antes de mandar rodar em produção** (revisão do próprio material da
+Fase 0):
+1. O procedimento de reversão referenciava `criadoEm` para achar as linhas nascidas depois do
+   deploy — **essa coluna não existe** em `RevenueCategorizedLine` (só `atualizadoEm`, reescrita a
+   cada rodada). O SQL não rodaria, e isso só apareceria na hora de reverter. Trocado por uma
+   regra sem timestamp: manter uma linha por (fatura, categoria) via `row_number()`, preferindo
+   revisada manualmente > mês mais recente > maior id, com `NULLS LAST` porque `dataCredito` é
+   nullable e NULL em comparação não elimina duplicata.
+2. O snapshot despejava o inventário linha a linha — milhares de linhas para copiar de um console
+   web, e redundante com o `pg_dump`. Agora imprime um sha256 do inventário (mesmo hash depois =
+   inventário idêntico) e só despeja tudo com `--completo`.
+
+Testado contra o banco de dev: roda limpo e **confirma o diagnóstico de forma independente** — a
+seção 4 mostra 0 faturas em mais de um mês, que é exatamente a assinatura da sobrescrita.
