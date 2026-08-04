@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { money, toAmountString, ZERO } from "@/lib/money";
 import type { CategorizedLine } from "@/lib/categorization/types";
 import { mesDoCreditoOuSentinela, mesesNoIntervalo } from "@/lib/categorization/mes-credito";
+import { decidirOrfas } from "@/lib/categorization/orfas";
 
 export interface PersistResumo {
   totalLinhasNovas: number;
@@ -103,11 +104,14 @@ const chaveExistente = (crConexaId: number, chaveLinha: string, mesCredito: stri
  * EXCETO se estiver revisada manualmente, caso em que é preservada e contada em
  * `totalLinhasOrfasPreservadas` (nunca some silenciosamente — regra #8).
  *
- * **Só é candidata a órfã a linha cujo `mesCredito` está entre os meses DESTA
- * rodada** (ADR-0029). Sem esse escopo, a rodada de agosto veria as linhas de
- * julho da mesma fatura recorrente — que legitimamente não estão no resultado
- * dela — e as apagaria, trocando "a receita migra de mês" por "a receita some de
- * vez". É o ponto de maior risco desta mudança.
+ * **Quem morre é decidido por `decidirOrfas` (orfas.ts), com a verdade do
+ * Conexa — nunca pela janela da rodada.** Uma linha de um mês que a rodada não
+ * emitiu só é órfã se aquele mês SUMIU da lista de Data Crédito da fatura. Duas
+ * versões anteriores desta lógica escopavam a decisão pela janela e a revisão
+ * adversarial provou que as duas destruíam dinheiro: uma apagava o mês vizinho
+ * numa janela que cruzava dois meses (e "Aplicar agora" em /categorias monta
+ * exatamente essas janelas), a outra deixava lixo eterno contando duas vezes. Os
+ * dois cenários estão travados em `orfas.test.ts`.
  *
  * Quando há órfã preservada, a fatura é conferida POR MÊS: se a soma das linhas
  * daquele mês não bater com o valor da fatura, é sinal de dupla contagem (a
@@ -166,22 +170,16 @@ export async function persistLinhasCategorizadas(
       // fora deles é assunto de outra rodada e não pode ser tocado aqui.
       const mesesDaRodada = mesesNoIntervalo(periodoInicio, periodoFim);
 
-      // O `crConexaId IN (...)` é ESCOPADO POR MÊS — e isso não é otimização, é o
-      // ponto mais perigoso da ADR-0029. Sem o escopo, a rodada de agosto traria
-      // para `existentes` as linhas de JULHO da mesma fatura recorrente; elas não
-      // aparecem no resultado de agosto (mês diferente = chave diferente), seriam
-      // classificadas como órfãs e APAGADAS. Trocaríamos "a receita migra de mês"
-      // por "a receita some de vez" — estrago maior que o bug original.
-      //
-      // O segundo ramo (dataCredito dentro do período) já é escopado por
-      // construção e continua fazendo o trabalho da ADR-0020: pegar faturas que
-      // sumiram por completo do resultado desta rodada.
+      // A busca é AMPLA de propósito (todas as linhas da fatura, de todos os
+      // meses). Uma primeira versão desta correção escopava por mês aqui, e a
+      // revisão adversarial provou que isso deixava a linha de um mês passado
+      // inalcançável quando a Data Crédito era corrigida no Conexa — os dois
+      // meses contavam a mesma receita, para sempre. Quem decide quem morre é
+      // `decidirOrfas`, com a verdade do Conexa; a query só junta os candidatos.
       const existentes = await tx.revenueCategorizedLine.findMany({
         where: {
           OR: [
-            ...(crConexaIds.length && mesesDaRodada.length
-              ? [{ crConexaId: { in: crConexaIds }, mesCredito: { in: mesesDaRodada } }]
-              : []),
+            ...(crConexaIds.length ? [{ crConexaId: { in: crConexaIds } }] : []),
             { dataCredito: { gte: periodoInicio, lte: periodoFim } },
           ],
         },
@@ -193,36 +191,42 @@ export async function persistLinhasCategorizadas(
         revisadaAntes.set(chaveExistente(e.crConexaId, e.chaveLinha, e.mesCredito), e.revisadoManualmente);
       }
 
-      // Conjunto das identidades COMPLETAS produzidas por esta rodada.
+      // Três coisas que `decidirOrfas` precisa saber, todas derivadas das linhas
+      // que esta rodada acabou de produzir:
       const chavesNovas = new Set<string>();
+      const mesesValidosPorFatura = new Map<number, Set<string>>(); // verdade do Conexa
+      const mesesProduzidosPorFatura = new Map<number, Set<string>>(); // o que a rodada cobriu
       for (const l of linhas) {
-        chavesNovas.add(chaveExistente(l.crId, l.chaveLinha, mesDoCreditoOuSentinela(l.dataCredito)));
+        const mes = mesDoCreditoOuSentinela(l.dataCredito);
+        chavesNovas.add(chaveExistente(l.crId, l.chaveLinha, mes));
+
+        let validos = mesesValidosPorFatura.get(l.crId);
+        if (!validos) mesesValidosPorFatura.set(l.crId, (validos = new Set()));
+        for (const m of l.mesesCreditoFatura) validos.add(m);
+
+        let produzidos = mesesProduzidosPorFatura.get(l.crId);
+        if (!produzidos) mesesProduzidosPorFatura.set(l.crId, (produzidos = new Set()));
+        produzidos.add(mes);
       }
 
-      let totalLinhasOrfasPreservadas = 0;
-      const idsOrfasParaApagar: string[] = [];
-      const faturasComOrfaPreservada = new Set<string>();
-      for (const e of existentes) {
-        // Cinto de segurança além do escopo da query: mesmo que algo entre em
-        // `existentes` fora dos meses desta rodada (o segundo ramo do OR pode
-        // trazer uma linha cuja dataCredito foi corrigida para outro mês), ela
-        // NUNCA é candidata a órfã aqui.
-        if (!mesesDaRodada.includes(e.mesCredito)) continue;
-        const aindaExisteNestaRodada = chavesNovas.has(chaveExistente(e.crConexaId, e.chaveLinha, e.mesCredito));
-        if (aindaExisteNestaRodada) continue;
-        if (e.revisadoManualmente) {
-          totalLinhasOrfasPreservadas += 1;
-          // Guarda fatura + MÊS: a conferência abaixo compara a soma das linhas
-          // com o valor da fatura, e esse valor é de UMA parcela. Somar as linhas
-          // de todos os meses de uma recorrente daria "conflito" em toda fatura
-          // parcelada, todo mês — alarme falso em massa.
-          faturasComOrfaPreservada.add(`${e.crConexaId}::${e.mesCredito}`);
-        } else {
-          idsOrfasParaApagar.push(e.id);
-        }
-      }
-      if (idsOrfasParaApagar.length > 0) {
-        await tx.revenueCategorizedLine.deleteMany({ where: { id: { in: idsOrfasParaApagar } } });
+      const decisao = decidirOrfas(
+        existentes,
+        chavesNovas,
+        mesesValidosPorFatura,
+        mesesDaRodada,
+        mesesProduzidosPorFatura,
+      );
+      const totalLinhasOrfasPreservadas = decisao.preservadasPorRevisao.length;
+      const faturasComOrfaPreservada = new Set(decisao.preservadasPorRevisao);
+      if (decisao.idsParaApagar.length > 0) {
+        // Apagar linha de receita nunca pode ser silencioso (regra #8): sem este
+        // log, uma remoção indevida em massa passaria despercebida — foi
+        // exatamente o que a revisão adversarial apontou sobre a versão anterior.
+        console.warn(
+          `[persist] removendo ${decisao.idsParaApagar.length} linha(s) órfã(s) — ` +
+            `meses da rodada: ${mesesDaRodada.join(", ")}`,
+        );
+        await tx.revenueCategorizedLine.deleteMany({ where: { id: { in: decisao.idsParaApagar } } });
       }
 
       let totalLinhasNovas = 0;

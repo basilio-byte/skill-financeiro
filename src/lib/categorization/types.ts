@@ -25,6 +25,15 @@ export interface ContasReceberRow {
   observacoes: string;
   tags: string;
   raw: Record<string, string>;
+  /**
+   * TODOS os meses "yyyy-MM" da lista de Data Crédito desta fatura — a verdade
+   * do Conexa sobre em quais meses ela credita, independente da janela da
+   * rodada. É o que a limpeza de órfãs usa para decidir (ADR-0029): uma linha
+   * de um mês só é órfã se aquele mês SUMIU desta lista. Escopar essa decisão
+   * pela janela da rodada destruía dinheiro nos dois sentidos — ver
+   * mesesCreditoDaFatura() em parse-exports.ts.
+   */
+  mesesCredito: string[];
 }
 
 export interface ListarVendasRow {
@@ -99,6 +108,15 @@ export interface CategorizedLine {
   observacoes: string;
   tags: string;
   raw: Record<string, unknown>;
+  /**
+   * TODOS os meses "yyyy-MM" da lista de Data Crédito desta fatura — a verdade
+   * do Conexa sobre em quais meses ela credita, independente da janela da
+   * rodada. É o que a limpeza de órfãs usa para decidir (ADR-0029): uma linha
+   * de um mês só é órfã se aquele mês SUMIU desta lista. Escopar essa decisão
+   * pela janela da rodada destruía dinheiro nos dois sentidos — ver
+   * mesesCreditoDaFatura() em parse-exports.ts.
+   */
+  mesesCreditoFatura: string[];
   /**
    * Itens de LV que compõem esta linha (ADR-0028). Ausente quando a fatura não
    * tem LV casado (`proporcionado: "SEM_LV"`) — nesse caso não existe item

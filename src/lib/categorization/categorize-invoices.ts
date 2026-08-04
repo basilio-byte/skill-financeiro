@@ -187,6 +187,8 @@ function buildLinha(
     competencia: cr.competencia,
     emissao: cr.emissao,
     dataCredito: cr.dataCredito,
+    // Verdade do Conexa sobre em quais meses esta fatura credita (ADR-0029).
+    mesesCreditoFatura: cr.mesesCredito,
     conta: cr.conta,
     observacoes: cr.observacoes,
     tags: cr.tags,

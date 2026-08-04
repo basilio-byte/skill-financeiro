@@ -1,4 +1,5 @@
 import { readXlsxAsObjects, parseMoneyCell } from "@/lib/xlsx/reader";
+import { mesDoCredito } from "@/lib/categorization/mes-credito";
 import type { ContasReceberRow, ListarVendasRow } from "@/lib/categorization/types";
 
 /**
@@ -88,6 +89,40 @@ function parseDataCreditoNoPeriodo(
   return null;
 }
 
+/**
+ * TODOS os meses "yyyy-MM" que a lista de Data Crédito da fatura contém —
+ * independentemente da janela da rodada.
+ *
+ * É a VERDADE DO CONEXA sobre em quais meses aquela cobrança credita, e é o que
+ * a limpeza de órfãs precisa para decidir com segurança (ADR-0029, correção
+ * pós-revisão adversarial). Antes eu escopava a decisão pela janela da RODADA, e
+ * duas revisões independentes provaram que isso destrói dinheiro nos dois
+ * sentidos:
+ *
+ *  - janela cruzando julho+agosto: a rodada só consegue emitir UMA parcela por
+ *    fatura (`parseDataCreditoNoPeriodo` devolve uma data só), então a linha do
+ *    outro mês parecia órfã e era APAGADA. E esse é um clique do produto —
+ *    "Aplicar agora" em /categorias monta a janela de min a max das datas.
+ *  - data corrigida de julho para agosto no Conexa: a linha de julho deixava de
+ *    ser alcançada por qualquer ramo da busca e virava lixo eterno, contando a
+ *    mesma receita duas vezes.
+ *
+ * A lista resolve os dois porque não depende da janela: a linha de um mês só é
+ * órfã se aquele mês SUMIU da lista da fatura.
+ *
+ * Datas inválidas (ou com hora anexada, que `parseFlexibleDate` rejeita de
+ * propósito — ADR-0019) são ignoradas, igual ao resto do parser.
+ */
+export function mesesCreditoDaFatura(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  const meses = new Set<string>();
+  for (const parte of raw.split(",")) {
+    const dt = parseFlexibleDate(parte);
+    if (dt) meses.add(mesDoCredito(dt));
+  }
+  return [...meses];
+}
+
 function parseIntOrNull(raw: string | null | undefined): number | null {
   if (!raw) return null;
   const n = parseInt(raw.trim(), 10);
@@ -118,6 +153,7 @@ export function parseContasReceberRows(
     competencia: parseFlexibleDate(row["Competência"]),
     emissao: parseFlexibleDate(row["Emissão"]),
     dataCredito: parseDataCreditoNoPeriodo(row["Data Crédito"], periodoInicio, periodoFim),
+    mesesCredito: mesesCreditoDaFatura(row["Data Crédito"]),
     conta: row["Conta"] ?? "",
     observacoes: row["Observações"] ?? "",
     tags: row["Tags"] ?? "",

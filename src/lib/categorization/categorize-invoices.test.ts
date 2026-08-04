@@ -6,6 +6,9 @@ import type { ContasReceberRow, ListarVendasRow } from "@/lib/categorization/typ
 function cr(overrides: Partial<ContasReceberRow> = {}): ContasReceberRow {
   return {
     id: 1,
+    // ADR-0029: a lista de meses de credito da fatura. Vazia por padrao —
+    // cada teste que precisa dela declara explicitamente.
+    mesesCredito: [],
     unidade: "SEAHUB COWORKING",
     faturamento: "Pix",
     clienteId: 100,

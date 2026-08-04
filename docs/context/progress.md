@@ -1401,3 +1401,42 @@ Migration com o padrão defensivo da ADR-0026: coluna nullable → backfill → 
 **Ainda NÃO foi para produção.** Falta a Fase 2 (validar num banco isolado com cópia do dado real
 — produção tem 29 linhas revisadas manualmente e o dev tem 0, então nenhum teste local exercita
 esse caminho) e a revisão adversarial do reescopo das órfãs.
+
+### Fase 1 (v2) — a revisão adversarial achou DOIS BUGS CRÍTICOS meus; corrigidos
+
+32 agentes, 4 lentes, cada achado passando por um verificador que tenta refutá-lo. Os dois que
+sobreviveram eram **críticos e meus**, ambos pela mesma causa raiz: eu escopei a decisão de órfã
+pela **janela da rodada** em vez da verdade do Conexa.
+
+1. **Janela cruzando dois meses APAGAVA o mês que a rodada não emitiu.** A rodada só consegue
+   emitir UMA parcela por fatura (`parseDataCreditoNoPeriodo` devolve uma data), então a linha do
+   outro mês parecia órfã. E não é cenário exótico: **"Aplicar agora" em `/categorias` monta a
+   janela de min a max das datas de crédito** — multi-mês por construção. Pior: o backfill de
+   junho que a própria ADR-0029 promete habilitar apagaria julho, o mês que a Duda está fechando.
+2. **Data corrigida de julho para agosto no Conexa deixava a linha de julho inalcançável** por
+   qualquer ramo da busca — lixo eterno, com os dois meses contando a mesma receita. **Regressão
+   que eu introduzi**: antes, o ramo por `crConexaId` não tinha escopo de mês e a encontrava.
+
+**Correção:** a decisão passou a usar `mesesCreditoDaFatura()` — a lista COMPLETA de datas de
+crédito, que já vem inteira na exportação. Novo módulo puro `orfas.ts` com `decidirOrfas()`:
+
+- mês que a rodada **cobriu** e a linha não foi produzida → órfã (o caso clássico do bucket que
+  muda de categoria);
+- mês que a rodada **não cobriu** → só é órfã se sumiu da lista do Conexa;
+- fatura ausente da rodada ou sem lista legível → só julga dentro da janela, silêncio fora dela.
+
+**Um terceiro bug foi pego pelos meus próprios testes**: a primeira versão da regra nova deixava
+de apagar o bucket que muda de categoria dentro do mesmo mês — o que dobraria a receita da fatura
+naquele mês. Daí a distinção entre "mês coberto" e "mês não coberto".
+
+`orfas.test.ts` (8 testes) trava os três cenários, com os dois críticos em primeiro lugar de
+propósito. A revisão notou que esse laço — o trecho que APAGA linhas de receita — não tinha um
+único teste; agora tem. O `deleteMany` também passou a logar quantas linhas remove: apagar receita
+não pode ser silencioso.
+
+204 testes, typecheck limpo. **Continua sem push.**
+
+**Pendente da Fase 2:** o smoke test end-to-end (rodada real de agosto com julho no banco) não
+rodou — o POST em `/api/runs` respondeu 307 para login com a sessão forjada, caminho de auth
+diferente do das páginas. Isso pertence à Fase 2 de qualquer forma, que precisa ser contra cópia
+do dado real de produção (29 linhas revisadas manualmente; dev tem 0).
