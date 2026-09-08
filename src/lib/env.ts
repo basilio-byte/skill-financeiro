@@ -34,6 +34,19 @@ const envSchema = z.object({
     .transform((v) => v === "true"),
   SYNC_INTERVAL_MINUTES: z.coerce.number().int().positive().default(15),
 
+  // Carência do mês anterior (ADR-0030). Até então um mês parava de ser
+  // sincronizado no instante em que virava, e ficava permanentemente defasado
+  // do Conexa nos dois sentidos (baixa retroativa nunca entrava; linha que
+  // sumiu do Conexa nunca saía) — medido em agosto/2026: R$ 10,10.
+  // `nonnegative`, e não `positive`: 0 é um valor válido e significa
+  // "desligar a carência" (computeCarenciaWindow devolve null), útil para
+  // reverter o comportamento por variável de ambiente, sem redeploy de código.
+  SYNC_CARENCIA_DIAS: z.coerce.number().int().nonnegative().default(10),
+  // Piso de tempo entre duas rodadas de carência. Não é urgência de 15 min:
+  // sem esse piso, cada tick pediria um login e dois exports a mais ao Conexa
+  // (sistema de terceiro) durante 10 dias de todo mês, sem ganho.
+  SYNC_CARENCIA_INTERVALO_MINUTOS: z.coerce.number().int().positive().default(60),
+
   // Integração ClickUp (ADR-0023) — token pessoal (`pk_...`), enviado como
   // header Authorization cru (sem "Bearer"). Opcional: sem ele, o push some
   // silenciosamente do log em vez de derrubar o boot do app (ver

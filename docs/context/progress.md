@@ -1518,3 +1518,113 @@ ao final — nada disso é para persistir no repo.
 
 **Ainda sem push.** Fase 3 (rodar em produção de verdade) depende de decisão explícita do usuário —
 push neste projeto é deploy automático.
+
+---
+
+## 2026-09-08 — Divergência de agosto: R$ 10,10 diagnosticados até a fatura, e a carência do mês anterior (ADR-0030)
+
+A Duda mandou print e planilha: "o dash financeiro tá com uma pequena divergência ao Conexa, em
+relação ao mês de agosto". Panorama **R$ 338.922,99** × Conexa **R$ 338.933,09** = **R$ 10,10**.
+
+### Como foi isolado (método que vale repetir)
+
+**Estreitar por agregado antes de pedir detalhe.** Nenhum acesso direto ao banco de produção foi
+necessário — só três comandos de leitura no Console do Easypanel, cada um com saída pequena:
+
+1. `scripts/conferencia-completa.mjs 2026-08` → revisão manual **R$ 0,00**, resíduo −10,10.
+   Isso já matou metade do espaço de busca: não era decisão humana, nem conflito, nem dupla
+   contagem por revisão manual.
+2. Soma por **dia** de `dataCredito` (32 linhas de saída), cruzada com a mesma tabela extraída do
+   CSV da Duda → só **4 dias** divergiam, em dois pares: 03/08 (−104,39) com 31/08 (+104,39), e
+   18/08 (+59,90) com 24/08 (−70,00).
+3. Lista `id:valor` das faturas do dia 18/08 numa linha só → a sobrande apareceu na hora.
+
+O motor foi descartado por leitura de código, não por suposição: a Fase 3 de
+`categorize-invoices.ts` joga o resíduo no último bucket e fecha cada fatura em
+`cr.valorRecebido`, então ele não perde centavos — e a conferência confirmou.
+
+### O que era
+
+- **29692** (Francisco Peres Pinheiro Junior, R$ 70,00, crédito 24/08): **0 linhas no banco**.
+  Baixa lançada em **02/09**, retroativa. Em 31/08 não era "Quitada" — nenhuma rodada a viu.
+- **29619** (Tbaisa Silva, R$ 59,90, gravada em 18/08): no banco, **sumiu do Conexa**. 1 linha só,
+  logo sem dupla contagem no trimestral.
+- **27166** (NATCAR, R$ 104,39): única com 2 datas de crédito em agosto; gravada em 31/08 quando a
+  regra daria 03/08. Neutra no mês, erra o dia.
+
+`−70,00 + 59,90 = −10,10`. **Prova cronológica da causa:** `atualizadoEm` da 29619 é
+`2026-09-01T02:56Z` = 31/08 **23:56** em America/Fortaleza — o último tick antes de a janela virar
+para setembro.
+
+### A correção (ADR-0030)
+
+Carência: nos primeiros 10 dias do mês, o tick também roda o **mês anterior**, no máximo 1×/hora.
+
+**A decisão de projeto que importa:** são **duas rodadas separadas**, não uma janela ampla. Ampliar
+a janela para 01/08–30/09 reintroduziria o bug crítico nº 1 da ADR-0029 — `parseDataCreditoNoPeriodo`
+devolve só a primeira data da lista, então as recorrentes teriam a parcela de setembro deixada de
+fora e **o mês corrente pararia de ser atualizado**. Isso foi verificado no código antes de
+escrever a implementação, não descoberto depois.
+
+- `computeCarenciaWindow` (puro, em `auto-sync-window.ts`): mês anterior inteiro, ou `null`.
+  `periodoFim` é o último dia (inclusive) — `toDateExclusive` reivindicaria dois meses.
+- `runAutoSyncTick` roda o corrente e **depois** a carência; falha na carência nunca afeta o corrente.
+- "Quando foi a última" vem do banco (`revenueSyncRun.periodoInicio`), não de memória — deploy
+  reinicia o processo.
+- `SYNC_CARENCIA_DIAS` (10) e `SYNC_CARENCIA_INTERVALO_MINUTOS` (60) no env; **0 desliga**.
+- **22 testes** em `auto-sync.test.ts`, incluindo o grupo que exercita `decidirOrfas` com a janela
+  REAL da carência: a rodada de agosto preserva a linha de setembro da mesma recorrente, apaga a
+  linha de agosto que sumiu do Conexa (o caso 29619) e preserva revisão manual. Fronteira de dia
+  testada no fuso do app (dia 10 às 23:30 local ainda é carência, embora já seja dia 11 em UTC).
+
+Os três casos de agosto se resolvem na primeira rodada de carência.
+
+**Limitação declarada:** cobre ~10 dias de atraso. Baixa lançada 60 dias depois segue invisível —
+o complemento seria uma conferência agendada Conexa × banco com alerta, ainda **não implementada**.
+Hoje só descobrimos porque a Duda reparou.
+
+### Validação local antes do deploy (2026-09-08, pedida pelo usuário)
+
+> "a vps de produção tem a divergência de 10.10 pequena no momento, mas seria pior introduzir erro
+> ao que já temos" — então a correção foi exercitada contra **dado real do Conexa**, não só em teste
+> unitário. Mesmo espírito da Fase 2 da ADR-0029.
+
+Ambiente: Postgres 16 descartável (`docker run`, porta **55432** — 5432/5433/5434 estavam todas
+ocupadas por outros projetos na máquina), `prisma migrate deploy`, `seed-categories` (318 regras;
+produção tem 331, diferença irrelevante para o total). `startCategorizationRun` chamado direto via
+`tsx` com `NODE_OPTIONS="--conditions=react-server"` (senão `import "server-only"` lança fora do
+bundler do Next — mesmo gotcha da ADR-0029).
+
+**1. O motor local reproduziu agosto ao centavo:** 970 faturas, **R$ 338.933,09**,
+`diferencaConferencia = 0`. Confirma de forma independente que o motor está certo e que o CSV da
+Duda, o export do Conexa e o nosso parser concordam.
+
+**2. Estado de produção reproduzido artificialmente** (`02-injeta`): apagadas as linhas da 29692,
+criada a linha órfã da 29619 (18/08, R$ 59,90) e movida a 27166 para 31/08. Total resultante:
+**R$ 338.922,99 — exatamente o número do print do Panorama.** Só a partir daí a validação tem
+valor: o banco local passou a ser a VPS.
+
+**3. Primeira execução do tick: a carência NÃO rodou — e estava certo.** A sincronização manual de
+agosto feita minutos antes (etapa 1) contou como carência recente e o piso de 60 min a adiou. Isso
+exercitou o lado "não roda" de `carenciaEstaVencida` por acidente feliz; para exercitar o lado
+"roda", a rodada de agosto foi envelhecida para `2026-08-31T23:56-03:00` — o instante REAL do
+congelamento em produção, medido pelo `atualizadoEm` da linha da 29619.
+
+**4. Resultado do tick (83s, contra 19s só do mês corrente):**
+
+| verificação | resultado |
+|---|---|
+| agosto volta a bater com o Conexa (R$ 338.933,09) | **SIM** |
+| setembro **intacto fatura a fatura** (R$ 52.296,17, 229 linhas, 204 faturas) | **SIM** |
+| 29692 (R$ 70,00) entrou | **SIM** |
+| 29619 (R$ 59,90) saiu | **SIM** |
+| 27166 voltou para 03/08 | **SIM** |
+
+Log da rodada de carência: `[persist] removendo 1 linha(s) órfã(s) — meses da rodada: 2026-08` —
+UM mês só, exatamente como a ADR exige. `diferencaConferencia = 0` em todas as rodadas.
+
+**5. Idempotência (o risco de rodar ~240×/mês):** 3 ticks seguidos, comparando a assinatura
+completa de cada linha (fatura, chave, mês, valor, data) — **idênticos nas 3 voltas**, em agosto e
+em setembro. A tabela não cresceu (1361 linhas = 1132 + 229).
+
+Container e scripts descartáveis (`tmp-valida/`) removidos ao final. Typecheck limpo, 222 testes.

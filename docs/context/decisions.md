@@ -1674,3 +1674,92 @@ revenue_categorized_lines /tmp/antes-adr0029-2026-08-04.dump`.
 
 O SQL de volta será testado contra uma cópia real antes de a ida ir para produção — não escrito
 na hora do aperto.
+
+---
+
+## ADR-0030
+
+**Mês fechado congelava para sempre — carência do mês anterior no auto-sync.**
+
+Data: 2026-09-08. Status: aceita, implementada.
+
+### Contexto
+
+A Duda relatou "uma pequena divergência ao Conexa" em agosto/2026. Medido:
+
+| | valor |
+|---|---|
+| Agosto no Conexa (export por Data de Crédito, 970 cobranças) | **R$ 338.933,09** |
+| Agosto no Panorama (1128 linhas) | **R$ 338.922,99** |
+| Diferença | **R$ 10,10** |
+
+`scripts/conferencia-completa.mjs 2026-08` mostrou revisão manual em **R$ 0,00** e resíduo de
+−10,10 — ou seja, não era decisão humana nem erro de rateio. A comparação dia a dia das 970
+faturas contra produção isolou **três** faturas, em dois pares que se cancelam parcialmente:
+
+- **29692** (Francisco Peres Pinheiro Junior, R$ 70,00, crédito 24/08) — **0 linhas no banco**.
+  Baixa lançada em **02/09**, retroativa a 24/08 (coluna "Data de operação da quitação"). Em
+  31/08 ela ainda não era "Quitada", então nenhuma rodada a viu.
+- **29619** (Tbaisa Silva, R$ 59,90, "Outros Serviços", gravada em 18/08) — está no banco, mas
+  **sumiu do export de agosto**. Tem 1 linha só, então não houve dupla contagem no trimestral.
+- **27166** (NATCAR, R$ 104,39) — única de agosto com duas datas de crédito (03/08 e 31/08);
+  gravada em 31/08 quando a regra daria 03/08. **Neutra no mês**, mas erra o dia (afeta
+  relatório diário/semanal).
+
+`−70,00 + 59,90 = −10,10`, exato.
+
+### Causa
+
+`computeAutoSyncWindow` cobre **só o mês corrente** (ADR-0013), e nenhum outro caminho
+reprocessa mês passado. Prova cronológica: `atualizadoEm` da linha da 29619 é
+`2026-09-01T02:56Z` = **31/08 23:56 em America/Fortaleza** — o último tick antes da virada.
+
+A defasagem corre nos **dois sentidos**, e é isso que torna o problema pior do que parece:
+
+- **não entra o que chega depois** (29692);
+- **não sai o que deixou de valer** (29619) — a limpeza de órfãs (`persist.ts` + `orfas.ts`) só
+  avalia faturas que a rodada tocou, e nenhuma rodada tocava agosto.
+
+Não é específico de agosto: **todo mês fechado congela com os erros que tiver**, justamente na
+janela em que o financeiro fecha o mês. Julho só fechou exato na ADR-0029 porque foi
+sincronizado à mão naquele dia.
+
+### Decisão
+
+Nos primeiros `SYNC_CARENCIA_DIAS` (default **10**) dias do mês, o tick do auto-sync dispara
+**também** uma rodada do mês anterior — no máximo a cada `SYNC_CARENCIA_INTERVALO_MINUTOS`
+(default **60**).
+
+**Duas rodadas SEPARADAS e sequenciais, nunca uma janela ampla "mês anterior + corrente".**
+Esta é a parte não-óbvia. `parseDataCreditoNoPeriodo` devolve a **primeira** data da lista que
+cai no período, e uma rodada emite **uma parcela por fatura** — então uma janela 01/08–30/09
+emitiria a parcela de agosto das recorrentes e deixaria a de setembro sem produzir: o mês
+corrente pararia de ser atualizado a cada 15 min e linhas novas de setembro nem seriam criadas.
+É exatamente o bug crítico nº 1 da ADR-0029. Com janelas separadas, `mesesNoIntervalo` devolve
+um mês só e `decidirOrfas` tem autoridade apenas sobre o mês que a rodada de fato cobriu.
+
+`periodoFim` da carência é o **último dia** do mês anterior (inclusive), não `toDateExclusive`
+(dia 1 do corrente) — este reivindicaria dois meses. Travado em teste.
+
+O piso de intervalo existe porque a carência não tem urgência de 15 min: sem ele, cada tick
+pediria um login e dois exports a mais ao Conexa (sistema de terceiro) durante 10 dias de todo
+mês. "Quando foi a última" vem do **banco** (`revenueSyncRun.periodoInicio`), não de memória —
+o processo reinicia a cada deploy e um contador em memória rodaria de novo a cada restart.
+
+A carência roda **depois** do mês corrente: se só houver tempo para uma, a que importa é a do
+mês em que o dinheiro está entrando agora. Falha nela nunca afeta a do mês corrente.
+
+`SYNC_CARENCIA_DIAS=0` desliga tudo por variável de ambiente, sem redeploy de código.
+
+### Consequências
+
+- Os três casos de agosto se resolvem sozinhos na primeira rodada de carência: a 29692 entra,
+  a 29619 é removida como órfã (mês coberto, linha não produzida) e a 27166 recupera o dia 03/08.
+- Só ficou seguro **depois da ADR-0029**: sem `mesCredito` na identidade, reprocessar agosto
+  arrancaria a parcela de julho ou setembro das recorrentes.
+- **Limitação declarada:** cobre atraso de até ~10 dias. Uma baixa lançada 60 dias depois
+  continua invisível. O complemento é uma conferência agendada Conexa × banco por mês, com
+  alerta — hoje só descobrimos porque a Duda reparou. Fica como proposta, não implementada.
+- Custo: 1 login + 2 exports extras por hora, em 10 dias de cada mês.
+- A rodada de carência também dispara `pushValoresDoMesCorrente()` no fim (`run.ts`), que
+  empurra o mês corrente para o ClickUp. Inofensivo e idempotente, só redundante 1×/hora.
