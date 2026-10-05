@@ -37,6 +37,7 @@ model User {
   lastLoginAt  DateTime?
 
   sessions               Session[]
+  tokensMcp              TokenMcp[]
   loginEvents            LoginEvent[]
   runs                   RevenueSyncRun[]
   linhasRevisadas        RevenueCategorizedLine[]
@@ -577,4 +578,61 @@ model InadimplenciaSyncRun {
 
   @@index([iniciadoEm])
   @@map("inadimplencia_sync_runs")
+}
+
+// ===========================================================================
+// MCP do financeiro (ADR-0033) — tokens pessoais e rastro de auditoria.
+//
+// ⚠ Tabelas NOVAS, sem ligação com as de receita. A única FK é TokenMcp → User
+// (onDelete Cascade): desativar/excluir a pessoa derruba os tokens dela.
+// ===========================================================================
+
+enum EscopoToken {
+  LEITURA // só as ferramentas que leem
+  ESCRITA // todas, inclusive revisar linha, regras, metas e conflitos
+}
+
+/// Token pessoal do MCP. O banco guarda só o SHA-256: nem o sistema sabe qual é.
+/// Revogar NÃO apaga — o rastro de auditoria aponta para o token.
+model TokenMcp {
+  id          String      @id @default(cuid())
+  userId      String
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Para a pessoa reconhecer: "Claude Code do notebook".
+  nome        String
+  /// Primeiros caracteres, para identificar sem revelar.
+  prefixo     String
+  hash        String      @unique
+  escopo      EscopoToken
+  criadoEm    DateTime    @default(now())
+  ultimoUsoEm DateTime?
+  revogadoEm  DateTime?
+  revogadoPor String?
+
+  @@index([userId])
+  @@map("tokens_mcp")
+}
+
+/// Uma linha por chamada de ferramenta do MCP: quem, o quê, com quais argumentos e
+/// o que aconteceu. Para as ESCRITAS, `detalhe` guarda o estado ANTES (ex.: a linha
+/// de receita excluída, inteira) — é o que torna uma exclusão recuperável.
+model AuditoriaMcp {
+  id         String   @id @default(cuid())
+  quando     DateTime @default(now())
+  /// "email via MCP (nome do token)".
+  quem       String
+  tokenId    String?
+  ferramenta String
+  escrita    Boolean
+  argumentos Json?
+  /// ok | erro | recusada
+  resultado  String
+  erro       String?
+  detalhe    Json?
+  duracaoMs  Int?
+
+  @@index([quando])
+  @@index([ferramenta])
+  @@index([escrita, quando])
+  @@map("auditoria_mcp")
 }

@@ -1870,3 +1870,88 @@ e não suposta: o POST de login devolve `HTTP 200` com a própria tela de login 
    a data de crédito de agosto e comparar com a planilha da Duda (970 faturas, R$ 338.933,09).
 3. **Sessão autenticada por uma pessoa** (cookie `CNXSESSID` após resolver o captcha à mão): paliativo
    frágil — o cookie dura 2h sem "manter conectado" — e exige ação humana recorrente.
+
+### Medição: a API v2 NÃO reproduz a Data de Crédito (2026-10-05)
+
+Teste de viabilidade da opção 2, contra as 970 faturas de agosto da planilha da Duda
+(token do comercial, só leitura; `paymentDate` + `creditDays` do meio de recebimento):
+
+| grupo | linhas | batem | % |
+|---|---|---|---|
+| à vista (`creditDays=0`), 1 data | 337 | 337 | **100%** |
+| à vista, várias datas | 3 | 3 | 100% |
+| cartão (`creditDays>0`), 1 data | 69 | 58 | 84% |
+| cartão, várias datas | 120 | 96 | 80% |
+| padrão `+30·k dias úteis` nas listas de parcelas | 123 | 43 | **35%** |
+
+Mais: 441 linhas ("Pix Inter") têm `receivingMethod` que não casa com nenhum nome em
+`/receivingMethods` (não derivável sem mapa manual). `paidAmount` == "Valor Recebido" em 847/847 das
+cobranças de data única.
+
+**Por que o cartão não fecha:** a data real vem da liquidação da adquirente, não de uma regra.
+Exemplos: Cielo pago 23/07 → crédito 22/08 (+30, sábado, sem rolar); pago 30/07 → 31/08 (+32); e
+"Maquininha Cielo - Seatech" credita no próprio dia do pagamento apesar de `creditDays=31`. **O número
+de parcelas do cartão também não está na API** (o Valor Recebido mensal é `valor ÷ N`).
+
+**Conclusão: a memória do usuário estava certa** — foi por isso que o projeto nasceu com login +
+export. A API reproduz o dinheiro à vista com exatidão, mas não o de cartão, e a fidelidade exata ao
+fechamento da Duda é requisito do projeto (ADR-0018). **Opção 2 descartada como fonte única.**
+
+### Caminho recomendado
+
+**Importação manual dos exports** (Contas a Receber + Listar Vendas, baixados por uma pessoa, que
+resolve o captcha) alimentando o MESMO pipeline validado (`categorizeInvoices` + `persist`), mais o
+pedido ao Conexa (opção 1) em paralelo. Preserva 100% da fidelidade e não depende de captcha; custo:
+passa de tempo real a "quando alguém importa".
+
+---
+
+## ADR-0033
+
+**MCP do financeiro — consulta + escrita controlada sobre os dados; desenvolvimento fica no Claude Code.**
+
+Data: 2026-10-05. Status: aceita, implementada, validada localmente (não deployada).
+
+Guia de uso: [mcp.md](mcp.md).
+
+### Decisões (as duas primeiras, do dono)
+
+1. **Dados: consulta + escrita controlada** (e não só leitura, nem escrita total). Escreve só o que a tela já
+   permite; apagar em massa e SQL livre ficam de fora.
+2. **Desenvolvimento NÃO passa pelo MCP.** Um servidor em produção que altera código contornaria git, testes e
+   revisão. O MCP entrega o estado vivo de produção; o código segue no Claude Code.
+3. **Só token pessoal (`shf_…`), sem master por variável de ambiente.** As escritas precisam de uma pessoa a quem
+   atribuir (`revisadoPorId`, `definidoPorId`), e a rota nasce **fechada de verdade** (503 sem nenhum token). O
+   comercial tem master; aqui não, de propósito.
+4. **Rota FORA do gate de sessão do middleware** (autentica sozinha). Alteração mínima: uma entrada em `PUBLIC_PATHS`.
+5. **Aditivo:** 2 tabelas + 1 enum novos (migration só `CREATE`; a FK vive na tabela nova), nenhuma ação existente
+   alterada. As escritas **replicam** as ações da tela em vez de chamá-las (dívida declarada em mcp.md).
+6. **Auditoria de toda chamada**, com o estado anterior das escritas — é o que torna uma exclusão recuperável.
+   Nenhum token entra no rastro.
+7. **`estado_do_sistema` + instruções no `initialize`** existem por causa do incidente do captcha: um agente que vê
+   "R$ 0,00 em outubro" concluiria "não entrou dinheiro", quando a verdade é "nada foi sincronizado".
+   `diagnosticarReceita` (puro, 9 testes) reconhece a causa até pela mensagem ENGANOSA antiga ("verifique senha").
+8. **Escrita em mês fechado exige confirmação explícita** (`disparar_sincronizacao`), por causa da lição da ADR-0030:
+   reprocessar recategoriza e muda metas.
+
+### Defeitos achados pela validação (todos corrigidos, nenhum chegou a produção)
+
+- **Esquema "fechado" que não era** (herdado do MCP do comercial): o JSON Schema dizia `additionalProperties:false`,
+  mas o zod só descarta campo desconhecido — um `revisar_linha` com campo inventado **executou** e alterou a linha.
+  `ferramenta()` agora aplica `.strict()`.
+- Comparação `Decimal.toString()` × `"35000.00"` fazia regravar uma meta gerar evento falso (existe também na tela).
+- Dinheiro serializado sem casas fixas (`"35000"`); agora sempre 2 casas.
+- `GET /api/mcp` devolvia 401 com a rota fechada; agora 503, igual ao POST.
+- `z.literal(true)` saía como `{const:true}` sem `type`; agora com `type: boolean`.
+
+### Validação (Postgres descartável + app de produção local, por HTTP)
+
+Fase A (rota fechada, 3), **fase B (117)**, fase C (trava do ambiente, 6): autenticação (revogado, desativado,
+VIEWER), escopo, cada leitura **conferida contra SQL independente**, cada escrita com os casos de recusa, e a
+auditoria. Mais: as 8 telas existentes seguem 200; 303 testes; typecheck limpo.
+
+### Limitações
+
+- Não validado com um cliente MCP real (Claude Code) nem em produção.
+- ClickUp (vínculos/push) **fora desta versão**.
+- `disparar_sincronizacao` falha enquanto o Conexa exigir captcha (ADR-0032); o MCP só reporta a causa certa.

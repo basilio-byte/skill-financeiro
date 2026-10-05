@@ -6,11 +6,12 @@ import { jwtVerify } from "jose";
  * redireciona para /login quando ausente/inválido. A validação autoritativa
  * (sessão no banco, expiração, papel) acontece nos server components via requireUser().
  *
- * Rotas fora do gate de sessão: /login e /api/health (healthcheck do Easypanel).
+ * Rotas fora do gate de sessão: /login, /api/health (healthcheck do Easypanel) e /api/mcp
+ * (autentica por conta própria, com token pessoal — ADR-0033).
  */
 const COOKIE_NAME = "skillfin_session";
 
-const PUBLIC_PATHS = [/^\/login/, /^\/api\/health$/];
+const PUBLIC_PATHS = [/^\/login/, /^\/api\/health$/, /^\/api\/mcp$/];
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;

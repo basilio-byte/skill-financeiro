@@ -1709,3 +1709,33 @@ credenciais") era enganoso e escondeu a causa por dias.
 
 Entregue: `captcha.ts` (detecção pura + 4 testes), mensagem correta e pausa de 6h no `login()`.
 261 testes, typecheck limpo. A saída estrutural está no ADR-0032, **aguardando decisão**.
+
+---
+
+## 2026-10-05 — MCP do financeiro (ADR-0033), construído e validado localmente
+
+Pedido do dono: um MCP que atenda consulta e desenvolvimento. **Decisões dele:** consulta + escrita
+controlada sobre dados; desenvolvimento fica no Claude Code (um servidor que altera código em produção
+contornaria git e testes).
+
+**Entregue:** `/api/mcp` (JSON-RPC sem estado), 17 ferramentas de consulta e 8 de escrita, tokens pessoais
+(`shf_…`) com tela em Minha conta, auditoria de toda chamada com o estado anterior das escritas, trava
+`MCP_SOMENTE_LEITURA`, e `docs/context/mcp.md`. Base portada do MCP do comercial (protocolo, esquema, tokens).
+
+**Validação por HTTP contra o app de produção local + Postgres descartável (123 verificações):** cada leitura
+conferida contra SQL independente; cada escrita com seus casos de recusa; revisão manual com snapshot original só na
+1ª revisão; exclusão e remoção de meta recuperáveis pela auditoria; VIEWER nunca escreve; token revogado/de usuário
+desativado/sem prefixo -> 401; rota fechada -> 503; trava do ambiente barra até escrita em lote.
+
+**Defeitos que a validação achou** (corrigidos): o esquema "fechado" herdado do comercial só descartava campo
+desconhecido — **um `revisar_linha` com campo inventado executou e alterou a linha**; comparação de Decimal por
+texto gerava evento falso de meta (existe também na tela atual, **não corrigido** por estar fora do escopo);
+dinheiro sem casas fixas; GET com status errado; literal sem `type`.
+
+**Motivo de existir agora:** o incidente do captcha. `estado_do_sistema` diz "RECEITA PARADA" e a causa, porque
+um agente que lê "R$ 0,00 em outubro" concluiria "não entrou dinheiro".
+
+Alterações em arquivos pré-existentes: `schema.prisma` (aditivo), `middleware.ts` (+1 rota pública), `env.ts`
+(+1 variável), `minha-conta/page.tsx` (+ seção de tokens), `.env.example`. 303 testes, typecheck limpo.
+
+**Pendente:** commit/deploy; validar com um cliente MCP real; ClickUp fora desta versão.

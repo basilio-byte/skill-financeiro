@@ -68,6 +68,10 @@ const envSchema = z.object({
   // Dívida muda devagar; não precisa de tick de 15 min.
   INADIMPLENTES_SYNC_INTERVALO_MINUTOS: z.coerce.number().int().positive().default(120),
 
+  // MCP (ADR-0033): "on" remove TODA ferramenta de escrita de tools/list E recusa a chamada
+  // direta com um motivo legível — interruptor de emergência, sem redeploy de código.
+  MCP_SOMENTE_LEITURA: z.string().default("off"),
+
   // Integração ClickUp (ADR-0023) — token pessoal (`pk_...`), enviado como
   // header Authorization cru (sem "Bearer"). Opcional: sem ele, o push some
   // silenciosamente do log em vez de derrubar o boot do app (ver
