@@ -1672,3 +1672,25 @@ sessão). Contato do cliente depende de um formato não confirmado.
 
 **Antes do deploy:** definir `CONEXA_API_TOKEN` no Easypanel; conferir no log
 `[inadimplencia] N cobrança(s) em atraso, R$ ...` e comparar N/valor com a tela do Conexa.
+
+---
+
+## 2026-10-05 — Correção da base da API v2 (a página de inadimplentes vinha vazia)
+
+Em produção, `/inadimplentes` ficou vazia com `Unexpected token '<', "<!DOCTYPE"… is not valid JSON`.
+
+**Causa (minha):** o cliente da API usava `CONEXA_BASE_URL`, a RAIZ do site, que redireciona para a
+tela de login em HTML. A API v2 mora em `.../index.php/api/v2`. Confirmado sem credencial: raiz =
+`302 text/html`; `/index.php/api/v2/charges` = `401 application/json`.
+
+**Por que a validação anterior não pegou:** o Conexa FALSO foi apontado para a mesma base errada, então
+o teste confirmava o contrato que eu escrevi, não o do Conexa real. **Lição:** validar o contrato
+externo contra a fonte real (um GET sem token bastava) ou contra a configuração de quem já funciona
+(o comercial usa `.../index.php/api/v2`).
+
+**Correção:** `CONEXA_API_BASE_URL` própria (default correto, sem ação no Easypanel), `url.ts` puro com
+testes (`montarUrl`, `baseParecidaComApi`), e o cliente recusa resposta não-JSON dizendo a causa.
+257 testes, typecheck limpo.
+
+**Achado separado, anterior a tudo isto:** TODAS as rodadas de receita estão `Falhou` há dias (mês
+corrente e carência). Causa em investigação — ver o log da próxima entrada.

@@ -53,6 +53,10 @@ const envSchema = z.object({
   // servidor em vez de baixar o histórico inteiro. Opcional: sem token a
   // sincronização some em silêncio e o resto do app segue idêntico.
   CONEXA_API_TOKEN: z.string().default(""),
+  // ⚠ Base PRÓPRIA da API v2: ela não mora na raiz do site (que serve a tela admin em
+  // HTML), e CONEXA_BASE_URL é a raiz — usada pelo cliente web. Reaproveitá-la fez a
+  // sincronização de inadimplência receber HTML ("Unexpected token '<'") em produção.
+  CONEXA_API_BASE_URL: z.string().url().default("https://seahubcoworking.conexa.app/index.php/api/v2"),
   // Teto da API medido pelo comercial: 60 req/min. 30 deixa folga para o
   // outro serviço que usa o mesmo token.
   CONEXA_API_RATE_LIMIT_PER_MIN: z.coerce.number().int().min(1).max(60).default(30),

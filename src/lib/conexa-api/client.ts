@@ -1,5 +1,8 @@
 import "server-only";
 import { getEnv } from "@/lib/env";
+import { baseParecidaComApi, montarUrl as montar, type Query } from "@/lib/conexa-api/url";
+
+export type { Query };
 
 /**
  * Cliente da API REST v2 do Conexa — ADR-0031.
@@ -25,9 +28,6 @@ export class ConexaApiError extends Error {
     this.name = "ConexaApiError";
   }
 }
-
-type QueryValue = string | number | Array<string | number> | undefined | null;
-export type Query = Record<string, QueryValue>;
 
 interface Pagina<T> {
   data?: T[];
@@ -63,30 +63,16 @@ async function agendar<T>(tarefa: () => Promise<T>): Promise<T> {
   return vez.then(tarefa);
 }
 
-/**
- * Serialização de query. Regras da API (medidas no comercial), não do TypeScript:
- * arrays com chave `[]` exigem o parâmetro REPETIDO (`id[]=1&id[]=2`) — juntar com
- * vírgula devolve em silêncio o conjunto errado. Exportada para teste.
- */
-export function montarUrl(path: string, query?: Query): string {
-  const base = getEnv().CONEXA_BASE_URL.replace(/\/$/, "");
-  const url = new URL(`${base}/${path.replace(/^\//, "")}`);
-  for (const [k, v] of Object.entries(query ?? {})) {
-    if (v === undefined || v === null) continue;
-    if (Array.isArray(v)) {
-      if (k.endsWith("[]")) for (const x of v) url.searchParams.append(k, String(x));
-      else if (v.length) url.searchParams.set(k, v.join(","));
-    } else {
-      url.searchParams.set(k, String(v));
-    }
-  }
-  return url.toString();
-}
-
 export async function conexaGet<T>(path: string, query?: Query): Promise<T> {
   const env = getEnv();
   if (!env.CONEXA_API_TOKEN) throw new ConexaApiError("CONEXA_API_TOKEN ausente.", 401);
-  const url = montarUrl(path, query);
+  if (!baseParecidaComApi(env.CONEXA_API_BASE_URL)) {
+    throw new ConexaApiError(
+      "CONEXA_API_BASE_URL não parece a base da API v2 (esperado .../index.php/api/v2) — a raiz do site devolve HTML.",
+      0,
+    );
+  }
+  const url = montar(env.CONEXA_API_BASE_URL, path, query);
 
   for (let tentativa = 1; ; tentativa++) {
     let res: Response;
@@ -127,6 +113,12 @@ export async function conexaGet<T>(path: string, query?: Query): Promise<T> {
     }
     // 4xx (inclusive 401/403) sobe direto: insistir com token inválido só gasta cota.
     if (!res.ok) throw new ConexaApiError(`GET ${path} → HTTP ${res.status}`, res.status);
+    // HTTP 200 com HTML = base errada ou sessão de login no meio do caminho. Falha alto
+    // com a CAUSA, em vez do "Unexpected token '<'" que não diz nada a quem lê o log.
+    const tipo = res.headers.get("content-type") ?? "";
+    if (!tipo.includes("json")) {
+      throw new ConexaApiError(`GET ${path}: a resposta não é JSON (content-type "${tipo || "desconhecido"}") — confira CONEXA_API_BASE_URL e o token.`, res.status);
+    }
     return (await res.json()) as T;
   }
 }
