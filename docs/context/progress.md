@@ -1694,3 +1694,18 @@ testes (`montarUrl`, `baseParecidaComApi`), e o cliente recusa resposta não-JSO
 
 **Achado separado, anterior a tudo isto:** TODAS as rodadas de receita estão `Falhou` há dias (mês
 corrente e carência). Causa em investigação — ver o log da próxima entrada.
+
+---
+
+## 2026-10-05 — Receita parada: o Conexa passou a exigir reCAPTCHA no login web (ADR-0032)
+
+Rodadas de receita `Falhou` há dias. Diagnóstico por **uma** tentativa de login inspecionada (sem
+imprimir segredo): HTTP 200 + toast **"Marque o captcha e tente novamente"**; o GET do formulário mostra
+`g-recaptcha` Enterprise (`data-action="LOGIN"`). Em julho não havia.
+
+O usuário suspeitou da migração Vultr→Hostinger: **testei e descartei** — uma máquina fora da
+Hostinger recebe a mesma recusa. Também não é senha. O texto de erro do app ("verifique as
+credenciais") era enganoso e escondeu a causa por dias.
+
+Entregue: `captcha.ts` (detecção pura + 4 testes), mensagem correta e pausa de 6h no `login()`.
+261 testes, typecheck limpo. A saída estrutural está no ADR-0032, **aguardando decisão**.

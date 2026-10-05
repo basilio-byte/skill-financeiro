@@ -1,5 +1,6 @@
 import "server-only";
 import { getEnv } from "@/lib/env";
+import { respostaPedeCaptcha } from "@/lib/conexa-web/captcha";
 
 /**
  * Cliente HTTP para a tela ADMIN (web) do Conexa — NÃO é a API REST v2.
@@ -29,6 +30,15 @@ const FETCH_TIMEOUT_MS = 90_000;
 
 export class ConexaWebError extends Error {}
 
+/**
+ * Freio: depois de um login recusado por captcha, não adianta tentar de novo a cada
+ * tick de 15 min (são ~190 tentativas por dia, todas condenadas, em sistema de
+ * terceiro). Fica em memória de propósito — um deploy/restart libera UMA tentativa,
+ * o que serve de teste natural de que o Conexa mudou.
+ */
+const PAUSA_APOS_CAPTCHA_MS = 6 * 60 * 60_000;
+let captchaPausadoAte = 0;
+
 function formatDateBR(d: Date): string {
   const dd = String(d.getUTCDate()).padStart(2, "0");
   const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
@@ -49,6 +59,14 @@ function extractSessionCookie(res: Response): string | null {
 
 async function login(): Promise<string> {
   const env = getEnv();
+  if (Date.now() < captchaPausadoAte) {
+    throw new ConexaWebError(
+      "Login web do Conexa em pausa: ele exige reCAPTCHA e nenhuma automação resolve isso. " +
+        "Nova tentativa automática em " +
+        new Date(captchaPausadoAte).toISOString() +
+        " (ou ao reiniciar o serviço). A receita precisa de outra fonte — ver docs/context/conexa-integration.md.",
+    );
+  }
   if (!env.CONEXA_WEB_USERNAME || !env.CONEXA_WEB_PASSWORD) {
     throw new ConexaWebError(
       "CONEXA_WEB_USERNAME/CONEXA_WEB_PASSWORD não configurados — necessários para baixar os exports do Conexa.",
@@ -77,6 +95,16 @@ async function login(): Promise<string> {
   // Login bem-sucedido no Conexa redireciona (302) para r=site/index. Se não veio
   // cookie, ou a resposta não foi um redirect, tratamos como falha de credenciais.
   if (!cookie || res.status !== 302) {
+    // Só lê o corpo no caminho de falha (o de sucesso é um 302 sem corpo útil).
+    const corpo = res.status === 200 ? await res.text().catch(() => "") : "";
+    if (respostaPedeCaptcha(corpo)) {
+      captchaPausadoAte = Date.now() + PAUSA_APOS_CAPTCHA_MS;
+      throw new ConexaWebError(
+        "O Conexa passou a exigir reCAPTCHA no login web (resposta: 'Marque o captcha e tente novamente'). " +
+          "Usuário e senha NÃO são o problema, e não é a migração de servidor. Nenhum script resolve captcha — " +
+          "a receita precisa de outra fonte (API v2 ou sessão autenticada por uma pessoa).",
+      );
+    }
     throw new ConexaWebError(
       "Login no Conexa falhou — verifique CONEXA_WEB_USERNAME/CONEXA_WEB_PASSWORD (credenciais ou conta bloqueada).",
     );

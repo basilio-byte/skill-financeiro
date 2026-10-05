@@ -10,7 +10,7 @@ filtro lá) e validado ao vivo contra `seahubcoworking.conexa.app` em 2026-07-21
 
 `POST {CONEXA_BASE_URL}/index.php?r=site/login`
 Body (`application/x-www-form-urlencoded`): `LoginForm[username]`, `LoginForm[password]`,
-`LoginForm[rememberMe]=0`, `token=` (vazio — não há CSRF token nem recaptcha nesse form).
+`LoginForm[rememberMe]=0`, `token=` (vazio). **⚠ DESDE OUT/2026 O FORM TEM reCAPTCHA ENTERPRISE** (`data-action="LOGIN"`): o POST devolve `200` com o toast "Marque o captcha e tente novamente" em vez do `302`. Em jul/2026 não havia. Automação não resolve; ver ADR-0032.
 Sucesso = `302` para `r=site/index` + cookie `CNXSESSID` (válido 2h, `Max-Age=7200`).
 Credenciais: `CONEXA_WEB_USERNAME`/`CONEXA_WEB_PASSWORD` — **usuário/senha reais de login,
 não o token de API.** Nunca commitar valores reais; só via secret do Easypanel/`.env` local.

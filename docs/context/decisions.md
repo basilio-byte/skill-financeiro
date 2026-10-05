@@ -1832,3 +1832,41 @@ URL, servidor filtra, tabela com corte.
 - Não validado contra a **API real** (sem token local): validado contra um Conexa falso que
   reproduz o contrato (paginação `hasNext`, `id[]`, 401, lista vazia, filtro ignorado).
 - Sem exportação CSV (não pedida).
+
+---
+
+## ADR-0032
+
+**Login web do Conexa exige reCAPTCHA — a receita está parada; caminho de saída em aberto.**
+
+Data: 2026-10-05. Status: **diagnosticada; correção estrutural pendente de decisão.**
+
+### O que aconteceu
+
+Todas as rodadas de receita (mês corrente e carência) estão `Falhou`, R$ 0,00, há dias. Causa, medida
+e não suposta: o POST de login devolve `HTTP 200` com a própria tela de login e o toast
+**`Marque o captcha e tente novamente`** (em vez do `302` de sucesso). O formulário agora carrega
+**reCAPTCHA Enterprise** (`data-action="LOGIN"`); em julho o doc registrava "sem recaptcha".
+
+### O que foi descartado
+
+- **Senha/conta:** a mensagem é de captcha, não de credencial.
+- **Migração Vultr→Hostinger (hipótese do usuário):** testada. A mesma recusa ocorre a partir de uma
+  máquina fora da Hostinger (IP residencial).
+- O texto de erro do app dizia "verifique usuário/senha", o que **ficou dias apontando para o lugar errado**.
+
+### Decisão tomada
+
+- **Não contornar o captcha.** Nenhuma automação o resolve, e este projeto não tenta.
+- `login()` reconhece a causa (`captcha.ts`, puro, testado) com mensagem correta e **pausa 6h** em vez
+  de ~190 tentativas condenadas por dia. Em memória: um deploy/restart libera uma tentativa de teste.
+
+### Opções para voltar a ter receita
+
+1. **Conexa:** pedir desativação do captcha / allowlist para o usuário de integração, ou uma credencial
+   de API que dê acesso ao export. Zero código; prazo fora do nosso controle.
+2. **API v2 (token, sem captcha) — saída durável.** A API tem `paymentDate` e, no meio de recebimento,
+   `creditDays`; a Data de Crédito talvez seja **derivável**. NÃO validado. Teste de viabilidade: derivar
+   a data de crédito de agosto e comparar com a planilha da Duda (970 faturas, R$ 338.933,09).
+3. **Sessão autenticada por uma pessoa** (cookie `CNXSESSID` após resolver o captcha à mão): paliativo
+   frágil — o cookie dura 2h sem "manter conectado" — e exige ação humana recorrente.
