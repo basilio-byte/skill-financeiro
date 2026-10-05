@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { getEnv } from "@/lib/env";
 import { computeAutoSyncWindow, computeCarenciaWindow } from "@/lib/scheduler/auto-sync-window";
 import { startCategorizationRun, SincronizacaoEmAndamentoError } from "@/lib/categorization/run";
+import { sincronizarInadimplenciaSeVencida } from "@/lib/inadimplencia/sync";
 
 export { computeAutoSyncWindow, computeCarenciaWindow };
 
@@ -71,6 +72,17 @@ export async function runAutoSyncTick(): Promise<void> {
     console.error("[auto-sync] falha inesperada no mês corrente:", err instanceof Error ? err.message : err);
   }
 
+  await rodarCarencia();
+
+  // Inadimplência (ADR-0031): DEPOIS de toda a receita, e isolada — a função já
+  // trata o próprio erro e não lança. Fica fora de `rodarCarencia` de propósito:
+  // aquele `return` antecipado (fora da janela de carência) pularia isto.
+  await sincronizarInadimplenciaSeVencida();
+}
+
+/** Carência do mês anterior (ADR-0030), extraída sem mudar o comportamento: o
+ * `return` de "fora da janela" agora sai só daqui e não do tick inteiro. */
+async function rodarCarencia(): Promise<void> {
   try {
     const env = getEnv();
     const carencia = computeCarenciaWindow(undefined, env.SYNC_CARENCIA_DIAS);

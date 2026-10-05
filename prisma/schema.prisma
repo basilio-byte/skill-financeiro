@@ -516,3 +516,65 @@ model ClickUpPushLog {
   @@index([vinculoId, enviadoEm])
   @@map("clickup_push_logs")
 }
+
+// ===========================================================================
+// Inadimplência (ADR-0031) — espelho das cobranças em aberto e vencidas.
+//
+// ⚠ SEPARADO de propósito de RevenueCategorizedLine: aquela tabela é receita
+// RECEBIDA (filtrada por Data de Crédito) e alimenta Panorama, Metas e ClickUp.
+// Esta é o oposto — o que NÃO foi pago — e não tem FK, join nem coluna em
+// comum com ela. Uma falha aqui não pode tocar o dinheiro já apurado.
+// ===========================================================================
+
+model CobrancaEmAberto {
+  /// `chargeId` do Conexa.
+  conexaId        Int     @id
+  companyConexaId Int?
+  /// Nome da unidade (SEAHUB COWORKING / SEATECH), resolvido de /companies.
+  unidade         String?
+
+  customerConexaId Int?
+  clienteNome      String?
+  clienteFantasia  String?
+  /// Contato para a cobrança — melhor esforço, pode faltar.
+  telefone         String?
+  email            String?
+
+  /// unpaid | protested | juridical. `negotiated` NÃO entra: é a cobrança
+  /// substituída pela renegociação, e listá-la dobraria a dívida.
+  status String
+  tipo   String?
+
+  /// `currentAmount` (COM juros/multa) quando existe, senão `amount` — a mesma
+  /// régua que a tela do Conexa soma.
+  valor         Decimal @db.Decimal(14, 2)
+  valorOriginal Decimal @db.Decimal(14, 2)
+
+  vencimento  DateTime  @db.Date
+  competencia DateTime? @db.Date
+
+  atualizadoNoConexa DateTime?
+  sincronizadoEm     DateTime  @default(now())
+
+  @@index([vencimento])
+  @@index([customerConexaId])
+  @@index([status])
+  @@map("cobrancas_em_aberto")
+}
+
+/// Uma linha por tentativa de sincronização da inadimplência. Existe para a
+/// tela dizer "atualizado há X" e para o intervalo entre rodadas vir do BANCO
+/// (um contador em memória reiniciaria a cada deploy).
+model InadimplenciaSyncRun {
+  id          String    @id @default(cuid())
+  iniciadoEm  DateTime  @default(now())
+  concluidoEm DateTime?
+  /// RUNNING | DONE | FAILED
+  status      String
+  total       Int       @default(0)
+  valorTotal  Decimal   @default(0) @db.Decimal(14, 2)
+  erro        String?
+
+  @@index([iniciadoEm])
+  @@map("inadimplencia_sync_runs")
+}

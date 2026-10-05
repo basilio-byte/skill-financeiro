@@ -1628,3 +1628,47 @@ completa de cada linha (fatura, chave, mês, valor, data) — **idênticos nas 3
 em setembro. A tabela não cresceu (1361 linhas = 1132 + 229).
 
 Container e scripts descartáveis (`tmp-valida/`) removidos ao final. Typecheck limpo, 222 testes.
+
+---
+
+## 2026-10-05 — Página de inadimplentes (ADR-0031), implementada e validada localmente
+
+Task ClickUp "Melhoria: Dash Financeiro" (prazo 09/10): lista completa de inadimplentes com filtro
+por data e ordem de valor. **Pedido explícito do usuário: não quebrar nada que já opera.**
+
+**O achado que moldou tudo:** o financeiro só tem dinheiro RECEBIDO (filtro de Data de Crédito).
+Inadimplência exige fonte nova. Sondei o export web com vencimento — o login com o `.env` de julho
+**falhou** (senha provavelmente rotacionada; não insisti para não travar a conta) — e passei a ler
+pela **API v2** (decisão do usuário após eu admitir que o web baixaria o histórico inteiro).
+Amostras pequenas da API mostraram o que é dívida: ver ADR-0031 (inclui `negotiated` FORA por
+dupla contagem e `generatedByNegotiation` = já paga).
+
+**Entregue:** 2 tabelas novas (migration só `CREATE TABLE`), cliente API (GET fixo), domínio puro
+(31 testes), sync isolado e atômico com travas, consulta com paginação estável, página
+`/inadimplentes`, item no menu, 4 variáveis de ambiente (todas opcionais).
+
+**Validação (Postgres descartável + Conexa FALSO local, sem credencial nenhuma):**
+- migrations aplicam do zero; 260 cobranças esperadas = 260 obtidas, **R$ 62.590,00 exato**;
+  vence-hoje/futuro/negociada/paga/sem-valor ficaram de fora;
+- idempotente; API 401 → espelho **intacto** e rodada FAILED; lista vazia sobre espelho cheio →
+  **recusada**; API que ignora o filtro → resultado igual;
+- 19 checagens de consulta (ordem, direção, faixas somando o total sem sobreposição, filtros,
+  paginação sem duplicar nem perder, busca, página fora do intervalo);
+- **tick completo do agendador com a receita falhando** (sem login web): inadimplência rodou
+  mesmo assim, e o 2º tick respeitou o intervalo lido do banco;
+- `INADIMPLENTES_SYNC_ENABLED=false` e **sem token**: nada roda;
+- app de produção (`next build` + `next start`) com sessão **VIEWER** forjada: página 200, 45
+  clientes, total certo, URLs maliciosas → 200, sem sessão → 307 /login; **Panorama, Metas,
+  Revisar, Runs e Categorias seguem 200**.
+- Arquivos pré-existentes tocados: 4, **97 inserções, 0 remoções**. 253 testes (222 + 31), typecheck
+  limpo.
+
+**Gotcha novo:** carregar o `.env` do projeto (`NODE_ENV=development`) no shell e rodar `next build`
+quebra com "`<Html>` should not be imported outside of pages/_document" ao prerenderizar `/404`.
+Não é bug de código — buildar com `NODE_ENV=production`.
+
+**Não validado:** contra a **API real** (sem token local) e **visualmente** (sem navegador nesta
+sessão). Contato do cliente depende de um formato não confirmado.
+
+**Antes do deploy:** definir `CONEXA_API_TOKEN` no Easypanel; conferir no log
+`[inadimplencia] N cobrança(s) em atraso, R$ ...` e comparar N/valor com a tela do Conexa.

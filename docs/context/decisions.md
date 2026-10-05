@@ -1763,3 +1763,72 @@ mês em que o dinheiro está entrando agora. Falha nela nunca afeta a do mês co
 - Custo: 1 login + 2 exports extras por hora, em 10 dias de cada mês.
 - A rodada de carência também dispara `pushValoresDoMesCorrente()` no fim (`run.ts`), que
   empurra o mês corrente para o ClickUp. Inofensivo e idempotente, só redundante 1×/hora.
+
+---
+
+## ADR-0031
+
+**Página de inadimplentes — espelho próprio, lido pela API v2, isolado da receita.**
+
+Data: 2026-10-05. Status: aceita, implementada, validada localmente (não deployada).
+
+Origem: task ClickUp "Melhoria: Dash Financeiro" — *página para os inadimplentes (tipo a do dash
+comercial), lista completa com filtro por data e ordem de valor*.
+
+### Contexto
+
+O financeiro só ingere cobranças pelo filtro de **Data de Crédito** — ou seja, dinheiro **já
+recebido**. Inadimplência é o oposto, então o dado **não existia neste banco**: não era "só uma
+tela nova", era uma fonte de dados nova. A "página tipo a do comercial" é o **Radar**: filtros na
+URL, servidor filtra, tabela com corte.
+
+### Decisões
+
+1. **Tabela própria, sem FK nem join com a receita** (`cobrancas_em_aberto`,
+   `inadimplencia_sync_runs`). Panorama, Metas e ClickUp não leem nem escrevem nela. A migration só
+   faz `CREATE TABLE` — nada de `ALTER` em tabela existente (lição do P3009, ADR-0026).
+2. **API REST v2, não o export web.** O export web existe aqui porque o filtro de Data de Crédito
+   só vive nele; para dívida essa razão some. Ele também não filtra por status, então baixaria o
+   histórico inteiro (pagas incluídas) a cada sincronização, sob timeout de 90s. A API filtra
+   `status` e `dueDateTo` no servidor. Cliente enxuto portado do comercial, **GET fixo** (sem
+   `method`/`body`: não há como escrever no Conexa). *(Eu havia recomendado o web por reaproveitar
+   o login; o usuário questionou o volume e a troca foi aprovada.)*
+3. **O que é dívida — medido na API em 2026-10-05, não suposto:**
+   - não existe `overdue`: inadimplente = `unpaid` com vencimento **anterior a hoje** (vence hoje
+     não conta);
+   - `protested` e `juridical` entram (hoje 0 registros; custam 1 requisição cada);
+   - `generatedByNegotiation` são cobranças **já pagas** → fora;
+   - `negotiated` é a cobrança **substituída** pela renegociação (até com vencimento futuro) →
+     **fora**: listá-la dobraria a dívida, e o comercial a tira dos totais pelo mesmo motivo.
+     *Isto restringe a opção "negociada visível" que o usuário marcou; foi decisão técnica por
+     causa da dupla contagem e está declarada na própria tela.*
+4. **Valor = `currentAmount` (com juros/multa) quando existe, senão `amount`** — a régua da tela
+   do Conexa. O original fica guardado e a tela o mostra quando difere.
+5. **A sincronização nunca apaga o que já temos por causa de uma falha:** a lista inteira é
+   montada em memória antes de o banco ser tocado; a troca (apaga + recria) é **uma transação**;
+   página que falha **lança** (nunca devolve lista parcial); e **lista vazia sobre espelho com
+   mais de 20 linhas é recusada** (sintoma de token sem permissão, não de "todos pagaram").
+6. **O critério de domínio é nosso e testado**, não do servidor: se a API ignorar o filtro e
+   mandar pagas/negociadas/futuras, `mapearCobranca` as descarta (provado com servidor falso).
+7. **Agendamento isolado:** roda no tick de 15 min, **depois** de toda a receita, mas só trabalha
+   quando `INADIMPLENTES_SYNC_INTERVALO_MINUTOS` (120) venceu — lido do **banco**, não de memória.
+   Nunca lança. A carência (ADR-0030) foi extraída para função própria porque seu `return`
+   antecipado pularia qualquer coisa depois dela. Sem token, ou com
+   `INADIMPLENTES_SYNC_ENABLED=false`, **nada roda**.
+8. **Página:** estado na URL via formulário `GET` (sem JS de cliente: 162 B), padrão **por
+   cliente** ("inadimplente" é quem deve; por cobrança é um clique), filtro de vencimento (de/até),
+   faixas de atraso como atalhos, ordem por valor ou vencimento, busca, situação, unidade e
+   paginação de 50 com **desempate por id** (sem ele, valores iguais somem/duplicam entre páginas).
+   O total geral aparece ao lado do filtrado, e há aviso se o retrato tem mais de 6h ou se a
+   última rodada falhou (mostrando o último retrato bom, com a data).
+
+### Pendências / limitações
+
+- **Falta `CONEXA_API_TOKEN` no Easypanel do financeiro.** Sem ele a página mostra "aguardando a
+  primeira sincronização". Token novo e separado do comercial permite revogar um sem derrubar o
+  outro — decisão do usuário.
+- Formato de `phones`/`emails` do cliente **não confirmado** na API: extração tolerante
+  (string, lista, lista de objetos), contato é "melhor esforço" e pode vir vazio.
+- Não validado contra a **API real** (sem token local): validado contra um Conexa falso que
+  reproduz o contrato (paginação `hasNext`, `id[]`, 401, lista vazia, filtro ignorado).
+- Sem exportação CSV (não pedida).

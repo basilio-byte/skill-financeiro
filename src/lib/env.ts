@@ -47,6 +47,23 @@ const envSchema = z.object({
   // (sistema de terceiro) durante 10 dias de todo mês, sem ganho.
   SYNC_CARENCIA_INTERVALO_MINUTOS: z.coerce.number().int().positive().default(60),
 
+  // Inadimplência (ADR-0031) — lê cobranças em aberto pela API REST v2 do
+  // Conexa (token Bearer), NÃO pelo login web: aqui não há filtro de Data de
+  // Crédito para justificar o export, e a API filtra status/vencimento no
+  // servidor em vez de baixar o histórico inteiro. Opcional: sem token a
+  // sincronização some em silêncio e o resto do app segue idêntico.
+  CONEXA_API_TOKEN: z.string().default(""),
+  // Teto da API medido pelo comercial: 60 req/min. 30 deixa folga para o
+  // outro serviço que usa o mesmo token.
+  CONEXA_API_RATE_LIMIT_PER_MIN: z.coerce.number().int().min(1).max(60).default(30),
+  // Interruptor: false desliga a sincronização sem redeploy de código.
+  INADIMPLENTES_SYNC_ENABLED: z
+    .string()
+    .default("true")
+    .transform((v) => v === "true"),
+  // Dívida muda devagar; não precisa de tick de 15 min.
+  INADIMPLENTES_SYNC_INTERVALO_MINUTOS: z.coerce.number().int().positive().default(120),
+
   // Integração ClickUp (ADR-0023) — token pessoal (`pk_...`), enviado como
   // header Authorization cru (sem "Bearer"). Opcional: sem ele, o push some
   // silenciosamente do log em vez de derrubar o boot do app (ver
@@ -76,6 +93,11 @@ export function getEnv(): Env {
 export function hasConexaWebCredentials(): boolean {
   const env = getEnv();
   return env.CONEXA_WEB_USERNAME.length > 0 && env.CONEXA_WEB_PASSWORD.length > 0;
+}
+
+/** true quando há token da API v2 do Conexa (inadimplência, ADR-0031). */
+export function hasConexaApiToken(): boolean {
+  return getEnv().CONEXA_API_TOKEN.length > 0;
 }
 
 /** true quando há token configurado para a integração ClickUp. */
