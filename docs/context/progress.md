@@ -1770,3 +1770,17 @@ O MCP conectou na claude.ai (cabeçalho `x-api-key`). `estado_do_sistema` mostro
   só viria 2 h depois. Corrigido: retenta em 15 min após falha, e há `sincronizar_inadimplencia` (MCP).
 - **Validada pela primeira vez contra a API REAL** (ver ADR-0031): 1.187 cobranças, R$ 205.836,47, igual a uma contagem
   independente. 320 testes, typecheck limpo.
+
+## 2026-10-05 — Redesenho visual (somente apresentação)
+- Redesenho premium de todo o painel e da página de login, SEM alterar valores nem mecanismos:
+  tema claro e escuro seguindo o sistema (tokens CSS em `globals.css`, escala Tailwind remapeada por
+  tema), fonte Inter local (`next/font/local`, sem dependência nova), barra lateral agrupada
+  (Visão / Operação / Administração) com menu em gaveta no celular, cabeçalho de página padronizado
+  (`PageHeader`), faixa de indicadores (`KpiStrip`), selos de status (`Selo`, sempre com texto) e
+  explicações longas movidas para o ícone ⓘ (`Dica`, acessível por teclado) — o texto continua inteiro.
+- Ícone da aba do navegador criado (`src/app/icon.png` e `apple-icon.png`).
+- Verificação: impressão digital das 20 rotas (números, links, campos de formulário, opções, tabelas)
+  comparada antes/depois contra o mesmo banco semeado — nenhum valor, link ou campo sumiu; só a
+  contagem de botões subiu (os ⓘ e o menu móvel). `tsc` limpo, 320 testes, build de produção ok,
+  capturas reais em claro/escuro e 1440/390 px conferidas.
+- Não commitado: aguardando o pedido do usuário.

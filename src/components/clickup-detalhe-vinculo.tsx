@@ -140,9 +140,9 @@ function PainelDetalhe({ detalhe }: { detalhe: DetalheState }) {
       {incluidas.length === 0 ? (
         <p className="text-xs text-slate-500">Nenhuma fatura casa com esta categoria + padrões neste mês.</p>
       ) : (
-        <div className="max-h-80 overflow-auto rounded-lg border border-slate-200 bg-white">
+        <div className="max-h-80 overflow-auto rounded-lg border border-slate-200 bg-card">
           <table className="w-full text-left text-xs">
-            <thead className="sticky top-0 bg-white text-slate-500 shadow-[0_1px_0_0_rgb(226_232_240)]">
+            <thead className="sticky top-0 bg-card text-slate-500 shadow-[0_1px_0_0_rgb(var(--slate-200))]">
               <tr>
                 <th className="px-2 py-1.5">Fatura</th>
                 <th className="px-2 py-1.5">Cliente</th>
@@ -169,7 +169,7 @@ function PainelDetalhe({ detalhe }: { detalhe: DetalheState }) {
                         <>
                           {l.itensAtribuidos.map((it) => it.servicoItem).join("; ")}
                           <span
-                            className="ml-1 rounded bg-seahub-100 px-1 py-0.5 text-[10px] text-seahub-700"
+                            className="ml-1 rounded bg-seahub-100 px-1 py-0.5 text-[10px] text-acento-texto"
                             title={`A fatura tem outros produtos além deste. Total da fatura nesta categoria: ${formatBRL(l.valorRecebidoCat)} — aqui entra só a parte deste vínculo.`}
                           >
                             parte da fatura
@@ -217,7 +217,7 @@ function PainelDetalhe({ detalhe }: { detalhe: DetalheState }) {
  */
 function ExcluidasBloco({ excluidas }: { excluidas: LinhaExcluidaDaComposicao[] }) {
   return (
-    <details className="group rounded-lg border border-slate-200 bg-white">
+    <details className="group rounded-lg border border-slate-200 bg-card">
       <summary className="cursor-pointer list-none px-3 py-2 text-xs font-medium text-slate-500 outline-none transition hover:text-slate-700 focus-visible:ring-2 focus-visible:ring-seahub-300">
         <span className="inline-block transition group-open:rotate-90">›</span> {excluidas.length} fatura(s) casam o
         padrão mas somam em outro vínculo
@@ -253,7 +253,7 @@ function ExcluidasBloco({ excluidas }: { excluidas: LinhaExcluidaDaComposicao[] 
                           href={`https://app.clickup.com/t/${p.taskId}`}
                           target="_blank"
                           rel="noreferrer"
-                          className="text-seahub-600 hover:underline"
+                          className="text-acento-texto hover:underline"
                         >
                           {p.taskId}
                         </a>
@@ -265,7 +265,7 @@ function ExcluidasBloco({ excluidas }: { excluidas: LinhaExcluidaDaComposicao[] 
                       href={`https://app.clickup.com/t/${l.reivindicadaPorTaskId}`}
                       target="_blank"
                       rel="noreferrer"
-                      className="text-seahub-600 hover:underline"
+                      className="text-acento-texto hover:underline"
                     >
                       {l.reivindicadaPorTaskId}
                     </a>

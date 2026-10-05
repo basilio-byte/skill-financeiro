@@ -35,7 +35,7 @@ export function PeriodControls({ kind, fromKey, basePath = "/" }: Props) {
             key={p.value}
             onClick={() => push({ g: p.value, ref: null })}
             className={`px-3 py-1.5 text-sm font-medium transition ${
-              kind === p.value ? "bg-seahub-600 text-white" : "bg-white text-slate-600 hover:bg-slate-50"
+              kind === p.value ? "bg-seahub-600 text-white" : "bg-card text-slate-600 hover:bg-slate-50"
             }`}
           >
             {p.label}

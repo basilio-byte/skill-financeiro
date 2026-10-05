@@ -3,6 +3,8 @@ import type { Metadata } from "next";
 import { prisma } from "@/lib/db";
 import { formatBRL } from "@/lib/money";
 import { Card, SectionTitle } from "@/components/ui";
+import { PageHeader } from "@/components/page-header";
+import { Selo, tomDoStatus } from "@/components/selo";
 import { NewRunForm } from "@/app/(dashboard)/runs/new-run-form";
 import { AutoRefresh } from "@/components/auto-refresh";
 
@@ -41,10 +43,7 @@ export default async function RunsPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-xl font-semibold text-slate-900">Sincronizações</h1>
-        <p className="text-sm text-slate-500">Dispare uma nova categorização ou consulte o histórico.</p>
-      </div>
+      <PageHeader titulo="Sincronizações" />
 
       {emAndamento.length > 0 ? (
         <>
@@ -56,16 +55,16 @@ export default async function RunsPage() {
                   <span className="motion-safe:animate-ping absolute inline-flex h-full w-full rounded-full bg-seahub-400 opacity-75" />
                   <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-seahub-600" />
                 </span>
-                <p className="text-sm font-medium text-seahub-700">
+                <p className="text-sm font-medium text-acento-texto">
                   Sincronizando {formatDate(run.periodoInicio)} – {formatDate(run.periodoFim)} ·{" "}
                   {ORIGEM_LABEL[run.origem] ?? run.origem}
                 </p>
               </div>
-              <p className="mt-1 text-xs text-seahub-600">
+              <p className="mt-1 text-xs text-acento-texto">
                 Em andamento há {formatElapsed(Date.now() - run.iniciadoEm.getTime())} — esta página se atualiza
                 sozinha.
               </p>
-              <Link href={`/runs/${run.id}`} className="mt-2 inline-block text-xs font-medium text-seahub-600 hover:text-seahub-700">
+              <Link href={`/runs/${run.id}`} className="mt-2 inline-block text-xs font-medium text-acento-texto hover:text-acento-texto">
                 Ver detalhes →
               </Link>
             </Card>
@@ -83,9 +82,9 @@ export default async function RunsPage() {
               <th className="pb-2 pr-4">Período</th>
               <th className="pb-2 pr-4">Origem</th>
               <th className="pb-2 pr-4">Status</th>
-              <th className="pb-2 pr-4">Faturas CR</th>
-              <th className="pb-2 pr-4">Sem LV</th>
-              <th className="pb-2 pr-4">Total recebido</th>
+              <th className="pb-2 pr-4 text-right">Faturas CR</th>
+              <th className="pb-2 pr-4 text-right">Sem LV</th>
+              <th className="pb-2 pr-4 text-right">Total recebido</th>
               <th className="pb-2 pr-4">Iniciada em</th>
             </tr>
           </thead>
@@ -93,15 +92,17 @@ export default async function RunsPage() {
             {runs.map((run) => (
               <tr key={run.id} className="border-t border-slate-100">
                 <td className="py-2 pr-4">
-                  <Link href={`/runs/${run.id}`} className="text-seahub-600 hover:underline">
+                  <Link href={`/runs/${run.id}`} className="text-acento-texto hover:underline">
                     {formatDate(run.periodoInicio)} – {formatDate(run.periodoFim)}
                   </Link>
                 </td>
                 <td className="py-2 pr-4">{ORIGEM_LABEL[run.origem] ?? run.origem}</td>
-                <td className="py-2 pr-4">{STATUS_LABEL[run.status] ?? run.status}</td>
-                <td className="py-2 pr-4">{run.totalLinhasCR}</td>
-                <td className="py-2 pr-4">{run.totalSemLV}</td>
-                <td className="py-2 pr-4">{formatBRL(run.totalRecebido.toString())}</td>
+                <td className="py-2 pr-4">
+                  <Selo tom={tomDoStatus(run.status)}>{STATUS_LABEL[run.status] ?? run.status}</Selo>
+                </td>
+                <td className="tabular py-2 pr-4 text-right">{run.totalLinhasCR}</td>
+                <td className="tabular py-2 pr-4 text-right">{run.totalSemLV}</td>
+                <td className="tabular py-2 pr-4 text-right">{formatBRL(run.totalRecebido.toString())}</td>
                 <td className="py-2 pr-4 text-slate-500">{run.iniciadoEm.toLocaleString("pt-BR")}</td>
               </tr>
             ))}

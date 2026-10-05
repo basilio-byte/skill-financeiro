@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { Card, SectionTitle } from "@/components/ui";
 import { LinhaRevisaoRow, type LinhaRevisao } from "@/components/linha-revisao-row";
 import { listCategoriasConhecidas } from "@/lib/categorization/categorias";
+import { PageHeader } from "@/components/page-header";
 
 export const metadata: Metadata = { title: "Revisar" };
 
@@ -55,13 +56,7 @@ export default async function RevisarPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-xl font-semibold text-slate-900">Revisar</h1>
-        <p className="text-sm text-slate-500">
-          Todas as faturas rateadas ("S") ou sem correspondência no Listar Vendas ("Sem LV") do sistema, sempre
-          atuais — não escopadas a uma rodada específica. Linhas com valor R$ 0,00 não entram na fila.
-        </p>
-      </div>
+      <PageHeader titulo={"Revisar"} descricao={"Faturas rateadas ou sem correspondência no Listar Vendas."} dica={"Todas as faturas rateadas (\"S\") ou sem correspondência no Listar Vendas (\"Sem LV\") do sistema, sempre atuais — não escopadas a uma rodada específica. Linhas com valor R$ 0,00 não entram na fila."} />
 
       <Card className="overflow-x-auto">
         <SectionTitle hint={`${totalPendentes} pendente(s) de revisão`}>Faturas para revisar</SectionTitle>

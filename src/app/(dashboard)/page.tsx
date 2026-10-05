@@ -6,7 +6,9 @@ import { MetasPanel } from "@/components/metas-panel";
 import { APP_TZ, PERIOD_KINDS, comInicialMaiuscula, nowInAppTz, type PeriodKind } from "@/lib/dates";
 import { formatBRL, formatPercent } from "@/lib/money";
 import { Card, SectionTitle } from "@/components/ui";
-import { KpiCard } from "@/components/kpi-card";
+import { KpiCard, KpiStrip } from "@/components/kpi-card";
+import { PageHeader } from "@/components/page-header";
+import { Selo, tomDoStatus } from "@/components/selo";
 import { ChartCard } from "@/components/charts/chart-card";
 import { PeriodBarChart } from "@/components/charts/period-bar-chart";
 import { BreakdownList } from "@/components/breakdown-list";
@@ -53,17 +55,15 @@ export default async function PanoramaPage({
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold text-slate-900">Panorama</h1>
-          {/* Não usar `capitalize`: maiúscula CADA palavra ("Julho De 2026"). */}
-          <p className="text-sm text-slate-500">{comInicialMaiuscula(report.periodo.label)}</p>
-        </div>
-        <PeriodControls kind={kind} fromKey={report.periodo.fromKey} />
-      </div>
+      {/* Não usar `capitalize`: maiúscula CADA palavra ("Julho De 2026"). */}
+      <PageHeader
+        titulo="Panorama"
+        descricao={comInicialMaiuscula(report.periodo.label)}
+        acao={<PeriodControls kind={kind} fromKey={report.periodo.fromKey} />}
+      />
 
       {/* KPIs */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <KpiStrip>
         <KpiCard
           label="Total recebido no período"
           amount={report.totalRecebidoPeriodo}
@@ -79,7 +79,7 @@ export default async function PanoramaPage({
         />
         <KpiCard label="Sincronizações concluídas" value={String(report.rodadasConcluidas)} hint="total do sistema" />
         <KpiCard label="Regras de categorização ativas" value={String(report.regrasCadastradas)} />
-      </div>
+      </KpiStrip>
 
       {/* Metas do período — logo abaixo dos KPIs, antes dos detalhamentos */}
       <MetasPanel metas={metas} />
@@ -127,7 +127,7 @@ export default async function PanoramaPage({
                 <th className="pb-2 pr-4">Quando</th>
                 <th className="pb-2 pr-4">Período</th>
                 <th className="pb-2 pr-4">Status</th>
-                <th className="pb-2 pr-4">Total</th>
+                <th className="pb-2 pr-4 text-right">Total</th>
               </tr>
             </thead>
             <tbody>
@@ -141,19 +141,21 @@ export default async function PanoramaPage({
                     ) : null}
                   </td>
                   <td className="py-2 pr-4">
-                    <Link href={`/runs/${r.id}`} className="text-seahub-600 hover:underline">
+                    <Link href={`/runs/${r.id}`} className="text-acento-texto hover:underline">
                       {fmtDate(r.periodoInicio)} – {fmtDate(r.periodoFim)}
                     </Link>
                   </td>
-                  <td className="py-2 pr-4">{STATUS_LABEL[r.status] ?? r.status}</td>
-                  <td className="py-2 pr-4">{formatBRL(r.totalRecebido)}</td>
+                  <td className="py-2 pr-4">
+                    <Selo tom={tomDoStatus(r.status)}>{STATUS_LABEL[r.status] ?? r.status}</Selo>
+                  </td>
+                  <td className="tabular py-2 pr-4 text-right">{formatBRL(r.totalRecebido)}</td>
                 </tr>
               ))}
               {report.ultimasRodadas.length === 0 ? (
                 <tr>
                   <td colSpan={4} className="py-6 text-center text-slate-400">
                     Nenhuma sincronização ainda —{" "}
-                    <Link href="/runs" className="text-seahub-600 hover:underline">
+                    <Link href="/runs" className="text-acento-texto hover:underline">
                       criar a primeira
                     </Link>
                     .
@@ -163,7 +165,7 @@ export default async function PanoramaPage({
             </tbody>
           </table>
         </div>
-        <Link href="/runs" className="mt-4 inline-block text-sm font-medium text-seahub-600 hover:text-seahub-700">
+        <Link href="/runs" className="mt-4 inline-block text-sm font-medium text-acento-texto hover:text-acento-texto">
           Ver todas as sincronizações →
         </Link>
       </Card>

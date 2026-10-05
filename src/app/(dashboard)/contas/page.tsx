@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
 import { Card, SectionTitle } from "@/components/ui";
 import { CreateUserForm, UserRow, type UserRowData } from "@/components/contas-panel";
+import { PageHeader } from "@/components/page-header";
 
 export const metadata: Metadata = { title: "Contas e acessos" };
 
@@ -26,13 +27,7 @@ export default async function ContasPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-xl font-semibold text-slate-900">Contas e acessos</h1>
-        <p className="text-sm text-slate-500">
-          Usuários internos, papéis e senhas. Administradores gerenciam categorias e disparam sincronizações;
-          visualizadores só consultam.
-        </p>
-      </div>
+      <PageHeader titulo={"Contas e acessos"} descricao={"Usuários internos, papéis e senhas."} dica={"Administradores gerenciam categorias e disparam sincronizações; visualizadores só consultam."} />
 
       <Card>
         <SectionTitle>Novo usuário</SectionTitle>
@@ -44,7 +39,7 @@ export default async function ContasPage() {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-xs uppercase text-slate-400">
+              <tr className="text-left text-slate-500">
                 <th className="px-3 py-2">Usuário</th>
                 <th className="px-3 py-2">Papel</th>
                 <th className="px-3 py-2">Situação</th>
@@ -70,7 +65,7 @@ export default async function ContasPage() {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-xs uppercase text-slate-400">
+              <tr className="text-left text-slate-500">
                 <th className="px-3 py-2">Quando</th>
                 <th className="px-3 py-2">E-mail</th>
                 <th className="px-3 py-2">Resultado</th>

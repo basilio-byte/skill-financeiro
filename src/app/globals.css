@@ -2,26 +2,385 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  @apply bg-slate-50 text-slate-900;
+/**
+ * Sistema de design do painel financeiro — tema claro e escuro.
+ *
+ * ⚠ `color-scheme` é declarado de propósito. Sem ele, o Chrome aplica o "auto dark mode" em páginas que
+ * não declaram esquema: inverte fundos, preserva parte das cores e arruína o contraste (campos de
+ * formulário cinza, logo sumindo). Foi exatamente o que aconteceu com este painel até 2026-10-05.
+ * Declarando o esquema, o navegador para de adivinhar — e o modo escuro aqui é ESCOLHIDO, não um espelho
+ * automático do claro: cada cor tem um passo próprio, medido contra a superfície escura.
+ *
+ * ⚠ As escalas `slate`, `seahub`, `red`, `emerald`, `amber` e `orange` são TRIPLETOS RGB (ver
+ * tailwind.config.ts): mantêm os nomes que o código já usa, mas o que cada degrau significa é definido
+ * AQUI. Os neutros têm um leve tom azulado (o matiz da marca) — nada de bege.
+ *
+ * Contraste (WCAG): texto corrido ≥ 4,5:1 sobre o cartão nos dois temas. `slate-400`, que era cinza claro
+ * demais para o 12px que o painel usa em dicas, foi escurecido para ~4,9:1 no claro.
+ */
+:root {
+  color-scheme: light;
+
+  /* ── Superfícies ── */
+  --c-plano: 242 244 248;
+  --c-card: 255 255 255;
+  --c-card-2: 249 250 252;
+
+  /* ── Neutros (tom azulado da marca) ── */
+  --slate-50: 247 248 250;
+  --slate-100: 238 240 244;
+  --slate-200: 226 229 235;
+  --slate-300: 203 208 217;
+  --slate-400: 107 115 133;
+  --slate-500: 90 98 114;
+  --slate-600: 71 80 99;
+  --slate-700: 55 64 81;
+  --slate-800: 31 38 51;
+  --slate-900: 15 22 35;
+
+  /* ── Acento (azul da marca) ── */
+  --seahub-50: 235 243 253;
+  --seahub-100: 214 230 250;
+  --seahub-200: 174 205 243;
+  --seahub-300: 127 176 236;
+  --seahub-400: 74 143 224;
+  --seahub-500: 42 120 214;
+  --seahub-600: 36 104 191;
+  --seahub-700: 27 87 163;
+  --seahub-800: 24 79 149;
+  --seahub-900: 18 60 115;
+  --acento-texto: 24 79 149;
+
+  /* ── Estados: washes (fundo), bordas e tintas (texto). Sempre acompanhados de rótulo. ── */
+  --red-50: 253 240 239;
+  --red-100: 251 217 214;
+  --red-200: 243 179 174;
+  --red-300: 232 140 133;
+  --red-500: 208 59 59;
+  --red-600: 180 35 35;
+  --red-700: 163 32 32;
+  --red-800: 140 28 28;
+
+  --emerald-50: 236 248 239;
+  --emerald-100: 211 240 218;
+  --emerald-600: 21 128 61;
+  --emerald-700: 16 107 51;
+  --emerald-800: 13 90 42;
+
+  --amber-50: 253 247 230;
+  --amber-100: 250 236 191;
+  --amber-200: 242 217 139;
+  --amber-300: 232 196 96;
+  --amber-700: 138 90 0;
+  --amber-800: 122 79 0;
+  --amber-900: 95 61 0;
+
+  --orange-100: 253 230 214;
+  --orange-800: 154 63 16;
+
+  /* ── Marca: painel de navegação e login ── */
+  --marca: 13 54 107;
+  --marca-topo: #16375d;
+  --marca-base: #0a1e35;
+  --marca-tinta: rgba(255, 255, 255, 0.94);
+  --marca-tinta-2: rgba(255, 255, 255, 0.64);
+  --marca-tinta-3: rgba(255, 255, 255, 0.42);
+  --marca-ativo: rgba(255, 255, 255, 0.13);
+  --marca-hover: rgba(255, 255, 255, 0.07);
+  --marca-borda: rgba(255, 255, 255, 0.09);
+  --marca-brilho: #2a78d6;
+
+  /* ── Cromo de gráfico (recharts não lê classes: lê estas variáveis) ── */
+  --grafico-grade: #e4e7ee;
+  --grafico-eixo: #c9cfda;
+  --grafico-texto: #6b7385;
+  --grafico-serie: #2a78d6;
+
+  /* ── Sombra e foco ── */
+  --sombra-1: 0 1px 2px rgba(15, 22, 35, 0.05), 0 1px 1px rgba(15, 22, 35, 0.03);
+  --sombra-2: 0 1px 2px rgba(15, 22, 35, 0.05), 0 6px 16px -4px rgba(15, 22, 35, 0.09);
+  --sombra-3: 0 16px 40px -12px rgba(15, 22, 35, 0.2), 0 2px 6px rgba(15, 22, 35, 0.06);
+  --foco: 0 0 0 2px rgb(var(--c-plano)), 0 0 0 4px rgb(var(--seahub-500));
+
+  --raio-sm: 6px;
+  --raio: 10px;
+  --raio-lg: 14px;
+
+  --fonte: var(--fonte-inter), system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
-.btn {
-  @apply inline-flex items-center justify-center rounded-md bg-seahub-600 px-4 py-2 text-sm font-medium text-white hover:bg-seahub-700 disabled:opacity-50;
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+
+    --c-plano: 12 16 22;
+    --c-card: 20 25 34;
+    --c-card-2: 26 32 43;
+
+    /* A escala INVERTE: slate-900 (o texto mais forte) vira quase branco. */
+    --slate-50: 26 33 44;
+    --slate-100: 33 41 54;
+    --slate-200: 45 54 69;
+    --slate-300: 61 71 89;
+    --slate-400: 143 153 171;
+    --slate-500: 160 169 186;
+    --slate-600: 181 189 203;
+    --slate-700: 205 211 222;
+    --slate-800: 228 232 238;
+    --slate-900: 244 246 249;
+
+    --seahub-50: 20 36 58;
+    --seahub-100: 24 48 79;
+    --seahub-200: 31 66 114;
+    --seahub-300: 43 90 151;
+    --seahub-400: 91 155 234;
+    --seahub-500: 57 135 229;
+    --seahub-600: 47 120 208;
+    --seahub-700: 70 144 232;
+    --seahub-800: 134 182 239;
+    --seahub-900: 170 205 245;
+    --acento-texto: 134 182 239;
+
+    --red-50: 42 24 24;
+    --red-100: 58 31 29;
+    --red-200: 90 43 40;
+    --red-300: 120 55 50;
+    --red-500: 229 92 92;
+    --red-600: 240 138 138;
+    --red-700: 244 160 160;
+    --red-800: 248 184 184;
+
+    --emerald-50: 18 38 26;
+    --emerald-100: 22 58 36;
+    --emerald-600: 95 208 138;
+    --emerald-700: 116 217 154;
+    --emerald-800: 142 227 174;
+
+    --amber-50: 42 36 18;
+    --amber-100: 58 48 21;
+    --amber-200: 90 74 26;
+    --amber-300: 122 100 32;
+    --amber-700: 240 190 85;
+    --amber-800: 244 201 107;
+    --amber-900: 248 217 138;
+
+    --orange-100: 58 34 22;
+    --orange-800: 240 160 112;
+
+    /* No escuro a navegação vira um painel ELEVADO com cast azul (um azul-marinho chapado sobre o plano
+       quase preto vibra e perde a aresta); a identidade passa para o acento. */
+    --marca: 21 25 34;
+    --marca-topo: #171c26;
+    --marca-base: #101319;
+    --marca-tinta: rgba(255, 255, 255, 0.92);
+    --marca-tinta-2: rgba(255, 255, 255, 0.58);
+    --marca-tinta-3: rgba(255, 255, 255, 0.38);
+    --marca-ativo: rgba(255, 255, 255, 0.09);
+    --marca-hover: rgba(255, 255, 255, 0.05);
+    --marca-borda: rgba(255, 255, 255, 0.07);
+    --marca-brilho: #3987e5;
+
+    --grafico-grade: #232a36;
+    --grafico-eixo: #343d4d;
+    --grafico-texto: #8f99ab;
+    --grafico-serie: #3987e5;
+
+    --sombra-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --sombra-2: 0 2px 4px rgba(0, 0, 0, 0.4), 0 8px 20px -6px rgba(0, 0, 0, 0.5);
+    --sombra-3: 0 20px 48px -12px rgba(0, 0, 0, 0.7), 0 2px 8px rgba(0, 0, 0, 0.5);
+  }
 }
 
-.btn-secondary {
-  @apply inline-flex items-center justify-center rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50;
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    background: rgb(var(--c-plano));
+    color: rgb(var(--slate-900));
+    font-family: var(--fonte);
+    /* 430, não 400: a Inter variável em 400 renderiza fina demais em texto pequeno no Windows. */
+    font-weight: 430;
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: "cv11", "ss03";
+  }
+
+  strong,
+  b {
+    font-weight: 640;
+  }
+
+  /* Valores monetários e contagens: dígitos de largura fixa, para as colunas alinharem. */
+  .tabular,
+  .num {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Um anel de foco só, em tudo que recebe teclado. */
+  :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: none;
+    box-shadow: var(--foco);
+    border-radius: var(--raio-sm);
+  }
+
+  ::selection {
+    background: rgb(var(--seahub-500) / 0.28);
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--slate-300)) transparent;
+  }
+
+  /* Datas e seletores nativos acompanham o tema (o ícone do calendário do Chrome some no escuro sem isto). */
+  input[type="date"]::-webkit-calendar-picker-indicator {
+    opacity: 0.7;
+    cursor: pointer;
+  }
+  @media (prefers-color-scheme: dark) {
+    input[type="date"]::-webkit-calendar-picker-indicator {
+      filter: invert(1);
+    }
+  }
 }
 
-.input {
-  @apply block w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-seahub-500 focus:outline-none focus:ring-1 focus:ring-seahub-500;
+@layer components {
+  /* ── Superfície de conteúdo ── */
+  .card {
+    background: rgb(var(--c-card));
+    border: 1px solid rgb(var(--slate-200) / 0.9);
+    border-radius: var(--raio);
+    box-shadow: var(--sombra-1);
+    padding: 1.25rem;
+  }
+
+  /* ── Controles ── */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    border-radius: var(--raio-sm);
+    border: 1px solid transparent;
+    background: rgb(var(--seahub-600));
+    padding: 0.5rem 0.9rem;
+    font-size: 0.875rem;
+    font-weight: 570;
+    color: #fff;
+    box-shadow: var(--sombra-1);
+    transition:
+      background 140ms ease,
+      border-color 140ms ease,
+      opacity 140ms ease;
+    white-space: nowrap;
+  }
+  .btn:hover:not(:disabled) {
+    background: rgb(var(--seahub-700));
+  }
+  .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .btn-secondary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    border-radius: var(--raio-sm);
+    border: 1px solid rgb(var(--slate-300) / 0.9);
+    background: rgb(var(--c-card));
+    padding: 0.5rem 0.9rem;
+    font-size: 0.875rem;
+    font-weight: 570;
+    color: rgb(var(--slate-800));
+    box-shadow: var(--sombra-1);
+    transition:
+      background 140ms ease,
+      border-color 140ms ease;
+    white-space: nowrap;
+  }
+  .btn-secondary:hover:not(:disabled) {
+    background: rgb(var(--slate-50));
+    border-color: rgb(var(--slate-400) / 0.7);
+  }
+  .btn-secondary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .input {
+    display: block;
+    width: 100%;
+    border-radius: var(--raio-sm);
+    border: 1px solid rgb(var(--slate-300) / 0.9);
+    background: rgb(var(--c-card));
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    color: rgb(var(--slate-900));
+    box-shadow: var(--sombra-1);
+    transition:
+      border-color 140ms ease,
+      background 140ms ease;
+  }
+  .input::placeholder {
+    color: rgb(var(--slate-400));
+  }
+  .input:hover {
+    border-color: rgb(var(--slate-400) / 0.7);
+  }
+  .input:focus {
+    outline: none;
+    border-color: rgb(var(--seahub-500));
+    box-shadow: var(--foco);
+  }
+
+  .label {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-size: 0.8125rem;
+    font-weight: 560;
+    color: rgb(var(--slate-600));
+  }
 }
 
-.card {
-  @apply rounded-lg border border-slate-200 bg-white p-6 shadow-sm;
+/* ── Tabelas ───────────────────────────────────────────────────────────────
+   Estilizadas aqui, UMA vez, em vez de em cada tela: o markup de tabela mudaria 10 arquivos, e este é
+   só apresentação. `:where()` mantém a especificidade baixa — uma tabela que precise ser diferente
+   continua podendo sobrescrever com utilitários. */
+:where(main) table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+:where(main) thead th {
+  font-size: 0.75rem;
+  font-weight: 580;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  color: rgb(var(--slate-500));
+  border-bottom: 1px solid rgb(var(--slate-200));
+  white-space: nowrap;
+}
+:where(main) tbody td {
+  font-variant-numeric: tabular-nums;
+}
+:where(main) tbody tr {
+  transition: background 120ms ease;
+}
+:where(main) tbody tr:hover > td {
+  background: rgb(var(--slate-50) / 0.8);
 }
 
-.label {
-  @apply mb-1 block text-sm font-medium text-slate-700;
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
 }

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Card, SectionTitle } from "@/components/ui";
-import { KpiCard } from "@/components/kpi-card";
+import { KpiCard, KpiStrip } from "@/components/kpi-card";
 import { formatBRL } from "@/lib/money";
 import { keyToUtcDate, todayKey } from "@/lib/dates";
 import { cn } from "@/lib/ui";
@@ -12,6 +12,7 @@ import {
   type LinhaCliente,
   type LinhaCobranca,
 } from "@/lib/inadimplencia/consulta";
+import { PageHeader } from "@/components/page-header";
 
 export const metadata: Metadata = { title: "Inadimplentes" };
 export const dynamic = "force-dynamic";
@@ -53,12 +54,7 @@ export default async function InadimplentesPage({ searchParams }: { searchParams
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-xl font-semibold text-slate-900">Inadimplentes</h1>
-        <p className="text-sm text-slate-500">
-          Cobranças não pagas com vencimento anterior a hoje, direto do Conexa. Vence hoje ainda não conta como atraso.
-        </p>
-      </div>
+      <PageHeader titulo={"Inadimplentes"} descricao={"Cobranças vencidas e não pagas, direto do Conexa."} dica={"Cobranças não pagas com vencimento anterior a hoje. Vence hoje ainda não conta como atraso."} />
 
       {nunca ? (
         <Card className="border-amber-200 bg-amber-50 text-sm text-amber-900">
@@ -83,7 +79,7 @@ export default async function InadimplentesPage({ searchParams }: { searchParams
         </p>
       )}
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <KpiStrip>
         <KpiCard
           label="Total em atraso"
           amount={r.totais.valor}
@@ -101,7 +97,7 @@ export default async function InadimplentesPage({ searchParams }: { searchParams
           sublabel={temFiltro ? `de ${r.geral.clientes.toLocaleString("pt-BR")} no geral` : undefined}
         />
         <KpiCard label="Maior atraso" value={`${r.totais.maiorAtraso.toLocaleString("pt-BR")} dias`} />
-      </div>
+      </KpiStrip>
 
       <Card>
         <SectionTitle hint="atalhos pela idade da dívida (todas as cobranças, sem outros filtros)">
@@ -117,7 +113,7 @@ export default async function InadimplentesPage({ searchParams }: { searchParams
                 aria-pressed={ativa}
                 className={cn(
                   "rounded-lg border px-3 py-2 text-sm transition",
-                  ativa ? "border-seahub-600 bg-seahub-50 text-seahub-800" : "border-slate-200 bg-white hover:bg-slate-50",
+                  ativa ? "border-seahub-600 bg-seahub-50 text-acento-texto" : "border-slate-200 bg-card hover:bg-slate-50",
                 )}
               >
                 <span className="font-medium">{fx.rotulo}</span>
@@ -202,7 +198,7 @@ export default async function InadimplentesPage({ searchParams }: { searchParams
                 href={href({ visao: v, pagina: null })}
                 className={cn(
                   "px-3 py-1.5 font-medium transition",
-                  f.visao === v ? "bg-seahub-600 text-white" : "bg-white text-slate-600 hover:bg-slate-50",
+                  f.visao === v ? "bg-seahub-600 text-white" : "bg-card text-slate-600 hover:bg-slate-50",
                 )}
               >
                 {v === "cliente" ? "Por cliente" : "Por cobrança"}

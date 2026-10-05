@@ -26,7 +26,7 @@ export function PeriodBarChart({ data, height = 240 }: { data: PeriodPoint[]; he
             tick={{ fontSize: 11, fill: CHROME.muted }}
             tickLine={false}
             axisLine={{ stroke: CHROME.axis }}
-            minTickGap={8}
+            minTickGap={28}
           />
           <YAxis
             tickFormatter={(v: number) => formatBRLCompact(v)}
@@ -36,13 +36,15 @@ export function PeriodBarChart({ data, height = 240 }: { data: PeriodPoint[]; he
             width={72}
           />
           <Tooltip
-            cursor={{ fill: "rgba(11,11,11,0.04)" }}
+            cursor={{ fill: "rgb(var(--slate-400) / 0.12)" }}
             formatter={(value: number) => [formatBRL(value), "Total recebido"]}
             contentStyle={{
               borderRadius: 8,
               border: `1px solid ${CHROME.gridline}`,
               fontSize: 12,
               color: CHROME.textPrimary,
+              backgroundColor: CHROME.surface,
+              boxShadow: "var(--sombra-2)",
             }}
           />
           <Bar dataKey="total" name="Total recebido" fill={TOTAL_RECEBIDO} radius={[4, 4, 0, 0]} maxBarSize={40} />

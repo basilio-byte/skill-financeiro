@@ -2,6 +2,7 @@ import Link from "next/link";
 import { comInicialMaiuscula } from "@/lib/dates";
 import { formatBRL, formatPercent } from "@/lib/money";
 import { Card, SectionTitle } from "@/components/ui";
+import { Dica } from "@/components/dica";
 import type { BlocoMetas, MetasDoPeriodo, MetaEscopoResolvido } from "@/lib/metas/metas";
 
 /**
@@ -169,7 +170,7 @@ function BlocoCard({ bloco }: { bloco: BlocoMetas }) {
   const globalComMeta = comMeta.some((e) => e.abrangeTudo);
 
   return (
-    <section className="rounded-lg border border-slate-200 p-4">
+    <section className="rounded-lg bg-slate-50/70 p-4">
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         <h3 className="text-sm font-semibold text-slate-700">{ehMensal ? "Mensal" : "Trimestral"}</h3>
         {/* O período apurado, sempre explícito — é o que impede confundir o
@@ -184,7 +185,7 @@ function BlocoCard({ bloco }: { bloco: BlocoMetas }) {
           Nenhuma meta {ehMensal ? "mensal" : "trimestral"} para {bloco.label} —{" "}
           <Link
             href="/metas"
-            className="text-seahub-600 hover:underline"
+            className="text-acento-texto hover:underline"
             aria-label={ehMensal ? "Definir meta mensal" : "Definir meta trimestral"}
           >
             definir
@@ -233,7 +234,7 @@ function BlocoCard({ bloco }: { bloco: BlocoMetas }) {
         <p className="mt-2 text-xs text-slate-600">
           {ocultos === 1 ? "1 escopo sem meta" : `${ocultos} escopos sem meta`} {ehMensal ? "mensal" : "trimestral"} —
           fora desta lista.{" "}
-          <Link href="/metas" className="text-seahub-600 hover:underline">
+          <Link href="/metas" className="text-acento-texto hover:underline">
             Definir
           </Link>
           .
@@ -241,10 +242,12 @@ function BlocoCard({ bloco }: { bloco: BlocoMetas }) {
       ) : null}
 
       {bloco.ritmoEsperadoPct !== null && !semMeta ? (
-        <p className="mt-2 text-xs text-slate-400">
-          O traço marca {formatPercent(bloco.ritmoEsperadoPct)} — onde o intervalo estaria se a receita entrasse por
-          igual todos os dias. É referência, não previsão: a Data de Crédito se concentra nos vencimentos, então ficar
-          atrás do traço no começo é normal.
+        <p className="mt-2 flex items-center gap-1 text-xs text-slate-500">
+          O traço marca {formatPercent(bloco.ritmoEsperadoPct)}
+          <Dica alinhar="direita">
+            Onde o intervalo estaria se a receita entrasse por igual todos os dias. É referência, não previsão: a Data
+            de Crédito se concentra nos vencimentos, então ficar atrás do traço no começo é normal.
+          </Dica>
         </p>
       ) : null}
     </section>
@@ -258,11 +261,11 @@ export function MetasPanel({ metas }: { metas: MetasDoPeriodo }) {
         <SectionTitle>Metas</SectionTitle>
         <p className="text-sm text-slate-500">
           {metas.motivo}{" "}
-          <Link href="/?g=month" className="text-seahub-600 hover:underline">
+          <Link href="/?g=month" className="text-acento-texto hover:underline">
             Ver por mês
           </Link>{" "}
           ou{" "}
-          <Link href="/?g=quarter" className="text-seahub-600 hover:underline">
+          <Link href="/?g=quarter" className="text-acento-texto hover:underline">
             por trimestre
           </Link>
           .
@@ -277,7 +280,7 @@ export function MetasPanel({ metas }: { metas: MetasDoPeriodo }) {
         <SectionTitle>Metas</SectionTitle>
         <p className="text-sm text-slate-500">
           Nenhum escopo de meta cadastrado ainda —{" "}
-          <Link href="/metas" className="text-seahub-600 hover:underline">
+          <Link href="/metas" className="text-acento-texto hover:underline">
             configurar em Metas
           </Link>
           .
@@ -296,7 +299,7 @@ export function MetasPanel({ metas }: { metas: MetasDoPeriodo }) {
         <SectionTitle hint="por Data de Crédito da Cobrança">Metas</SectionTitle>
         <p className="text-sm text-slate-500">
           Nenhuma meta {periodos.join(" nem ")} —{" "}
-          <Link href="/metas" className="text-seahub-600 hover:underline">
+          <Link href="/metas" className="text-acento-texto hover:underline">
             definir em Metas
           </Link>
           .
@@ -312,14 +315,17 @@ export function MetasPanel({ metas }: { metas: MetasDoPeriodo }) {
 
   return (
     <Card>
-      <SectionTitle hint="por Data de Crédito da Cobrança">Metas</SectionTitle>
-
-      {algumBlocoDifere ? (
-        <p className="mb-3 text-xs text-slate-500">
-          Metas mensais e trimestrais são independentes — cada bloco abaixo é apurado no seu próprio período, então o
-          realizado de um pode ser maior que o do outro.
-        </p>
-      ) : null}
+      <SectionTitle hint="por Data de Crédito da Cobrança">
+        Metas
+        {/* A explicação existe por rigor (dois números de receita na mesma tela só não enganam se cada um disser
+            de que recorte é) — mas deixou de ser um parágrafo entre o título e os dados. */}
+        {algumBlocoDifere ? (
+          <Dica>
+            Metas mensais e trimestrais são independentes — cada bloco é apurado no seu próprio período, então o
+            realizado de um pode ser maior que o do outro.
+          </Dica>
+        ) : null}
+      </SectionTitle>
 
       <div className={`grid grid-cols-1 gap-4 ${metas.blocos.length > 1 ? "lg:grid-cols-2" : ""}`}>
         {metas.blocos.map((b) => (

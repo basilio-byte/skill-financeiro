@@ -51,7 +51,7 @@ export function LinhaRevisaoRow({ linha, categorias }: { linha: LinhaRevisao; ca
         <td className="py-2 pr-4">
           {linha.categoria}
           {linha.revisadoManualmente ? (
-            <span className="ml-2 inline-flex rounded-full bg-seahub-100 px-2 py-0.5 text-[10px] font-medium text-seahub-800">
+            <span className="ml-2 inline-flex rounded-full bg-seahub-100 px-2 py-0.5 text-[10px] font-medium text-acento-texto">
               revisado
             </span>
           ) : null}

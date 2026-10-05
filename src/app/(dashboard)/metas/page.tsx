@@ -7,6 +7,8 @@ import { Card, SectionTitle } from "@/components/ui";
 import { DefinirMetaForm, RemoverMetaForm } from "@/components/metas-form";
 import { nowInAppTz } from "@/lib/dates";
 import { trimestreDaData, mesDaData } from "@/lib/metas/periodo";
+import { PageHeader } from "@/components/page-header";
+import { Dica } from "@/components/dica";
 
 export const metadata: Metadata = { title: "Metas" };
 
@@ -81,14 +83,7 @@ export default async function MetasPage({ searchParams }: { searchParams: Promis
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-xl font-semibold text-slate-900">Metas</h1>
-        <p className="text-sm text-slate-500">
-          Meta de receita por escopo, mensal e trimestral — as duas são séries independentes, cada uma definida
-          direto (uma não é calculada a partir da outra). Apuração por Data de Crédito da Cobrança — o mesmo
-          critério do Panorama. Semestre e ano somam as metas dos trimestres que eles contêm.
-        </p>
-      </div>
+      <PageHeader titulo={"Metas"} descricao={"Meta de receita por escopo, mensal e trimestral."} dica={"As duas são séries independentes, cada uma definida direto (uma não é calculada a partir da outra). Apuração por Data de Crédito da Cobrança — o mesmo critério do Panorama. Semestre e ano somam as metas dos trimestres que eles contêm."} />
 
       <Card>
         <SectionTitle>Definir meta</SectionTitle>
@@ -128,7 +123,7 @@ export default async function MetasPage({ searchParams }: { searchParams: Promis
           ›
         </Link>
         {ano !== anoCorrente ? (
-          <Link href="/metas" className="text-xs text-seahub-600 hover:underline">
+          <Link href="/metas" className="text-xs text-acento-texto hover:underline">
             Ano atual
           </Link>
         ) : null}
@@ -149,14 +144,14 @@ export default async function MetasPage({ searchParams }: { searchParams: Promis
               <p className="mb-3 text-xs text-slate-500">
                 Soma <strong>toda a receita do período</strong>, sem filtrar categoria — é o mesmo número do
                 &quot;Total recebido no período&quot; do Panorama. Categoria nova criada em{" "}
-                <Link href="/categorias" className="text-seahub-600 hover:underline">
+                <Link href="/categorias" className="text-acento-texto hover:underline">
                   Categorias
                 </Link>{" "}
                 já entra aqui sozinha.
-                <span className="block pt-1 text-slate-400">
+                <Dica className="ml-1">
                   Atenção: este escopo se sobrepõe aos outros (a receita dele inclui a deles), então não somar as
                   metas de todos — daria dinheiro contado duas vezes.
-                </span>
+                </Dica>
               </p>
             ) : (
               <p className="mb-3 text-xs text-slate-500">
@@ -168,9 +163,9 @@ export default async function MetasPage({ searchParams }: { searchParams: Promis
                   </span>
                 ))}
                 {escopo.categorias.length > 1 ? (
-                  <span className="block pt-1 text-slate-400">
+                  <Dica className="ml-1">
                     São grafias diferentes (ou unidades diferentes) da mesma categoria — todas somam nesta meta.
-                  </span>
+                  </Dica>
                 ) : null}
               </p>
             )}
@@ -182,7 +177,7 @@ export default async function MetasPage({ searchParams }: { searchParams: Promis
               ] as const
             ).map(({ titulo, periodos }) => (
               <div key={titulo} className="mb-4 last:mb-0">
-                <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">{titulo}</h3>
+                <h3 className="mb-1 text-[13px] font-semibold text-slate-600">{titulo}</h3>
                 <table className="w-full text-left text-sm">
                   <thead className="text-slate-500">
                     <tr>

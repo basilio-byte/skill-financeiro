@@ -25,19 +25,20 @@ export const SEQUENTIAL_BLUE = {
 } as const;
 
 /** Cor única para barras de magnitude (ranking de categorias/contas). */
-export const MAGNITUDE = SEQUENTIAL_BLUE.s450;
+/* Variável CSS (e não hex): troca sozinha entre o tema claro e o escuro — ver globals.css. */
+export const MAGNITUDE = "var(--grafico-serie)";
 
 /** Cor única para a série "Total recebido" no gráfico por rodada (série única, sem legenda). */
-export const TOTAL_RECEBIDO = SEQUENTIAL_BLUE.s450;
+export const TOTAL_RECEBIDO = "var(--grafico-serie)";
 
 /** Cromo do gráfico — recessivo, hairline, sólido (nunca tracejado). */
 export const CHROME = {
-  surface: "#ffffff",
-  gridline: "#e1e0d9",
-  axis: "#c3c2b7",
-  muted: "#898781",
-  textSecondary: "#52514e",
-  textPrimary: "#0b0b0b",
+  surface: "rgb(var(--c-card))",
+  gridline: "var(--grafico-grade)",
+  axis: "var(--grafico-eixo)",
+  muted: "var(--grafico-texto)",
+  textSecondary: "rgb(var(--slate-600))",
+  textPrimary: "rgb(var(--slate-900))",
 } as const;
 
 /**
@@ -53,7 +54,7 @@ export const CHROME = {
  * 2.1:1. Os tons abaixo (mais escuros) medem ≥5:1 cada.
  */
 export const CONFIANCA = {
-  unica: "#15803d" /* = tailwind `positive` — categoria única, valor integral */,
-  rateado: "#b45309" /* = tailwind `warning` — rateada entre categorias, revisar */,
-  semLv: "#b91c1c" /* = tailwind `negative` — sem correspondência no Listar Vendas, revisar */,
+  unica: "rgb(var(--emerald-600))" /* categoria única, valor integral */,
+  rateado: "rgb(var(--amber-700))" /* rateada entre categorias, revisar */,
+  semLv: "rgb(var(--red-700))" /* sem correspondência no Listar Vendas, revisar */,
 } as const;

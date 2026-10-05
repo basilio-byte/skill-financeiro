@@ -40,7 +40,7 @@ export function ChartCard({
         <div className="mt-3 max-h-72 overflow-auto rounded-lg border border-slate-100">
           <table className="w-full text-sm">
             <thead className="sticky top-0 bg-slate-50">
-              <tr className="text-left text-xs uppercase text-slate-400">
+              <tr className="text-left text-slate-500">
                 {columns.map((c) => (
                   <th key={c.key} className={`px-3 py-2 ${c.money ? "text-right" : ""}`}>
                     {c.label}

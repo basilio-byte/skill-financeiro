@@ -104,7 +104,7 @@ export function ConflitoCard({ fatura }: { fatura: FaturaConflito }) {
               <td className="py-1 pr-3">
                 {l.revisadoManualmente ? (
                   <span className="inline-flex flex-col">
-                    <span className="inline-flex w-fit rounded-full bg-seahub-100 px-2 py-0.5 text-[10px] font-medium text-seahub-800">
+                    <span className="inline-flex w-fit rounded-full bg-seahub-100 px-2 py-0.5 text-[10px] font-medium text-acento-texto">
                       manual — {l.revisadoPorNome ?? "—"}
                     </span>
                     {l.categoriaOriginal ? (

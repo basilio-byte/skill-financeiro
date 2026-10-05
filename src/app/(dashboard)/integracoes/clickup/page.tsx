@@ -8,6 +8,7 @@ import { NovoVinculoForm, EmpurrarAgoraButton, ExcluirVinculoButton } from "@/co
 import { LinhaVinculoDetalhavel } from "@/components/clickup-detalhe-vinculo";
 import { alternarVinculoAction } from "@/lib/clickup/actions";
 import { listCategoriasConhecidas } from "@/lib/categorization/categorias";
+import { PageHeader } from "@/components/page-header";
 
 export const metadata: Metadata = { title: "Integração ClickUp" };
 
@@ -30,16 +31,7 @@ export default async function ClickUpIntegracaoPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-xl font-semibold text-slate-900">Integração ClickUp</h1>
-        <p className="text-sm text-slate-500">
-          Alimenta os campos de mês (Janeiro..Dezembro) de tarefas do ClickUp com a receita já categorizada aqui — a
-          cada sincronização, não só no fechamento do mês. Cada tarefa do ClickUp representa um PRODUTO (ex.
-          "Endereço Fiscal Batial"), somando TODOS os clientes que usam aquele produto — nunca um cliente só. O
-          ClickUp nunca é fonte de dado financeiro, só um espelho: uma falha aqui nunca interrompe uma sincronização
-          de receita.
-        </p>
-      </div>
+      <PageHeader titulo={"Integração ClickUp"} descricao={"Espelha a receita já categorizada nos campos de mês das tarefas do ClickUp."} dica={"Alimenta os campos de mês (Janeiro..Dezembro) a cada sincronização, não só no fechamento do mês. Cada tarefa do ClickUp representa um PRODUTO (ex. \"Endereço Fiscal Batial\"), somando TODOS os clientes que usam aquele produto — nunca um cliente só. O ClickUp nunca é fonte de dado financeiro, só um espelho: uma falha aqui nunca interrompe uma sincronização de receita."} />
 
       {!hasClickUpToken() ? (
         <Card className="border-amber-200 bg-amber-50/40">
@@ -93,7 +85,7 @@ export default async function ClickUpIntegracaoPage() {
                       href={`https://app.clickup.com/t/${v.clickUpTaskId}`}
                       target="_blank"
                       rel="noreferrer"
-                      className="text-seahub-600 hover:underline"
+                      className="text-acento-texto hover:underline"
                     >
                       {v.clickUpTaskId}
                     </a>

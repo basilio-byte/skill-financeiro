@@ -49,7 +49,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-xl font-semibold text-slate-900">
+        <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.022em] text-slate-900">
           Sincronização {formatDate(run.periodoInicio)} – {formatDate(run.periodoFim)}
         </h1>
         <p className="text-sm text-slate-500">
@@ -122,7 +122,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
           linha — a correção fica marcada e rastreada (quem, quando, valor original), e nunca é sobrescrita
           automaticamente depois. Como as linhas são atualizadas in-place (upsert por fatura), sincronizações antigas
           tendem a esvaziar esta lista com o tempo — para ver TODAS as pendências atuais do sistema, veja{" "}
-          <a href="/revisar" className="text-seahub-600 hover:underline">
+          <a href="/revisar" className="text-acento-texto hover:underline">
             /revisar
           </a>
           .

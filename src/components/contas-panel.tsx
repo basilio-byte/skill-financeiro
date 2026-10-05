@@ -134,7 +134,7 @@ export function UserRow({ user, currentUserId }: { user: UserRowData; currentUse
         </td>
         <td className="px-3 py-2">
           <span
-            className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${user.role === "ADMIN" ? "bg-seahub-100 text-seahub-800" : "bg-slate-100 text-slate-600"}`}
+            className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${user.role === "ADMIN" ? "bg-seahub-100 text-acento-texto" : "bg-slate-100 text-slate-600"}`}
           >
             {user.role === "ADMIN" ? "Administrador" : "Visualizador"}
           </span>

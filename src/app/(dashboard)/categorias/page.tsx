@@ -5,6 +5,7 @@ import { Card, SectionTitle } from "@/components/ui";
 import { NovaRegraForm, PendenciaForm } from "@/components/categoria-rule-form";
 import { listCategoriasConhecidas } from "@/lib/categorization/categorias";
 import { toggleCategoryRuleAction } from "@/lib/categorization/actions";
+import { PageHeader } from "@/components/page-header";
 
 export const metadata: Metadata = { title: "Categorias" };
 
@@ -72,12 +73,7 @@ export default async function CategoriasPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-xl font-semibold text-slate-900">Categorias</h1>
-        <p className="text-sm text-slate-500">
-          Tabela de categorização (nome do serviço/plano → categoria) usada em toda rodada nova.
-        </p>
-      </div>
+      <PageHeader titulo={"Categorias"} descricao={"Nome do serviço ou plano → categoria, usado em toda rodada nova."} />
 
       {pendencias.length > 0 ? (
         <Card className="border-amber-200 bg-amber-50/40">
@@ -92,7 +88,7 @@ export default async function CategoriasPage() {
           </p>
           <ul className="flex flex-col gap-4">
             {pendencias.map((p, i) => (
-              <li key={p.nome} className="rounded-lg border border-amber-200 bg-white p-4">
+              <li key={p.nome} className="rounded-lg border border-amber-200 bg-card p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <p className="font-medium text-slate-900">{p.nome}</p>

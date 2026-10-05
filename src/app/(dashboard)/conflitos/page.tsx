@@ -3,6 +3,7 @@ import { requireRole } from "@/lib/auth/session";
 import { Card, SectionTitle } from "@/components/ui";
 import { ConflitoCard } from "@/components/conflito-card";
 import { listarConflitos } from "@/lib/categorization/conflitos";
+import { PageHeader } from "@/components/page-header";
 
 export const metadata: Metadata = { title: "Conflitos" };
 
@@ -12,13 +13,7 @@ export default async function ConflitosPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-xl font-semibold text-slate-900">Conflitos</h1>
-        <p className="text-sm text-slate-500">
-          Faturas cuja soma das linhas atuais não bate com o valor real (possível dupla contagem) — sempre atual,
-          não escopado a uma rodada específica.
-        </p>
-      </div>
+      <PageHeader titulo={"Conflitos"} descricao={"Faturas cuja soma das linhas não bate com o valor real (possível dupla contagem)."} dica={"Sempre atual — não escopado a uma rodada específica."} />
 
       <Card>
         <SectionTitle hint={`${conflitos.length} fatura(s)`}>Faturas com possível dupla contagem</SectionTitle>
