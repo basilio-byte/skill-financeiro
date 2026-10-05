@@ -40,10 +40,17 @@ const estadoDoSistema = ferramenta({
     const agora = new Date();
     const env = getEnv();
 
-    const [rodadas, totalLinhas, porMes, inad, inadAgg, tokensAtivos, ultimasChamadas, regras] = await Promise.all([
+    const [rodadasRecentes, ultimaDone, totalLinhas, porMes, inad, inadAgg, tokensAtivos, ultimasChamadas, regras] = await Promise.all([
       prisma.revenueSyncRun.findMany({
         orderBy: { iniciadoEm: "desc" },
         take: 40,
+        select: { id: true, status: true, origem: true, erro: true, iniciadoEm: true, concluidoEm: true, periodoInicio: true, periodoFim: true, totalRecebido: true, diferencaConferencia: true },
+      }),
+      // A última CONCLUÍDA é buscada à parte: com a receita parada, a janela das mais recentes é
+      // toda de falhas e esconderia a única informação que importa — quando foi a última boa.
+      prisma.revenueSyncRun.findFirst({
+        where: { status: "DONE" },
+        orderBy: { iniciadoEm: "desc" },
         select: { id: true, status: true, origem: true, erro: true, iniciadoEm: true, concluidoEm: true, periodoInicio: true, periodoFim: true, totalRecebido: true, diferencaConferencia: true },
       }),
       prisma.revenueCategorizedLine.count(),
@@ -61,12 +68,17 @@ const estadoDoSistema = ferramenta({
       prisma.revenueCategoryRule.count({ where: { ativo: true } }),
     ]);
 
-    const diag = diagnosticarReceita(rodadas, agora);
+    const rodadas = ultimaDone && !rodadasRecentes.some((r) => r.id === ultimaDone.id) ? [...rodadasRecentes, ultimaDone] : rodadasRecentes;
+    // Falhas desde a última concluída, contadas no banco (a janela acima é limitada).
+    const falhasReais = await prisma.revenueSyncRun.count({
+      where: { status: "FAILED", ...(ultimaDone ? { iniciadoEm: { gt: ultimaDone.iniciadoEm } } : {}) },
+    });
+    const diag = diagnosticarReceita(rodadas, agora, falhasReais);
     return {
       agoraUtc: agora.toISOString(),
       receita: {
         diagnostico: diag,
-        ultimasRodadas: rodadas.slice(0, 8).map((r) => ({
+        ultimasRodadas: rodadasRecentes.slice(0, 8).map((r) => ({
           id: r.id,
           status: r.status,
           origem: r.origem,

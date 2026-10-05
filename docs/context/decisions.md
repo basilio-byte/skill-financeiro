@@ -1955,3 +1955,18 @@ auditoria. Mais: as 8 telas existentes seguem 200; 303 testes; typecheck limpo.
 - Não validado com um cliente MCP real (Claude Code) nem em produção.
 - ClickUp (vínculos/push) **fora desta versão**.
 - `disparar_sincronizacao` falha enquanto o Conexa exigir captcha (ADR-0032); o MCP só reporta a causa certa.
+
+### ADR-0031 — validação contra a API REAL (2026-10-05, após o conserto da base da API)
+
+Antes, só validado contra um Conexa FALSO (e foi o que deixou passar a URL errada). Agora, contra a API real
+(token do comercial, só leitura), num Postgres local descartável:
+
+- **1.187 cobranças, R$ 205.836,47, 425 clientes** (625 SEAHUB COWORKING / 562 SEATECH), vencimento de 2024-03-15 a
+  2026-10-04, 100% `unpaid` (nenhuma protestada/jurídica hoje).
+- **Conferido contra uma contagem INDEPENDENTE** (um `fetch` simples, sem o nosso cliente nem o nosso domínio):
+  mesmo número de cobranças e mesmo valor, ao centavo. Zero descartadas.
+- Contato do cliente (formato que não estava confirmado): telefone em 1169/1187, e-mail em 1178/1187.
+- O sync leva ~163 s (limite de requisições da API), então a ferramenta MCP avisa "cerca de 3 minutos".
+
+Dois ajustes no mesmo dia: depois de uma rodada FALHA, a nova tentativa vem em 15 min (e não 2 h) — a URL errada
+ficou 2 h "castigada" depois do conserto —, e a ferramenta `sincronizar_inadimplencia` dispara na hora.

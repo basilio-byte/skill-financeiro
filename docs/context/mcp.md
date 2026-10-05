@@ -55,10 +55,11 @@ claude mcp add --transport http --scope local seahub-financeiro \
 | `descrever_banco` | Tabelas, colunas e contagens — só metadados |
 | `auditoria_mcp` | Quem chamou o quê, quando, com o estado anterior das escritas |
 
-### Escrita (8, só com token de ESCRITA cujo dono é ADMIN)
+### Escrita (9, só com token de ESCRITA cujo dono é ADMIN)
 
 | Ferramenta | Proteção |
 |---|---|
+| `sincronizar_inadimplencia` | Só escreve o espelho de inadimplência (API v2, não afetada pelo captcha); falha preserva a lista anterior; leva ~3 min |
 | `disparar_sincronizacao` | Período iniciado antes do mês corrente exige `confirmarMesFechado` (recategoriza o mês com as regras de hoje). Hoje **falha por captcha** (ver abaixo) |
 | `revisar_linha` | Valor decimal com ponto; snapshot original só na 1ª revisão; revisão congelada contra sincronização |
 | `salvar_regra_categoria`, `alternar_regra_categoria` | Só `trim`: espaço duplo interno é preservado (porta exata da skill) |

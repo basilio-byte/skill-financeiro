@@ -56,7 +56,13 @@ export function causaDoErro(erro: string | null | undefined): string | null {
   return null;
 }
 
-export function diagnosticarReceita(rodadas: RodadaResumo[], agora: Date): DiagnosticoReceita {
+/**
+ * @param falhasReais quantas rodadas FAILED existem desde a última concluída, contadas no
+ *   BANCO. A janela de `rodadas` é curta (as mais recentes) e, com a receita parada há dias,
+ *   TODAS são falhas — sem isto o diagnóstico dizia "última concluída: nunca" e cravava o
+ *   número de falhas no tamanho da janela (medido em produção, 2026-10-05).
+ */
+export function diagnosticarReceita(rodadas: RodadaResumo[], agora: Date, falhasReais?: number): DiagnosticoReceita {
   if (rodadas.length === 0) {
     return {
       situacao: "sem_historico",
@@ -80,6 +86,8 @@ export function diagnosticarReceita(rodadas: RodadaResumo[], agora: Date): Diagn
     else if (r.status === "DONE") break;
     // RUNNING não conta nem quebra a sequência.
   }
+
+  if (falhasReais !== undefined && falhasReais > falhasSeguidas) falhasSeguidas = falhasReais;
 
   const maisRecente = ordenadas[0]!;
   const causa = causaDoErro(ordenadas.find((r) => r.status === "FAILED")?.erro);

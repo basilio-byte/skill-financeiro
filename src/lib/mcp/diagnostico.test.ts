@@ -79,3 +79,22 @@ describe("diagnosticarReceita", () => {
     expect(a).toEqual(b);
   });
 });
+
+describe("diagnosticarReceita — a janela de rodadas é curta (bug medido em produção, 2026-10-05)", () => {
+  it("janela só de falhas + última concluída fora dela: usa a contagem REAL, e a última concluída aparece", () => {
+    const janela = Array.from({ length: 40 }, (_, i) => r("FAILED", 5 + i * 15, "Login no Conexa falhou"));
+    const ultimaBoa = r("DONE", 60 * 24 * 5);
+    // Sem a última concluída na lista, o diagnóstico dizia "nunca" e falhasSeguidas=40.
+    const sem = diagnosticarReceita(janela, AGORA);
+    expect(sem.ultimaConcluidaEm).toBeNull();
+    const com = diagnosticarReceita([...janela, ultimaBoa], AGORA, 190);
+    expect(com.ultimaConcluidaEm).not.toBeNull();
+    expect(com.falhasSeguidas).toBe(190);
+    expect(com.resumo).toMatch(/190 rodada/);
+    expect(com.resumo).not.toMatch(/concluída foi nunca/);
+  });
+
+  it("a contagem real nunca REDUZ o que a janela já provou", () => {
+    expect(diagnosticarReceita([r("FAILED", 5, "x"), r("FAILED", 20, "x"), r("DONE", 9999)], AGORA, 1).falhasSeguidas).toBe(2);
+  });
+});

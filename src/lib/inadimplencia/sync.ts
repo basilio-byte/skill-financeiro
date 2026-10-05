@@ -187,9 +187,14 @@ export async function sincronizarInadimplenciaSeVencida(): Promise<void> {
 
     const ultima = await prisma.inadimplenciaSyncRun.findFirst({
       orderBy: { iniciadoEm: "desc" },
-      select: { iniciadoEm: true },
+      select: { iniciadoEm: true, status: true },
     });
-    if (ultima && Date.now() - ultima.iniciadoEm.getTime() < env.INADIMPLENTES_SYNC_INTERVALO_MINUTOS * 60_000) return;
+    // Depois de uma FALHA não faz sentido esperar o intervalo cheio (2h): a causa costuma
+    // ser transitória ou já corrigida por um deploy — foi o caso em 2026-10-05, quando a
+    // URL errada da API ficou 2h "castigada" depois do conserto. Tenta de novo em 15 min.
+    const intervaloMin =
+      ultima?.status === "FAILED" ? Math.min(15, env.INADIMPLENTES_SYNC_INTERVALO_MINUTOS) : env.INADIMPLENTES_SYNC_INTERVALO_MINUTOS;
+    if (ultima && Date.now() - ultima.iniciadoEm.getTime() < intervaloMin * 60_000) return;
 
     const r = await sincronizarInadimplencia();
     console.log(`[inadimplencia] ${r.total} cobrança(s) em atraso, R$ ${r.valorTotal}.`);

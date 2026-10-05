@@ -1754,3 +1754,19 @@ são ignoradas. Não afrouxa a segurança — o token (prefixo `shf_` + SHA-256 
 de tokens mostra URL e cabeçalho da claude.ai. 318 testes, typecheck limpo.
 
 **Não testado** por HTTP nem contra o conector real da claude.ai (só unidade).
+
+---
+
+## 2026-10-05 (noite) — Primeiro teste do MCP em produção, e o que ele revelou
+
+O MCP conectou na claude.ai (cabeçalho `x-api-key`). `estado_do_sistema` mostrou:
+
+- **A receita parou em 30/09 às 13:06 (local)**, com **mais de 190 falhas** desde então (captcha). Setembro foi
+  fechado por aquela rodada: o que entrou depois, e a carência de outubro que existe para corrigir isso, não rodou.
+  O total de setembro (R$ 347.554,71) é um retrato parcial. Agosto bate (R$ 338.933,09).
+- **Defeito meu no próprio `estado_do_sistema`:** olhava só as 40 rodadas mais recentes (todas falhas) e dizia
+  "última concluída: nunca". Agora busca a última concluída à parte e conta as falhas no banco (2 testes novos).
+- **Inadimplência ainda vazia na tela:** era a mesma falha ANTERIOR ao conserto da URL (13:23 local); a nova tentativa
+  só viria 2 h depois. Corrigido: retenta em 15 min após falha, e há `sincronizar_inadimplencia` (MCP).
+- **Validada pela primeira vez contra a API REAL** (ver ADR-0031): 1.187 cobranças, R$ 205.836,47, igual a uma contagem
+  independente. 320 testes, typecheck limpo.

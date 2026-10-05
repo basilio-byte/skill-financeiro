@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db";
 import { money, roundMoney, toAmountString } from "@/lib/money";
 import { keyToUtcDate, todayKey } from "@/lib/dates";
 import { startCategorizationRun } from "@/lib/categorization/run";
+import { sincronizarInadimplencia } from "@/lib/inadimplencia/sync";
 import { classificarConflito, type LinhaConflito } from "@/lib/categorization/conflitos";
 import { SEM_CATEGORIA } from "@/lib/categorization/rules";
 import { ANO_MES_RE, ANO_TRIMESTRE_RE } from "@/lib/metas/periodo";
@@ -87,6 +88,31 @@ const dispararSincronizacao = ferramenta({
       orfasPreservadas: run.totalLinhasOrfasPreservadas,
       faturasComConflito: run.totalFaturasComConflito,
       _auditoria: { periodoRecategorizado: inicio < primeiroDoMes },
+    };
+  },
+});
+
+const sincronizarInadimplenciaTool = ferramenta({
+  nome: "sincronizar_inadimplencia",
+  titulo: "Sincronizar inadimplência agora",
+  descricao:
+    "Atualiza AGORA o espelho de cobranças em atraso, lendo a API v2 do Conexa (somente leitura no Conexa) — o que o agendador faz a cada 2 horas. " +
+    "Só escreve na tabela de inadimplência; NÃO toca a receita, as metas nem as categorias, e NÃO é afetada pelo captcha. " +
+    "Use quando o estado_do_sistema mostrar a última sincronização de inadimplência como FAILED ou antiga. Se falhar, a lista anterior é preservada e o erro volta aqui. Leva cerca de 3 minutos (limite de requisições da API do Conexa): chame uma vez e aguarde.",
+  entrada: z.object({}),
+  somenteLeitura: false,
+  idempotente: true,
+  mundoAberto: true,
+  executar: async () => {
+    const antes = await prisma.cobrancaEmAberto.aggregate({ _count: { _all: true }, _sum: { valor: true } });
+    const r = await sincronizarInadimplencia();
+    return {
+      ok: true,
+      cobrancasEmAtraso: r.total,
+      valorTotal: r.valorTotal,
+      descartadas: r.descartadas,
+      antes: { cobrancas: antes._count._all, valor: din(antes._sum.valor) ?? "0.00" },
+      _auditoria: { antes: { cobrancas: antes._count._all, valor: din(antes._sum.valor) } },
     };
   },
 });
@@ -387,7 +413,7 @@ const excluirLinha = ferramenta({
 });
 
 export const ferramentasDeEscrita: Ferramenta[] = [
-  dispararSincronizacao, revisarLinha, salvarRegra, alternarRegra, definirMeta, removerMeta, resolverConflito, excluirLinha,
+  dispararSincronizacao, sincronizarInadimplenciaTool, revisarLinha, salvarRegra, alternarRegra, definirMeta, removerMeta, resolverConflito, excluirLinha,
 ];
 
 // Reexporta para os testes de esquema conferirem o que cada uma anuncia.
