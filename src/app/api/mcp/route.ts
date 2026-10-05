@@ -6,6 +6,7 @@ import type { ContextoMcp } from "@/lib/mcp/tipos";
 import { autenticarTokenMcp, existeTokenAtivo } from "@/lib/mcp/tokens";
 import { PREFIXO_TOKEN } from "@/lib/mcp/token-formato";
 import { auditarRecusa, auditorDe } from "@/lib/mcp/auditoria";
+import { extrairToken, pedeFluxoSse } from "@/lib/mcp/credencial";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -43,8 +44,9 @@ interface Autenticado {
 async function autenticar(req: NextRequest): Promise<Autenticado | { ok: false; resposta: NextResponse }> {
   const travaDoAmbiente = getEnv().MCP_SOMENTE_LEITURA === "on";
 
-  const cabecalho = req.headers.get("authorization") ?? "";
-  const valor = cabecalho.toLowerCase().startsWith("bearer ") ? cabecalho.slice(7).trim() : (req.headers.get("x-mcp-token")?.trim() ?? "");
+  // Aceita o token em Authorization (Claude Code) OU em x-api-key & cia (o conector da
+  // claude.ai não deixa escolher "authorization") — ver credencial.ts.
+  const valor = extrairToken(req.headers);
   // Rótulo que o CLIENTE declara; não autoriza nada — só distingue de onde veio.
   const cliente = req.headers.get("x-mcp-cliente")?.trim().slice(0, 40);
 
@@ -129,6 +131,12 @@ function ehChamadaDeEscrita(msg: unknown): boolean {
  * entrega manda quem integra procurar defeito no cliente dele.
  */
 export async function GET(req: NextRequest) {
+  // Cliente que espera um fluxo SSE (GET com Accept: text/event-stream): a especificação
+  // manda responder 405 quando o servidor não oferece SSE, e o cliente segue só com POST.
+  // Um 200 com JSON o deixaria esperando eventos que nunca vêm.
+  if (pedeFluxoSse(req.headers.get("accept"))) {
+    return new NextResponse(null, { status: 405, headers: { Allow: "POST, GET" } });
+  }
   const auth = await autenticar(req);
   const somenteLeitura = auth.ok ? auth.somenteLeitura : true;
   const expostas = somenteLeitura ? RESUMO_DAS_FERRAMENTAS.filter((f) => !f.escreve) : RESUMO_DAS_FERRAMENTAS;
@@ -141,7 +149,7 @@ export async function GET(req: NextRequest) {
       identidade: auth.ok ? auth.ctx.quem : undefined,
       somenteLeitura,
       ferramentas: auth.ok ? expostas : undefined,
-      comoUsar: 'claude mcp add --transport http --scope local seahub-financeiro <esta-url> --header "Authorization: Bearer <token de Minha conta>"',
+      comoUsar: 'claude mcp add --transport http --scope local seahub-financeiro <esta-url> --header "Authorization: Bearer <token>"  (ou, na claude.ai, o cabeçalho x-api-key com o token)',
     },
     // 503 quando a rota está FECHADA (nenhum token criado), 401 quando falta/errou o token:
     // o status é o mesmo que o POST devolveria, para o diagnóstico não mentir.

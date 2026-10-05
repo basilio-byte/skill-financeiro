@@ -93,3 +93,14 @@ delas mudar, mude também em `src/lib/mcp/ferramentas/escrita.ts`.
 Achado colateral **não corrigido** (fora do escopo): em `metas/actions.ts` a tela compara
 `Decimal.toString()` (`"35000"`) com `"35000.00"`, então "regravar o mesmo valor" sempre gera um evento
 de histórico falso. A versão do MCP compara numericamente.
+
+## Cabeçalhos aceitos para o token (conector da claude.ai)
+
+O conector personalizado da **claude.ai** reserva `authorization` ao fluxo OAuth (o campo não deixa escolhê-lo)
+e só oferece nomes como `x-api-key`. O servidor aceita o token em `Authorization: Bearer`, `x-mcp-token`,
+`x-api-key`, `api-key`, `apikey`, `x-apikey`, `x-api-token`, `api-token` e `x-auth-token`, com ou sem o prefixo
+`Bearer`. Para a claude.ai: URL `…/api/mcp`, cabeçalho `x-api-key`, valor = o token. Quem autentica continua sendo
+o token (prefixo `shf_` + SHA-256 no banco), seja qual for o cabeçalho.
+
+`GET` com `Accept: text/event-stream` (cliente esperando SSE) responde **405**, como manda a especificação para
+servidores sem SSE; o cliente segue só com POST. (`credencial.ts`, 15 testes.)

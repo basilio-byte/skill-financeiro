@@ -59,6 +59,12 @@ export function TokensMcpPanel({ tokens, ehAdmin, urlDoMcp }: { tokens: TokenLin
             Token “{novo.nome}” criado ({novo.escopo === "ESCRITA" ? "leitura e escrita" : "somente leitura"}). Copie agora: ele não aparece de novo.
           </p>
           <pre className="mt-2 overflow-x-auto rounded bg-white p-2 text-xs text-slate-800">{comando}</pre>
+          <p className="mt-2 text-xs">
+            <strong>Conector da claude.ai:</strong> URL <code className="rounded bg-white px-1">{urlDoMcp}</code>, em “Cabeçalhos de
+            requisição” use o nome <code className="rounded bg-white px-1">x-api-key</code> (o <code>authorization</code> é
+            reservado ao OAuth) e, como valor, o token abaixo.
+          </p>
+          <pre className="mt-1 overflow-x-auto rounded bg-white p-2 text-xs text-slate-800">{novo.token}</pre>
           <div className="mt-2 flex gap-2">
             <button
               className="btn-secondary"

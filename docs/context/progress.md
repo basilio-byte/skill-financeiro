@@ -1739,3 +1739,18 @@ Alterações em arquivos pré-existentes: `schema.prisma` (aditivo), `middleware
 (+1 variável), `minha-conta/page.tsx` (+ seção de tokens), `.env.example`. 303 testes, typecheck limpo.
 
 **Pendente:** commit/deploy; validar com um cliente MCP real; ClickUp fora desta versão.
+
+---
+
+## 2026-10-05 — MCP aceita o token em vários cabeçalhos (conector da claude.ai)
+
+O formulário do conector personalizado da claude.ai **não deixa escolher `authorization`** (reservado ao OAuth) e
+só oferece `x-api-key`, `api-key`, `apikey`, `x-apikey`, `x-api-token`, `api-token`, `x-auth-token`. O servidor só
+lia `Authorization: Bearer` e `x-mcp-token`, então era inalcançável por esse caminho.
+
+`credencial.ts` (puro, 15 testes): o token vale em qualquer desses cabeçalhos, com ou sem `Bearer`, e aspas coladas
+são ignoradas. Não afrouxa a segurança — o token (prefixo `shf_` + SHA-256 no banco) é o que autentica. `GET` com
+`Accept: text/event-stream` passa a responder 405 (servidor sem SSE), para o cliente web seguir só com POST. A tela
+de tokens mostra URL e cabeçalho da claude.ai. 318 testes, typecheck limpo.
+
+**Não testado** por HTTP nem contra o conector real da claude.ai (só unidade).
