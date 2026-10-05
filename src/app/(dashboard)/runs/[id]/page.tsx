@@ -53,7 +53,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
           Sincronização {formatDate(run.periodoInicio)} – {formatDate(run.periodoFim)}
         </h1>
         <p className="text-sm text-slate-500">
-          Origem: {run.origem === "AUTOMATICO" ? "Automático" : "Manual"} · Status: {run.status} · Faturas CR:{" "}
+          Origem: {run.origem === "AUTOMATICO" ? "Automático" : run.origem === "IMPORTACAO" ? "Importação manual" : "Manual"} · Status: {run.status} · Faturas CR:{" "}
           {run.totalLinhasCR} · Itens LV: {run.totalLinhasLV} · Sem LV: {run.totalSemLV}
         </p>
         <p className="text-sm text-slate-500">
@@ -62,6 +62,17 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
             ? ` · ${run.totalLinhasOrfasPreservadas} linha(s) revisada(s) manualmente preservada(s) (bucket não apareceu nesta sincronização)`
             : ""}
         </p>
+        {run.origem === "IMPORTACAO" && run.entradaManual
+          ? (() => {
+              const e = run.entradaManual as unknown as Record<"contasReceber" | "listarVendas", { nome: string; sha256: string }>;
+              return (
+                <p className="text-sm text-slate-500">
+                  Arquivos importados: {e.contasReceber.nome} (Contas a Receber, {e.contasReceber.sha256.slice(0, 8)}) ·{" "}
+                  {e.listarVendas.nome} (Listar Vendas, {e.listarVendas.sha256.slice(0, 8)})
+                </p>
+              );
+            })()
+          : null}
         {run.totalFaturasComConflito > 0 ? (
           <p className="mt-2 text-sm font-medium text-red-600">
             ⚠ {run.totalFaturasComConflito} fatura(s) com possível dupla contagem — uma linha revisada manualmente

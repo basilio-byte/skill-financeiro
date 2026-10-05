@@ -73,7 +73,11 @@ const estadoDoSistema = ferramenta({
     const falhasReais = await prisma.revenueSyncRun.count({
       where: { status: "FAILED", ...(ultimaDone ? { iniciadoEm: { gt: ultimaDone.iniciadoEm } } : {}) },
     });
-    const diag = diagnosticarReceita(rodadas, agora, falhasReais);
+    const diag = diagnosticarReceita(
+      rodadas.map((r) => ({ ...r, periodo: `${iso(r.periodoInicio)}..${iso(r.periodoFim)}` })),
+      agora,
+      falhasReais,
+    );
     return {
       agoraUtc: agora.toISOString(),
       receita: {
@@ -119,7 +123,7 @@ const listarRodadas = ferramenta({
     "Histórico das rodadas de sincronização de receita (período, status, origem, total, conferência, erro). Use para investigar quando algo começou a falhar. Para ver UMA rodada inteira (resumo por categoria), use detalhar_rodada. O total de uma rodada é o que ELA calculou na hora — pode não bater com o Panorama atual.",
   entrada: z.object({
     status: z.enum(["DONE", "FAILED", "RUNNING"]).optional(),
-    origem: z.enum(["MANUAL", "AUTOMATICO"]).optional(),
+    origem: z.enum(["MANUAL", "AUTOMATICO", "IMPORTACAO"]).optional(),
     desde: dataIso.optional().describe("Só rodadas iniciadas a partir desta data."),
     limite: limite(100, 20),
   }),

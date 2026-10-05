@@ -1,14 +1,11 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { nowInAppTz } from "@/lib/dates";
 import { fetchBothExports } from "@/lib/conexa-web/client";
-import { readXlsxAsObjects } from "@/lib/xlsx/reader";
-import { parseContasReceberRows, parseListarVendasRows } from "@/lib/categorization/parse-exports";
-import { categorizeInvoices } from "@/lib/categorization/categorize-invoices";
+import { prepararRodada } from "@/lib/categorization/preparar";
+import { regrasAtivasParaRodada } from "@/lib/categorization/regras-ativas";
 import { persistLinhasCategorizadas, type PersistResumo } from "@/lib/categorization/persist";
-import { statusAceitoCR, STATUS_ACEITOS_LV } from "@/lib/categorization/types";
 import type { CategorizedLine } from "@/lib/categorization/types";
-import { roundMoney, sum, toAmountString } from "@/lib/money";
+import { toAmountString } from "@/lib/money";
 import { pushValoresDoMesCorrente } from "@/lib/clickup/push";
 
 export class SincronizacaoEmAndamentoError extends Error {}
@@ -74,7 +71,9 @@ export async function startCategorizationRun(params: {
   periodoInicio: Date;
   periodoFim: Date;
   executadoPorId?: string;
-  origem?: "MANUAL" | "AUTOMATICO";
+  origem?: "MANUAL" | "AUTOMATICO" | "IMPORTACAO";
+  /** Importação manual: os dois exports entregues por uma pessoa, no lugar do download. */
+  exportsManuais?: { listarVendas: Buffer; contasReceber: Buffer; entrada: Prisma.InputJsonValue };
 }): Promise<string> {
   let run: { id: string };
   try {
@@ -104,6 +103,7 @@ export async function startCategorizationRun(params: {
             status: "RUNNING",
             origem: params.origem ?? "MANUAL",
             executadoPorId: params.executadoPorId,
+            entradaManual: params.exportsManuais?.entrada,
           },
         });
       },
@@ -120,60 +120,24 @@ export async function startCategorizationRun(params: {
   }
 
   try {
-    const { listarVendas, contasReceber } = await fetchBothExports(params.periodoInicio, params.periodoFim);
+    // Importação manual: os arquivos vieram de uma pessoa (que passou pelo captcha do
+    // Conexa), então não há login nem download. O resto do caminho é idêntico.
+    const { listarVendas, contasReceber } =
+      params.exportsManuais ?? (await fetchBothExports(params.periodoInicio, params.periodoFim));
 
-    // Achado real (2026-07-24): uma sincronização MANUAL pediu período até
-    // 31/07 quando "hoje" ainda era 23/07 — "Data Crédito" é uma LISTA de
-    // datas em faturas recorrentes (Contratual), e a regra de aceitação
-    // ("qualquer data da lista que caia no período", fidelidade ao Python,
-    // ADR-0018/0019) aceitou uma data agendada pro futuro (ainda não
-    // realizada) como se já fosse dinheiro recebido — 28 faturas, R$6.029,12.
-    // "Data Crédito" só faz sentido no passado/presente: nunca aceitar uma
-    // data além de HOJE de verdade, não importa qual período foi pedido (nem
-    // o automático — que nunca pede além de agora por construção — nem um
-    // manual/API que peça um período mal calculado). O fetch em si pode ser
-    // mais largo que isso (inofensivo); só a ACEITAÇÃO da data é limitada.
-    const agora = nowInAppTz();
-    const periodoFimEfetivo = params.periodoFim.getTime() < agora.getTime() ? params.periodoFim : agora;
-
-    const crRowsAll = parseContasReceberRows(
-      readXlsxAsObjects(contasReceber),
-      params.periodoInicio,
-      periodoFimEfetivo,
-    );
-    const lvRowsAll = parseListarVendasRows(readXlsxAsObjects(listarVendas));
-
-    // dataCredito === null aqui significa "nenhuma data da lista de Data
-    // Crédito cai neste período" (ver parseDataCreditoNoPeriodo) — replica
-    // `if not datas_no_periodo: continue` do script real.
-    const crRows = crRowsAll.filter((r) => statusAceitoCR(r.status) && r.dataCredito !== null);
-    const lvRows = lvRowsAll.filter((r) => STATUS_ACEITOS_LV.includes(r.status));
-
-    // orderBy explícito: o desempate de "maior prefixo" (rules.ts) precisa da
-    // MESMA ordem de chegada que o script real tem (ordem das linhas na
-    // planilha de categorias) para empates de mesmo comprimento resolverem
-    // igual. `id` (cuid) é aproximadamente cronológico — não é uma garantia
-    // formal de ordem-de-arquivo, mas é o melhor proxy disponível sem migrar
-    // o schema para uma coluna de ordem explícita (ver ADR-0018).
-    const rules = await prisma.revenueCategoryRule.findMany({
-      where: { ativo: true },
-      orderBy: { id: "asc" },
+    const rules = await regrasAtivasParaRodada();
+    const { resultado, somaValorRecebidoCR, diferencaConferencia } = prepararRodada({
+      contasReceber,
+      listarVendas,
+      periodoInicio: params.periodoInicio,
+      periodoFim: params.periodoFim,
+      rules,
     });
-    const resultado = categorizeInvoices(
-      crRows,
-      lvRows,
-      rules.map((r) => ({ nome: r.nome, categoria: r.categoria })),
-    );
 
     const persistResumo = await persistComRetry(run.id, resultado.linhas, params.periodoInicio, params.periodoFim);
 
-    // Conferência exigida pela skill original (ADR-0018): soma de "Valor
-    // Recebido" do CR aceito deve bater com a soma de "Valor Recebido Cat."
-    // das linhas produzidas. O rateio garante fechamento por fatura, então
-    // isto deve dar zero sempre — diferente de zero é sinal de algo
-    // estrutural (nunca ignorado silenciosamente, regra #8).
-    const somaValorRecebidoCR = roundMoney(sum(crRows.map((r) => r.valorRecebido)));
-    const diferencaConferencia = roundMoney(somaValorRecebidoCR.minus(resultado.totalRecebido));
+    // Conferência (ADR-0018): calculada em prepararRodada. Diferente de zero é sinal de algo
+    // estrutural — nunca ignorado silenciosamente (regra #8).
     if (!diferencaConferencia.isZero()) {
       console.error(
         `[run] CONFERÊNCIA NÃO FECHOU: soma Valor Recebido do CR aceito (${somaValorRecebidoCR.toString()}) ` +

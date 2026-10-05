@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { chaveLinhaCompleta, decidirOrfas, type LinhaExistente } from "@/lib/categorization/orfas";
+import {
+  chaveLinhaCompleta,
+  decidirOrfas,
+  planejarLimpeza,
+  type LinhaExistente,
+  type LinhaProduzida,
+} from "@/lib/categorization/orfas";
 
 /**
  * Os dois primeiros testes são os dois bugs CRÍTICOS que a revisão adversarial
@@ -134,5 +140,45 @@ describe("decidirOrfas — o resto do contrato", () => {
       new Map([[111, new Set(["2026-07"])]]),
     );
     expect(decisao.idsParaApagar).toEqual(["L-B"]);
+  });
+});
+
+describe("planejarLimpeza — a mesma decisão da persistência, vista pela prévia da importação", () => {
+  const dia = (s: string) => new Date(`${s}T00:00:00Z`);
+  const produzida = (over: Partial<LinhaProduzida> = {}): LinhaProduzida => ({
+    crId: 17132,
+    chaveLinha: "Endereço Fiscal",
+    dataCredito: dia("2026-07-10"),
+    mesesCreditoFatura: ["2026-07", "2026-08"],
+    ...over,
+  });
+
+  it("janela de dois meses emitindo só julho NÃO condena a linha de agosto (bug crítico nº 1)", () => {
+    const existentes = [linha({ id: "L-JUL" }), linha({ id: "L-AGO", mesCredito: "2026-08" })];
+    const plano = planejarLimpeza(existentes, [produzida()], dia("2026-07-01"), dia("2026-08-31"));
+    expect(plano.idsParaApagar).toEqual([]);
+    expect([...plano.chavesNovas]).toEqual([chaveLinhaCompleta(17132, "Endereço Fiscal", "2026-07")]);
+  });
+
+  it("bucket que mudou de categoria no mesmo mês: a antiga é condenada, a nova vive", () => {
+    const existentes = [linha({ id: "ANTIGA", chaveLinha: "Sem Categoria" })];
+    const plano = planejarLimpeza(existentes, [produzida({ mesesCreditoFatura: ["2026-07"] })], dia("2026-07-01"), dia("2026-07-31"));
+    expect(plano.idsParaApagar).toEqual(["ANTIGA"]);
+  });
+
+  it("fatura que sumiu por completo do arquivo é condenada dentro da janela; revisada é preservada", () => {
+    const existentes = [
+      linha({ id: "SUMIU", crConexaId: 999 }),
+      linha({ id: "REVISADA", crConexaId: 998, revisadoManualmente: true }),
+    ];
+    const plano = planejarLimpeza(existentes, [produzida()], dia("2026-07-01"), dia("2026-07-31"));
+    expect(plano.idsParaApagar).toEqual(["SUMIU"]);
+    expect(plano.preservadasPorRevisao).toEqual(["998::2026-07"]);
+  });
+
+  it("mês fora da janela, de fatura que não veio, não é tocado (assunto de outra rodada)", () => {
+    const existentes = [linha({ id: "OUTRO-MES", crConexaId: 999, mesCredito: "2026-05" })];
+    const plano = planejarLimpeza(existentes, [produzida()], dia("2026-07-01"), dia("2026-07-31"));
+    expect(plano.idsParaApagar).toEqual([]);
   });
 });

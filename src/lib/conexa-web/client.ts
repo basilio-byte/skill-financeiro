@@ -64,7 +64,7 @@ async function login(): Promise<string> {
       "Login web do Conexa em pausa: ele exige reCAPTCHA e nenhuma automação resolve isso. " +
         "Nova tentativa automática em " +
         new Date(captchaPausadoAte).toISOString() +
-        " (ou ao reiniciar o serviço). A receita precisa de outra fonte — ver docs/context/conexa-integration.md.",
+        " (ou ao reiniciar o serviço). Use a importação manual em Sincronizações — ver docs/context/conexa-integration.md.",
     );
   }
   if (!env.CONEXA_WEB_USERNAME || !env.CONEXA_WEB_PASSWORD) {
@@ -102,7 +102,7 @@ async function login(): Promise<string> {
       throw new ConexaWebError(
         "O Conexa passou a exigir reCAPTCHA no login web (resposta: 'Marque o captcha e tente novamente'). " +
           "Usuário e senha NÃO são o problema, e não é a migração de servidor. Nenhum script resolve captcha — " +
-          "a receita precisa de outra fonte (API v2 ou sessão autenticada por uma pessoa).",
+          "use a importação manual em Sincronizações (Importar arquivos do Conexa), com os exports baixados por uma pessoa.",
       );
     }
     throw new ConexaWebError(

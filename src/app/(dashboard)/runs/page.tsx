@@ -6,6 +6,7 @@ import { Card, SectionTitle } from "@/components/ui";
 import { PageHeader } from "@/components/page-header";
 import { Selo, tomDoStatus } from "@/components/selo";
 import { NewRunForm } from "@/app/(dashboard)/runs/new-run-form";
+import { ImportarForm } from "@/app/(dashboard)/runs/importar-form";
 import { AutoRefresh } from "@/components/auto-refresh";
 
 export const metadata: Metadata = { title: "Sincronizações" };
@@ -32,6 +33,7 @@ const STATUS_LABEL: Record<string, string> = {
 const ORIGEM_LABEL: Record<string, string> = {
   MANUAL: "Manual",
   AUTOMATICO: "Automático",
+  IMPORTACAO: "Importação manual",
 };
 
 export default async function RunsPage() {
@@ -71,6 +73,8 @@ export default async function RunsPage() {
           ))}
         </>
       ) : null}
+
+      <ImportarForm jaEmAndamento={emAndamento.length > 0} />
 
       <NewRunForm jaEmAndamento={emAndamento.length > 0} />
 

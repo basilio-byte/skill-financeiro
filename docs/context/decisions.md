@@ -1970,3 +1970,74 @@ Antes, só validado contra um Conexa FALSO (e foi o que deixou passar a URL erra
 
 Dois ajustes no mesmo dia: depois de uma rodada FALHA, a nova tentativa vem em 15 min (e não 2 h) — a URL errada
 ficou 2 h "castigada" depois do conserto —, e a ferramenta `sincronizar_inadimplencia` dispara na hora.
+
+---
+
+## ADR-0034
+
+**Importação manual dos exports do Conexa — com prévia obrigatória do que seria criado, atualizado e removido.**
+
+Data: 2026-10-06. Status: implementada e validada localmente contra Postgres real (não deployada, sem commit).
+
+### Contexto
+
+O login web do Conexa passou a exigir reCAPTCHA (ADR-0032) e a Data de Crédito da Cobrança só existe nessa
+tela, não na API v2 (medido: cartão ~80%, sem nº de parcelas). A receita parou em 30/09 13:06. O ADR-0032
+recomendou, como caminho que preserva 100% da fidelidade, a importação manual dos dois exports por uma pessoa
+(que passa pelo captcha) alimentando o MESMO pipeline.
+
+### O risco que desenhou a solução
+
+A persistência (`persistLinhasCategorizadas`, ADR-0029) **apaga** linhas do período que não aparecem no
+resultado (órfãs). Com download automático isso é correto — o Conexa é a verdade. Com um arquivo enviado à mão,
+um export parcial (filtro errado, meio mês) **apagaria receita real não revisada**. Por isso a importação não é
+"um botão que sobe dois arquivos": é prévia → confirmação → gravação.
+
+### Decisões
+
+1. **Mesmo pipeline, outra origem dos arquivos.** `startCategorizationRun` aceita `exportsManuais` (e
+   `origem: "IMPORTACAO"`) no lugar de `fetchBothExports`. Nada mais muda na rodada.
+2. **Prévia somente leitura que usa as MESMAS funções da rodada**, para não poder mentir: `prepararRodada`
+   (leitura + filtro + categorização, extraída de `run.ts`), `planejarLimpeza` + `filtroLinhasAlcancadas`
+   (extraídas de `persist.ts`) e `regrasAtivasParaRodada`. Mostra: faturas lidas/aceitas/ignoradas, novas,
+   atualizadas, **removidas (com valor)**, preservadas por revisão manual, e o total de cada mês **hoje × depois**.
+3. **Selo da prévia.** A importação reexecuta a prévia e só grava se o selo (hash dos arquivos, período e dos
+   números) ainda confere; senão, 409 "gere a prévia de novo". Não confia em números enviados pelo navegador.
+4. **Confirmação explícita** quando algo seria removido ou o total de um mês cai mais de 5%. **Bloqueio** (nunca
+   grava) se nenhuma fatura cai no período, se a conferência da skill não fecha, arquivos trocados, não-.xlsx,
+   vazios, colunas faltando ou datas ilegíveis (arquivo reescrito pelo Excel).
+5. **Rastreabilidade:** `origem = IMPORTACAO` + `entradaManual` (nome, tamanho e SHA-256 dos dois arquivos —
+   nunca o conteúdo) na rodada; aparece em /runs e no detalhe. O diagnóstico do MCP diz que a última rodada
+   concluída foi importação manual e até que período vale.
+6. **Só ADMIN**, como o disparo de sincronização. Rota de API (`/api/runs/importar`), não server action: o limite
+   de 1 MB das actions não comporta um export. O envio inteiro passa pelo middleware do Next, que só entrega os
+   10 MB iniciais do corpo — medido: 32 MB chega truncado. Limite: 4,5 MB por arquivo, recusado com mensagem clara.
+7. **Migration só aditiva** (`20261006120000_importacao_manual`): um valor novo no enum + uma coluna JSONB
+   nullable. Nenhuma linha existente é tocada (lição do P3009 da ADR-0026).
+
+### Validação (Postgres 16 descartável, planilhas no formato real do Conexa)
+
+- **A rodada refatorada é idêntica à antiga**: HEAD vs. novo, mesma sequência (completo → revisão manual →
+  incompleto → alterado → completo), tabela de linhas e totais das rodadas idênticos nos 4 passos. O comparador
+  foi provado capaz de acusar divergência (injetando um defeito: "nunca apagar órfãs" → DIFERE).
+- **A prévia diz a verdade**: em 4 importações seguidas, novas/atualizadas/removidas/preservadas e o total de cada
+  mês anunciados pela prévia = o que o banco registrou depois (até o centavo).
+- **As travas funcionam**: sem confirmação → recusa e nada muda; selo errado → 409; período que não bate →
+  bloqueio; arquivos trocados/não-xlsx/período invertido → mensagem clara; leitor → 403; arquivo grande → 413.
+- Por HTTP e pela tela real (Chrome): prévia e importação, tema claro/escuro e celular.
+
+### O que NÃO foi validado
+
+- Contra um export **real** do Conexa: as planilhas de teste imitam os cabeçalhos e formatos documentados, mas
+  nenhum arquivo baixado do Conexa passou por aqui. O primeiro uso real deve começar por UMA prévia e conferir o
+  total do mês contra o fechamento da Duda antes de importar.
+- Os nomes exatos das telas/filtros do Conexa nas instruções (o texto usa "Contas a Receber", "Listar Vendas" e
+  "Data de Crédito da Cobrança", os nomes que o código e a skill já usam).
+
+### Consequências
+
+- A receita volta a ser atualizável por uma pessoa, mas deixa de ser tempo real: só vale até onde o arquivo vai.
+- **Importar um período passado RECATEGORIZA o mês com as regras de hoje** (efeito da ADR-0030): metas e quebra
+  por categoria podem mudar, não só o total. A prévia mostra o total; a quebra por categoria está no detalhe.
+- A sincronização automática continua tentando e falhando por captcha (pausa de 6 h); quando o Conexa voltar a
+  funcionar, ela retoma sozinha e sobrescreve com o mesmo dado.

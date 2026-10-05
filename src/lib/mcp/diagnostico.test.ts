@@ -98,3 +98,22 @@ describe("diagnosticarReceita — a janela de rodadas é curta (bug medido em pr
     expect(diagnosticarReceita([r("FAILED", 5, "x"), r("FAILED", 20, "x"), r("DONE", 9999)], AGORA, 1).falhasSeguidas).toBe(2);
   });
 });
+
+describe("diagnosticarReceita — última concluída veio de IMPORTAÇÃO MANUAL", () => {
+  const importada = { ...r("DONE", 30), origem: "IMPORTACAO", periodo: "2026-09-01..2026-09-30" };
+
+  it("diz que foi importação manual e até onde ela vale, em vez de só 'retrato antigo'", () => {
+    const d = diagnosticarReceita([r("FAILED", 5, "O Conexa passou a exigir reCAPTCHA"), r("FAILED", 20, "O Conexa passou a exigir reCAPTCHA"), importada], AGORA);
+    expect(d.situacao).toBe("parada");
+    expect(d.resumo).toMatch(/IMPORTAÇÃO MANUAL/);
+    expect(d.resumo).toMatch(/2026-09-01\.\.2026-09-30/);
+    expect(d.resumo).not.toMatch(/retrato ANTIGO/);
+    expect(d.resumo).toMatch(/reCAPTCHA/);
+  });
+
+  it("rodada concluída automática continua com o texto de sempre", () => {
+    const d = diagnosticarReceita([r("FAILED", 5, "x"), r("FAILED", 20, "x"), { ...r("DONE", 30), origem: "AUTOMATICO" }], AGORA);
+    expect(d.resumo).toMatch(/retrato ANTIGO/);
+    expect(d.resumo).not.toMatch(/IMPORTAÇÃO MANUAL/);
+  });
+});

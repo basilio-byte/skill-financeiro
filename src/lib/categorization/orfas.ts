@@ -18,6 +18,8 @@
  * crédito da fatura?**
  */
 
+import { mesDoCreditoOuSentinela, mesesNoIntervalo } from "@/lib/categorization/mes-credito";
+
 /** O mínimo que a decisão precisa saber de uma linha já gravada. */
 export interface LinhaExistente {
   id: string;
@@ -92,4 +94,57 @@ export function decidirOrfas(
   }
 
   return { idsParaApagar, preservadasPorRevisao };
+}
+
+/** O mínimo que o planejamento precisa saber de uma linha que a rodada produziu. */
+export interface LinhaProduzida {
+  crId: number;
+  chaveLinha: string;
+  dataCredito: Date | null;
+  mesesCreditoFatura: string[];
+}
+
+export interface PlanoLimpeza extends DecisaoOrfas {
+  /** Identidades (`crId::chaveLinha::mês`) que a rodada produziu. */
+  chavesNovas: Set<string>;
+}
+
+/**
+ * Deriva, das linhas que a rodada produziu, os três insumos de `decidirOrfas` e
+ * chama a decisão. Pura.
+ *
+ * Existe como função própria porque DOIS lugares precisam da MESMA decisão: a
+ * persistência (`persistLinhasCategorizadas`), que apaga de verdade, e a PRÉVIA
+ * da importação manual, que só mostra o que seria apagado. Duplicar essa
+ * derivação era o jeito certo de a prévia mentir um dia — ela diria "nada será
+ * removido" e a persistência removeria.
+ */
+export function planejarLimpeza(
+  existentes: LinhaExistente[],
+  linhas: LinhaProduzida[],
+  periodoInicio: Date,
+  periodoFim: Date,
+): PlanoLimpeza {
+  // Meses que a rodada é responsável por manter em dia. Tudo fora deles é
+  // assunto de outra rodada e não pode ser tocado aqui.
+  const mesesDaRodada = mesesNoIntervalo(periodoInicio, periodoFim);
+
+  const chavesNovas = new Set<string>();
+  const mesesValidosPorFatura = new Map<number, Set<string>>(); // verdade do Conexa
+  const mesesProduzidosPorFatura = new Map<number, Set<string>>(); // o que a rodada cobriu
+  for (const l of linhas) {
+    const mes = mesDoCreditoOuSentinela(l.dataCredito);
+    chavesNovas.add(chaveLinhaCompleta(l.crId, l.chaveLinha, mes));
+
+    let validos = mesesValidosPorFatura.get(l.crId);
+    if (!validos) mesesValidosPorFatura.set(l.crId, (validos = new Set()));
+    for (const m of l.mesesCreditoFatura) validos.add(m);
+
+    let produzidos = mesesProduzidosPorFatura.get(l.crId);
+    if (!produzidos) mesesProduzidosPorFatura.set(l.crId, (produzidos = new Set()));
+    produzidos.add(mes);
+  }
+
+  const decisao = decidirOrfas(existentes, chavesNovas, mesesValidosPorFatura, mesesDaRodada, mesesProduzidosPorFatura);
+  return { ...decisao, chavesNovas };
 }

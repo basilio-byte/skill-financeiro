@@ -115,6 +115,9 @@ enum Proporcionado {
 enum OrigemRodada {
   MANUAL
   AUTOMATICO
+  // Os exports vieram de uma pessoa (arquivos enviados em /runs), não do download pelo login
+  // web do Conexa — que passou a exigir reCAPTCHA (ADR-0032/0034).
+  IMPORTACAO
 }
 
 // Um registro de EXECUÇÃO da sincronização — não é mais dono exclusivo das
@@ -134,6 +137,10 @@ model RevenueSyncRun {
 
   executadoPorId String?
   executadoPor   User?   @relation(fields: [executadoPorId], references: [id], onDelete: SetNull)
+
+  // Só em origem IMPORTACAO: identificação dos dois arquivos enviados (nome, tamanho, SHA-256)
+  // — para saber de QUAL arquivo veio uma receita. Nunca o conteúdo.
+  entradaManual Json?
 
   totalLinhasCR Int     @default(0)
   totalLinhasLV Int     @default(0)

@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { money, toAmountString, ZERO } from "@/lib/money";
 import type { CategorizedLine } from "@/lib/categorization/types";
 import { mesDoCreditoOuSentinela, mesesNoIntervalo } from "@/lib/categorization/mes-credito";
-import { decidirOrfas } from "@/lib/categorization/orfas";
+import { planejarLimpeza } from "@/lib/categorization/orfas";
 
 export interface PersistResumo {
   totalLinhasNovas: number;
@@ -80,6 +80,26 @@ function toLineData(l: CategorizedLine) {
  */
 const chaveExistente = (crConexaId: number, chaveLinha: string, mesCredito: string) =>
   `${crConexaId}::${chaveLinha}::${mesCredito}`;
+
+/**
+ * Candidatas à limpeza de órfãs: todas as linhas das faturas que a rodada
+ * produziu (de todos os meses) MAIS as que já estão no período da rodada — as
+ * faturas que SOMEM por completo só são achadas pelo período. Exportada porque
+ * a prévia da importação manual precisa buscar exatamente o mesmo conjunto.
+ */
+export function filtroLinhasAlcancadas(
+  linhas: Array<{ crId: number }>,
+  periodoInicio: Date,
+  periodoFim: Date,
+): Prisma.RevenueCategorizedLineWhereInput {
+  const crConexaIds = [...new Set(linhas.map((l) => l.crId))];
+  return {
+    OR: [
+      ...(crConexaIds.length ? [{ crConexaId: { in: crConexaIds } }] : []),
+      { dataCredito: { gte: periodoInicio, lte: periodoFim } },
+    ],
+  };
+}
 
 /**
  * Persiste as linhas de uma rodada via UPSERT por
@@ -164,10 +184,7 @@ export async function persistLinhasCategorizadas(
         );
       }
 
-      const crConexaIds = [...new Set(linhas.map((l) => l.crId))];
-
-      // Meses que ESTA rodada é responsável por manter em dia. Tudo o que estiver
-      // fora deles é assunto de outra rodada e não pode ser tocado aqui.
+      // Meses que ESTA rodada é responsável por manter em dia (para o log abaixo).
       const mesesDaRodada = mesesNoIntervalo(periodoInicio, periodoFim);
 
       // A busca é AMPLA de propósito (todas as linhas da fatura, de todos os
@@ -177,12 +194,7 @@ export async function persistLinhasCategorizadas(
       // meses contavam a mesma receita, para sempre. Quem decide quem morre é
       // `decidirOrfas`, com a verdade do Conexa; a query só junta os candidatos.
       const existentes = await tx.revenueCategorizedLine.findMany({
-        where: {
-          OR: [
-            ...(crConexaIds.length ? [{ crConexaId: { in: crConexaIds } }] : []),
-            { dataCredito: { gte: periodoInicio, lte: periodoFim } },
-          ],
-        },
+        where: filtroLinhasAlcancadas(linhas, periodoInicio, periodoFim),
         select: { id: true, crConexaId: true, chaveLinha: true, mesCredito: true, revisadoManualmente: true },
       });
 
@@ -191,31 +203,9 @@ export async function persistLinhasCategorizadas(
         revisadaAntes.set(chaveExistente(e.crConexaId, e.chaveLinha, e.mesCredito), e.revisadoManualmente);
       }
 
-      // Três coisas que `decidirOrfas` precisa saber, todas derivadas das linhas
-      // que esta rodada acabou de produzir:
-      const chavesNovas = new Set<string>();
-      const mesesValidosPorFatura = new Map<number, Set<string>>(); // verdade do Conexa
-      const mesesProduzidosPorFatura = new Map<number, Set<string>>(); // o que a rodada cobriu
-      for (const l of linhas) {
-        const mes = mesDoCreditoOuSentinela(l.dataCredito);
-        chavesNovas.add(chaveExistente(l.crId, l.chaveLinha, mes));
-
-        let validos = mesesValidosPorFatura.get(l.crId);
-        if (!validos) mesesValidosPorFatura.set(l.crId, (validos = new Set()));
-        for (const m of l.mesesCreditoFatura) validos.add(m);
-
-        let produzidos = mesesProduzidosPorFatura.get(l.crId);
-        if (!produzidos) mesesProduzidosPorFatura.set(l.crId, (produzidos = new Set()));
-        produzidos.add(mes);
-      }
-
-      const decisao = decidirOrfas(
-        existentes,
-        chavesNovas,
-        mesesValidosPorFatura,
-        mesesDaRodada,
-        mesesProduzidosPorFatura,
-      );
+      // Quem morre e quem vive — a MESMA decisão que a prévia da importação
+      // manual mostra (ver `planejarLimpeza`).
+      const decisao = planejarLimpeza(existentes, linhas, periodoInicio, periodoFim);
       const totalLinhasOrfasPreservadas = decisao.preservadasPorRevisao.length;
       const faturasComOrfaPreservada = new Set(decisao.preservadasPorRevisao);
       if (decisao.idsParaApagar.length > 0) {

@@ -11,6 +11,10 @@ export interface RodadaResumo {
   erro: string | null;
   iniciadoEm: Date;
   concluidoEm: Date | null;
+  /** MANUAL | AUTOMATICO | IMPORTACAO — opcional (rodadas antigas de teste não o trazem). */
+  origem?: string;
+  /** Período da rodada, "yyyy-mm-dd..yyyy-mm-dd" — só para dizer até quando uma importação vale. */
+  periodo?: string;
 }
 
 export type SituacaoReceita = "saudavel" | "parada" | "sem_historico" | "em_andamento";
@@ -39,7 +43,7 @@ const SEM_RODADA_MIN = 90;
 export function causaDoErro(erro: string | null | undefined): string | null {
   if (!erro) return null;
   if (/captcha/i.test(erro)) {
-    return "O Conexa exige reCAPTCHA no login web (medido em 2026-10-05). Nenhuma automação resolve; é preciso importação manual, sessão aberta por uma pessoa, ou o Conexa dispensar o captcha.";
+    return "O Conexa exige reCAPTCHA no login web (medido em 2026-10-05). Nenhuma automação resolve: use a importação manual (Sincronizações → Importar arquivos do Conexa) ou espere o Conexa dispensar o captcha.";
   }
   if (/Login no Conexa falhou/i.test(erro)) {
     return "Login web no Conexa recusado. Desde 2026-10-05 a causa conhecida é o reCAPTCHA (a mensagem antiga dizia 'verifique usuário e senha', o que era enganoso); confira primeiro o toast 'Marque o captcha'.";
@@ -101,7 +105,9 @@ export function diagnosticarReceita(rodadas: RodadaResumo[], agora: Date, falhas
   const resumo =
     situacao === "parada"
       ? `RECEITA PARADA: ${falhasSeguidas} rodada(s) falharam em sequência; a última concluída foi ${quando}. ` +
-        "Os totais do painel são um retrato ANTIGO — não os apresente como atuais." +
+        (ultimaDone?.origem === "IMPORTACAO"
+          ? `A última rodada concluída foi uma IMPORTAÇÃO MANUAL de arquivos${ultimaDone.periodo ? ` (período ${ultimaDone.periodo})` : ""}: a sincronização automática segue falhando, então o painel só vale até onde os arquivos importados alcançam — não apresente o que veio depois como atuais.`
+          : "Os totais do painel são um retrato ANTIGO — não os apresente como atuais.") +
         (causa ? ` Causa provável: ${causa}` : "")
       : situacao === "em_andamento"
         ? "Uma rodada está em andamento agora."

@@ -1784,3 +1784,15 @@ O MCP conectou na claude.ai (cabeçalho `x-api-key`). `estado_do_sistema` mostro
   contagem de botões subiu (os ⓘ e o menu móvel). `tsc` limpo, 320 testes, build de produção ok,
   capturas reais em claro/escuro e 1440/390 px conferidas.
 - Não commitado: aguardando o pedido do usuário.
+
+## 2026-10-06 — Importação manual dos exports do Conexa (ADR-0034)
+- Construída a importação manual (Sincronizações → Importar arquivos do Conexa): dois .xlsx + período → **prévia
+  somente leitura** (novas/atualizadas/**removidas com valor**/preservadas; total de cada mês hoje × depois;
+  alertas) → confirmação → mesma rodada de sempre, com `origem = IMPORTACAO` e os arquivos identificados por hash.
+- Refatoração de apoio SEM mudar comportamento: `prepararRodada` (de `run.ts`), `planejarLimpeza` e
+  `filtroLinhasAlcancadas` (de `persist.ts`), `regrasAtivasParaRodada`. Provado contra Postgres real que a rodada
+  antiga (HEAD) e a nova gravam exatamente o mesmo em 4 cenários (e que o comparador acusa um defeito injetado).
+- Migration aditiva `20261006120000_importacao_manual` (valor de enum + coluna JSONB nullable).
+- Testes: 320 → 349 (validação de arquivos, política de alertas, planejarLimpeza, diagnóstico).
+- **Não validado com export real do Conexa** — primeiro uso deve começar por uma prévia e conferir o total do mês.
+- Não commitado: aguardando o pedido do usuário.
