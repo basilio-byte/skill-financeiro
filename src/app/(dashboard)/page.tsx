@@ -8,7 +8,7 @@ import { formatBRL, formatPercent } from "@/lib/money";
 import { Card, SectionTitle } from "@/components/ui";
 import { KpiCard, KpiStrip } from "@/components/kpi-card";
 import { PageHeader } from "@/components/page-header";
-import { Selo, tomDoStatus } from "@/components/selo";
+import { AJUDA_ORIGEM, ROTULO_ORIGEM, Selo, tomDaOrigem, tomDoStatus } from "@/components/selo";
 import { ChartCard } from "@/components/charts/chart-card";
 import { PeriodBarChart } from "@/components/charts/period-bar-chart";
 import { BreakdownList } from "@/components/breakdown-list";
@@ -117,7 +117,7 @@ export default async function PanoramaPage({
 
       {/* Últimas sincronizações (histórico geral, não escopado ao período) */}
       <Card>
-        <SectionTitle hint="cada sincronização mostra o total que ELA calculou no momento — pode não bater com o Panorama acima, que reflete sincronizações e revisões manuais feitas depois">
+        <SectionTitle hint={`cada sincronização mostra o total que ELA calculou no momento — pode não bater com o Panorama acima, que reflete sincronizações e revisões manuais feitas depois. ${AJUDA_ORIGEM}`}>
           Últimas sincronizações
         </SectionTitle>
         <div className="overflow-x-auto">
@@ -126,6 +126,7 @@ export default async function PanoramaPage({
               <tr>
                 <th className="pb-2 pr-4">Quando</th>
                 <th className="pb-2 pr-4">Período</th>
+                <th className="pb-2 pr-4">Origem</th>
                 <th className="pb-2 pr-4">Status</th>
                 <th className="pb-2 pr-4 text-right">Total</th>
               </tr>
@@ -146,6 +147,9 @@ export default async function PanoramaPage({
                     </Link>
                   </td>
                   <td className="py-2 pr-4">
+                    <Selo tom={tomDaOrigem(r.origem)}>{ROTULO_ORIGEM[r.origem] ?? r.origem}</Selo>
+                  </td>
+                  <td className="py-2 pr-4">
                     <Selo tom={tomDoStatus(r.status)}>{STATUS_LABEL[r.status] ?? r.status}</Selo>
                   </td>
                   <td className="tabular py-2 pr-4 text-right">{formatBRL(r.totalRecebido)}</td>
@@ -153,7 +157,7 @@ export default async function PanoramaPage({
               ))}
               {report.ultimasRodadas.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="py-6 text-center text-slate-400">
+                  <td colSpan={5} className="py-6 text-center text-slate-400">
                     Nenhuma sincronização ainda —{" "}
                     <Link href="/runs" className="text-acento-texto hover:underline">
                       criar a primeira

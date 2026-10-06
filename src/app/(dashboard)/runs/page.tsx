@@ -4,7 +4,8 @@ import { prisma } from "@/lib/db";
 import { formatBRL } from "@/lib/money";
 import { Card, SectionTitle } from "@/components/ui";
 import { PageHeader } from "@/components/page-header";
-import { Selo, tomDoStatus } from "@/components/selo";
+import { Dica } from "@/components/dica";
+import { AJUDA_ORIGEM, ROTULO_ORIGEM, Selo, tomDaOrigem, tomDoStatus } from "@/components/selo";
 import { NewRunForm } from "@/app/(dashboard)/runs/new-run-form";
 import { ImportarForm } from "@/app/(dashboard)/runs/importar-form";
 import { AutoRefresh } from "@/components/auto-refresh";
@@ -84,7 +85,12 @@ export default async function RunsPage() {
           <thead className="text-slate-500">
             <tr>
               <th className="pb-2 pr-4">Período</th>
-              <th className="pb-2 pr-4">Origem</th>
+              <th className="pb-2 pr-4">
+                <span className="inline-flex items-center gap-1">
+                  Origem
+                  <Dica>{AJUDA_ORIGEM}</Dica>
+                </span>
+              </th>
               <th className="pb-2 pr-4">Status</th>
               <th className="pb-2 pr-4 text-right">Faturas CR</th>
               <th className="pb-2 pr-4 text-right">Sem LV</th>
@@ -100,7 +106,9 @@ export default async function RunsPage() {
                     {formatDate(run.periodoInicio)} – {formatDate(run.periodoFim)}
                   </Link>
                 </td>
-                <td className="py-2 pr-4">{ORIGEM_LABEL[run.origem] ?? run.origem}</td>
+                <td className="py-2 pr-4">
+                  <Selo tom={tomDaOrigem(run.origem)}>{ROTULO_ORIGEM[run.origem] ?? run.origem}</Selo>
+                </td>
                 <td className="py-2 pr-4">
                   <Selo tom={tomDoStatus(run.status)}>{STATUS_LABEL[run.status] ?? run.status}</Selo>
                 </td>

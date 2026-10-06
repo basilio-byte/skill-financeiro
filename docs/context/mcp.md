@@ -35,7 +35,7 @@ claude mcp add --transport http --scope local seahub-financeiro \
 
 ## Ferramentas
 
-**Comece sempre por `estado_do_sistema`.** Com a receita parada, todo total é um retrato antigo.
+**Comece sempre por `estado_do_sistema`.** Com a receita parada, todo total é um retrato antigo. `receita.diagnostico.situacao` vale `saudavel`, `em_andamento`, `parada`, `sem_historico` ou **`importacao_manual`** (a última rodada concluída foi uma importação de arquivos e a sincronização automática está falhando: o painel vale só até onde os arquivos importados alcançam — o resumo traz os períodos importados e há quanto tempo; passadas 48 h sem nova importação volta a ser `parada`). `automatica` diz se a automática está `funcionando`, `falhando` ou `sem_tentativas`.
 
 ### Consulta (17, somente leitura)
 

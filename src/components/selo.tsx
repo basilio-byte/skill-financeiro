@@ -28,6 +28,29 @@ export function Selo({ tom = "neutro", children, className }: { tom?: Tom; child
   );
 }
 
+/**
+ * Origem de uma rodada — o selo sempre leva o TEXTO, e a cor só reforça:
+ * Automática (cinza) = o sistema baixou do Conexa sozinho; Manual (azul) = alguém disparou o
+ * download pelo sistema; Importação (âmbar) = os arquivos vieram de uma pessoa, então o dado vale
+ * só até onde o arquivo alcança. Valor desconhecido aparece como veio, em cinza (nunca some).
+ */
+export const ROTULO_ORIGEM: Record<string, string> = {
+  AUTOMATICO: "Automática",
+  MANUAL: "Manual",
+  IMPORTACAO: "Importação",
+};
+
+export function tomDaOrigem(origem: string): Tom {
+  if (origem === "MANUAL") return "info";
+  if (origem === "IMPORTACAO") return "atencao";
+  return "neutro";
+}
+
+/** Texto de ajuda das três origens, para o ⓘ das listas de sincronizações. */
+export const AJUDA_ORIGEM =
+  "Origem: Automática = o sistema baixou os exports do Conexa sozinho; Manual = alguém disparou o download pelo sistema; " +
+  "Importação = os arquivos foram enviados por uma pessoa (o dado vale só até onde o arquivo alcança).";
+
 /** Estado de uma rodada de sincronização → tom. Valores desconhecidos ficam neutros (nunca somem). */
 export function tomDoStatus(status: string): Tom {
   if (status === "DONE") return "bom";

@@ -1796,3 +1796,13 @@ O MCP conectou na claude.ai (cabeçalho `x-api-key`). `estado_do_sistema` mostro
 - Testes: 320 → 349 (validação de arquivos, política de alertas, planejarLimpeza, diagnóstico).
 - **Não validado com export real do Conexa** — primeiro uso deve começar por uma prévia e conferir o total do mês.
 - Não commitado: aguardando o pedido do usuário.
+
+## 2026-10-06 (tarde) — Origem visível nas sincronizações + diagnóstico "importação manual"
+- Restaurada a receita em produção por importação manual (setembro R$ 360.491,81 e outubro parcial R$ 40.963,16,
+  conferência 0,00, conferido pelo MCP; julho e agosto intactos). O Conexa continua exigindo captcha.
+- Corrigido o diagnóstico do MCP: logo após uma importação, `estado_do_sistema` dizia "saudável / sincronizando
+  normalmente" com a automática falhando. Novo estado `importacao_manual` (+ `automatica` e `importacoesRecentes`);
+  passadas 48 h sem importar volta a ser `parada`. Cenário real de 2026-10-06 travado em teste.
+- Origem das rodadas visível: selo Automática (cinza) / Manual (azul) / Importação (âmbar) em "Últimas
+  sincronizações" (Panorama) e no histórico de Sincronizações, com ⓘ explicando cada uma. Só apresentação.
+- Testes: 349 → 356.

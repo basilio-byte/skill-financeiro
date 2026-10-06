@@ -17,7 +17,15 @@ export interface RodadaResumo {
   periodo?: string;
 }
 
-export type SituacaoReceita = "saudavel" | "parada" | "sem_historico" | "em_andamento";
+/**
+ * `importacao_manual`: a última rodada concluída foi uma IMPORTAÇÃO de arquivos e a sincronização
+ * AUTOMÁTICA está falhando. Não é "saudável" (nada novo entra sozinho) nem "parada" (alguém atualizou
+ * há pouco): é um estado próprio, e dizer "sincronizando normalmente" aqui enganava (2026-10-06).
+ */
+export type SituacaoReceita = "saudavel" | "parada" | "sem_historico" | "em_andamento" | "importacao_manual";
+
+/** Como está a sincronização AUTOMÁTICA, olhando a tentativa automática mais recente. */
+export type EstadoAutomatica = "funcionando" | "falhando" | "sem_tentativas";
 
 export interface DiagnosticoReceita {
   situacao: SituacaoReceita;
@@ -26,12 +34,28 @@ export interface DiagnosticoReceita {
   ultimaConcluidaEm: string | null;
   minutosDesdeUltimaConcluida: number | null;
   causaProvavel: string | null;
+  automatica: EstadoAutomatica;
+  /** Períodos das últimas importações manuais concluídas (mais recente primeiro). */
+  importacoesRecentes: string[];
   /** Frase pronta para o agente repetir ao usuário. */
   resumo: string;
 }
 
 /** Quantos minutos sem rodada concluída contam como "parada" mesmo sem falha registrada. */
 const SEM_RODADA_MIN = 90;
+
+/**
+ * Até quando uma importação manual ainda conta como "atualizada". Depois disso, com a automática
+ * falhando, o painel está defasado de verdade e o estado volta a ser `parada`.
+ */
+const IMPORTACAO_VALE_MIN = 48 * 60;
+
+/** "5 min", "3 h", "2 dia(s)" — para frases que o agente repete ao usuário. */
+function haQuanto(minutos: number): string {
+  if (minutos < 60) return `${minutos} min`;
+  if (minutos < 48 * 60) return `${Math.floor(minutos / 60)} h`;
+  return `${Math.floor(minutos / 1440)} dia(s)`;
+}
 
 /**
  * Classifica a causa pelo TEXTO do erro. A ordem importa: a mais específica primeiro.
@@ -74,6 +98,8 @@ export function diagnosticarReceita(rodadas: RodadaResumo[], agora: Date, falhas
       ultimaConcluidaEm: null,
       minutosDesdeUltimaConcluida: null,
       causaProvavel: null,
+      automatica: "sem_tentativas",
+      importacoesRecentes: [],
       resumo: "Nenhuma rodada de receita registrada: o banco pode estar vazio ou nunca sincronizou.",
     };
   }
@@ -96,14 +122,34 @@ export function diagnosticarReceita(rodadas: RodadaResumo[], agora: Date, falhas
   const maisRecente = ordenadas[0]!;
   const causa = causaDoErro(ordenadas.find((r) => r.status === "FAILED")?.erro);
 
+  const ultimaAutomatica = ordenadas.find((r) => r.origem === "AUTOMATICO");
+  const automatica: EstadoAutomatica = !ultimaAutomatica
+    ? "sem_tentativas"
+    : ultimaAutomatica.status === "FAILED"
+      ? "falhando"
+      : "funcionando";
+  const importacoesRecentes = ordenadas
+    .filter((r) => r.status === "DONE" && r.origem === "IMPORTACAO")
+    .slice(0, 3)
+    .map((r) => {
+      const fim = r.concluidoEm ?? r.iniciadoEm;
+      return `${r.periodo ?? "período desconhecido"} (há ${haQuanto(Math.floor((agora.getTime() - fim.getTime()) / 60_000))})`;
+    });
+  const atualizadaPorImportacao =
+    ultimaDone?.origem === "IMPORTACAO" && automatica === "falhando" && minutos !== null && minutos <= IMPORTACAO_VALE_MIN;
+
   let situacao: SituacaoReceita;
   if (maisRecente.status === "RUNNING" && falhasSeguidas === 0) situacao = "em_andamento";
+  else if (atualizadaPorImportacao) situacao = "importacao_manual";
   else if (falhasSeguidas >= 2 || (minutos !== null && minutos > SEM_RODADA_MIN) || !ultimaDone) situacao = "parada";
   else situacao = "saudavel";
 
   const quando = ultimaConcluidaEm ? `${ultimaConcluidaEm.toISOString()} (há ${minutos} min)` : "nunca";
   const resumo =
-    situacao === "parada"
+    situacao === "importacao_manual"
+      ? `Receita ATUALIZADA POR IMPORTAÇÃO MANUAL (última concluída há ${haQuanto(minutos ?? 0)}; importações: ${importacoesRecentes.join("; ")}). ` +
+        `A sincronização AUTOMÁTICA está falhando${causa ? ` — ${causa}` : ""} Nada entra sozinho: o painel só vale até onde os arquivos importados alcançam e fica defasado até a próxima importação.`
+      : situacao === "parada"
       ? `RECEITA PARADA: ${falhasSeguidas} rodada(s) falharam em sequência; a última concluída foi ${quando}. ` +
         (ultimaDone?.origem === "IMPORTACAO"
           ? `A última rodada concluída foi uma IMPORTAÇÃO MANUAL de arquivos${ultimaDone.periodo ? ` (período ${ultimaDone.periodo})` : ""}: a sincronização automática segue falhando, então o painel só vale até onde os arquivos importados alcançam — não apresente o que veio depois como atuais.`
@@ -113,5 +159,5 @@ export function diagnosticarReceita(rodadas: RodadaResumo[], agora: Date, falhas
         ? "Uma rodada está em andamento agora."
         : `Receita sincronizando normalmente; última rodada concluída ${quando}.`;
 
-  return { situacao, falhasSeguidas, ultimaConcluidaEm: ultimaConcluidaEm?.toISOString() ?? null, minutosDesdeUltimaConcluida: minutos, causaProvavel: causa, resumo };
+  return { situacao, falhasSeguidas, ultimaConcluidaEm: ultimaConcluidaEm?.toISOString() ?? null, minutosDesdeUltimaConcluida: minutos, causaProvavel: causa, automatica, importacoesRecentes, resumo };
 }

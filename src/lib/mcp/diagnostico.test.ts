@@ -117,3 +117,64 @@ describe("diagnosticarReceita — última concluída veio de IMPORTAÇÃO MANUAL
     expect(d.resumo).not.toMatch(/IMPORTAÇÃO MANUAL/);
   });
 });
+
+describe("diagnosticarReceita — importacao_manual (automática bloqueada, alguém importou)", () => {
+  const auto = (status: string, minutosAtras: number, erro: string | null = null): RodadaResumo => ({ ...r(status, minutosAtras, erro), origem: "AUTOMATICO" });
+  const imp = (minutosAtras: number, periodo: string): RodadaResumo => ({ ...r("DONE", minutosAtras), origem: "IMPORTACAO", periodo });
+  const captcha = "O Conexa passou a exigir reCAPTCHA no login web";
+
+  // O caso real de 2026-10-06: importou setembro e outubro; a automática continua falhando a cada 15 min.
+  const cenarioReal = () => [
+    imp(5, "2026-10-01..2026-10-06"),
+    auto("FAILED", 6, captcha),
+    imp(9, "2026-09-01..2026-09-30"),
+    auto("FAILED", 20, captcha),
+    auto("FAILED", 35, captcha),
+  ];
+
+  it("NÃO diz 'saudável': é um estado próprio e o resumo avisa que nada entra sozinho", () => {
+    const d = diagnosticarReceita(cenarioReal(), AGORA, 0);
+    expect(d.situacao).toBe("importacao_manual");
+    expect(d.automatica).toBe("falhando");
+    expect(d.resumo).toMatch(/ATUALIZADA POR IMPORTAÇÃO MANUAL/);
+    expect(d.resumo).toMatch(/AUTOMÁTICA está falhando/);
+    expect(d.resumo).toMatch(/Nada entra sozinho/);
+    expect(d.resumo).not.toMatch(/sincronizando normalmente/);
+    expect(d.resumo).not.toMatch(/retrato ANTIGO/);
+  });
+
+  it("lista as importações recentes com período e idade, a mais recente primeiro", () => {
+    const d = diagnosticarReceita(cenarioReal(), AGORA, 0);
+    expect(d.importacoesRecentes).toEqual(["2026-10-01..2026-10-06 (há 5 min)", "2026-09-01..2026-09-30 (há 9 min)"]);
+    expect(d.resumo).toMatch(/2026-10-01\.\.2026-10-06 \(há 5 min\); 2026-09-01\.\.2026-09-30/);
+  });
+
+  it("nomeia a causa (captcha) da automática", () => {
+    expect(diagnosticarReceita(cenarioReal(), AGORA, 0).resumo).toMatch(/reCAPTCHA/);
+  });
+
+  it("importação com mais de 48 h e a automática ainda falhando volta a ser PARADA (painel defasado de verdade)", () => {
+    const antigas = [auto("FAILED", 5, captcha), auto("FAILED", 20, captcha), imp(3 * 24 * 60, "2026-09-01..2026-09-30")];
+    const d = diagnosticarReceita(antigas, AGORA, 2);
+    expect(d.situacao).toBe("parada");
+    expect(d.resumo).toMatch(/IMPORTAÇÃO MANUAL/);
+  });
+
+  it("automática funcionando depois da importação: volta ao normal (saudável)", () => {
+    const d = diagnosticarReceita([auto("DONE", 3), imp(30, "2026-10-01..2026-10-06")], AGORA, 0);
+    expect(d.situacao).toBe("saudavel");
+    expect(d.automatica).toBe("funcionando");
+  });
+
+  it("importação sem nenhuma tentativa automática no histórico recente: não inventa bloqueio", () => {
+    const d = diagnosticarReceita([imp(10, "2026-10-01..2026-10-06")], AGORA, 0);
+    expect(d.automatica).toBe("sem_tentativas");
+    expect(d.situacao).toBe("saudavel");
+  });
+
+  it("última concluída AUTOMÁTICA com a automática falhando continua sendo 'parada' (como antes)", () => {
+    const d = diagnosticarReceita([auto("FAILED", 5, captcha), auto("FAILED", 20, captcha), { ...r("DONE", 300), origem: "AUTOMATICO" }], AGORA, 2);
+    expect(d.situacao).toBe("parada");
+    expect(d.resumo).toMatch(/retrato ANTIGO/);
+  });
+});
