@@ -1,5 +1,7 @@
+import { cookies } from "next/headers";
 import { requireUser } from "@/lib/auth/session";
 import { Shell, type GrupoNav } from "@/components/shell";
+import { COOKIE_NAV } from "@/lib/nav-pref";
 
 // Toda tela daqui pra baixo lê sessão/banco por requisição — nunca prerenderizar
 // estaticamente no build (evita erros de "DATABASE_URL ausente" no build sem
@@ -39,6 +41,8 @@ const NAV: Array<{ titulo: string; itens: Array<GrupoNav["itens"][number] & { ad
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
+  // Preferência de interface (barra lateral recolhida), lida aqui para a página já nascer do tamanho certo.
+  const recolhida = (await cookies()).get(COOKIE_NAV)?.value === "1";
 
   const grupos: GrupoNav[] = NAV.map((g) => ({
     titulo: g.titulo,
@@ -46,7 +50,13 @@ export default async function DashboardLayout({ children }: { children: React.Re
   })).filter((g) => g.itens.length > 0);
 
   return (
-    <Shell grupos={grupos} nome={user.name} email={user.email} papel={user.role === "ADMIN" ? "Administrador" : "Visualizador"}>
+    <Shell
+      grupos={grupos}
+      nome={user.name}
+      email={user.email}
+      papel={user.role === "ADMIN" ? "Administrador" : "Visualizador"}
+      inicialRecolhida={recolhida}
+    >
       {children}
     </Shell>
   );

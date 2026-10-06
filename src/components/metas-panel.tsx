@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { cn } from "@/lib/ui";
 import { comInicialMaiuscula } from "@/lib/dates";
 import { formatBRL, formatPercent } from "@/lib/money";
 import { Card, SectionTitle } from "@/components/ui";
@@ -149,7 +150,14 @@ function MetaRow({
   );
 }
 
-function BlocoCard({ bloco }: { bloco: BlocoMetas }) {
+/**
+ * Linhas que os dois blocos (mensal e trimestral) DIVIDEM no desktop, para a primeira barra de cada
+ * lado cair na mesma altura: cabeçalho, total agregado (ou a mensagem de "sem meta"), aviso de intervalo
+ * incompleto, lista, rodapé de escopos ocultos e nota do traço. Cada bloco renderiza as 6 posições SEMPRE
+ * (vazias quando não há conteúdo, com altura zero) — é isso que mantém as linhas alinhadas mesmo quando
+ * só um dos lados tem o total agregado (6 posições — se mudar, mude `row-span-6` e `repeat(6,auto)`). Só aparência: nenhum dado nem regra passa por aqui.
+ */
+function BlocoCard({ bloco, alinhar }: { bloco: BlocoMetas; alinhar: boolean }) {
   const ehMensal = bloco.granularidade === "MES";
   const unidadePlural = ehMensal ? "meses" : "trimestres";
   // REGRA ÚNICA: só aparece escopo com meta no período (pedido do usuário,
@@ -170,7 +178,13 @@ function BlocoCard({ bloco }: { bloco: BlocoMetas }) {
   const globalComMeta = comMeta.some((e) => e.abrangeTudo);
 
   return (
-    <section className="rounded-lg bg-slate-50/70 p-4">
+    <section
+      className={cn(
+        "rounded-lg bg-slate-50/70 p-4",
+        // Classes por extenso (o Tailwind não enxerga nome de classe montado por interpolação). 6 = nº de posições.
+        alinhar && "lg:row-span-6 lg:grid lg:grid-rows-subgrid",
+      )}
+    >
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         <h3 className="text-sm font-semibold text-slate-700">{ehMensal ? "Mensal" : "Trimestral"}</h3>
         {/* O período apurado, sempre explícito — é o que impede confundir o
@@ -178,6 +192,7 @@ function BlocoCard({ bloco }: { bloco: BlocoMetas }) {
         <span className="text-xs text-slate-500">{comInicialMaiuscula(bloco.label)}</span>
       </div>
 
+      <div>
       {semMeta ? (
         // NÃO prometer "o valor abaixo é o realizado": desde que o fallback
         // saiu, não há valor abaixo nenhum.
@@ -208,7 +223,9 @@ function BlocoCard({ bloco }: { bloco: BlocoMetas }) {
           ) : null}
         </div>
       ) : null}
+      </div>
 
+      <div>
       {!bloco.metaCompleta && !semMeta ? (
         <p className="mb-3 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
           Nem todos os {bloco.periodosNoIntervalo} {unidadePlural} deste intervalo têm meta. Para não comparar coisas
@@ -216,6 +233,7 @@ function BlocoCard({ bloco }: { bloco: BlocoMetas }) {
           total do intervalo.
         </p>
       ) : null}
+      </div>
 
       <ul className="divide-y divide-slate-100">
         {comMeta.map((e) => (
@@ -230,6 +248,7 @@ function BlocoCard({ bloco }: { bloco: BlocoMetas }) {
           linha não é nota de rodapé, é a única coisa que avisa que escopos com
           receita real saíram da lista. Se ela é o que desaparece num monitor
           claro, a omissão volta a ser silenciosa. */}
+      <div>
       {ocultos > 0 ? (
         <p className="mt-2 text-xs text-slate-600">
           {ocultos === 1 ? "1 escopo sem meta" : `${ocultos} escopos sem meta`} {ehMensal ? "mensal" : "trimestral"} —
@@ -240,7 +259,9 @@ function BlocoCard({ bloco }: { bloco: BlocoMetas }) {
           .
         </p>
       ) : null}
+      </div>
 
+      <div>
       {bloco.ritmoEsperadoPct !== null && !semMeta ? (
         <p className="mt-2 flex items-center gap-1 text-xs text-slate-500">
           O traço marca {formatPercent(bloco.ritmoEsperadoPct)}
@@ -250,6 +271,7 @@ function BlocoCard({ bloco }: { bloco: BlocoMetas }) {
           </Dica>
         </p>
       ) : null}
+      </div>
     </section>
   );
 }
@@ -327,9 +349,13 @@ export function MetasPanel({ metas }: { metas: MetasDoPeriodo }) {
         ) : null}
       </SectionTitle>
 
-      <div className={`grid grid-cols-1 gap-4 ${metas.blocos.length > 1 ? "lg:grid-cols-2" : ""}`}>
+      <div
+        className={`grid grid-cols-1 gap-4 ${
+          metas.blocos.length > 1 ? "lg:grid-cols-2 lg:grid-rows-[repeat(6,auto)] lg:gap-y-0" : ""
+        }`}
+      >
         {metas.blocos.map((b) => (
-          <BlocoCard key={b.granularidade} bloco={b} />
+          <BlocoCard key={b.granularidade} bloco={b} alinhar={metas.blocos.length > 1} />
         ))}
       </div>
     </Card>

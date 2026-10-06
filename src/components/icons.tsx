@@ -140,3 +140,11 @@ export const IconSeta = (p: P) => (
     <path d="m9 6 6 6-6 6" />
   </Base>
 );
+
+/** Painel lateral (recolher/expandir a barra de navegação). */
+export const IconBarraLateral = (p: P) => (
+  <Base {...p}>
+    <rect x="3" y="4" width="18" height="16" rx="2.5" />
+    <path d="M9 4v16" />
+  </Base>
+);

@@ -5,8 +5,10 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { logoutAction } from "@/lib/auth/actions";
 import { cn } from "@/lib/ui";
+import { COOKIE_NAV } from "@/lib/nav-pref";
 import { Assinatura } from "@/components/logo";
 import {
+  IconBarraLateral,
   IconCategorias,
   IconConflitos,
   IconContas,
@@ -23,11 +25,15 @@ import {
 } from "@/components/icons";
 
 /**
- * Estrutura de navegação: barra lateral agrupada (desktop) e gaveta (celular).
+ * Estrutura de navegação: barra lateral agrupada (desktop, recolhível) e gaveta (celular).
  *
  * ⚠ Só APRESENTAÇÃO. Os links, as rotas e a regra de quem enxerga o quê (itens de administração só para
  * ADMIN) vêm do layout do servidor — exatamente os mesmos da barra superior de antes; aqui eles só ganham
  * agrupamento e ícone. O logout continua sendo a mesma server action.
+ *
+ * Recolher: a barra vira uma coluna de ícones (o texto continua no DOM, só escondido visualmente, e vira
+ * `title`). A preferência fica num cookie lido pelo SERVIDOR (`COOKIE_NAV`, em lib/nav-pref.ts), e não em localStorage, para a
+ * página já chegar do tamanho certo — com localStorage ela abriria larga e "piscaria" recolhida.
  */
 
 const ICONES = {
@@ -71,12 +77,18 @@ function Navegacao({
   email,
   papel,
   aoNavegar,
+  compacta = false,
+  aoAlternar,
 }: {
   grupos: GrupoNav[];
   nome: string;
   email: string;
   papel: string;
   aoNavegar?: () => void;
+  /** Só desktop: mostra só os ícones. */
+  compacta?: boolean;
+  /** Só desktop: presente = mostra o botão de recolher/expandir. */
+  aoAlternar?: () => void;
 }) {
   const caminho = usePathname();
 
@@ -86,15 +98,29 @@ function Navegacao({
         href="/"
         onClick={aoNavegar}
         aria-label="Financeiro Seahub — ir para o Panorama"
-        className="px-5 pb-4 pt-6 transition-opacity hover:opacity-90"
+        className={cn(
+          "pb-4 pt-6 transition-opacity hover:opacity-90",
+          compacta ? "flex justify-center px-0" : "px-5",
+        )}
       >
-        <Assinatura altura={28} />
+        {compacta ? (
+          // O monograma oficial (branco sobre transparente; a barra é sempre da cor da marca).
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src="/seahub-monograma.png" alt="Seahub" width={30} height={30} className="block h-[30px] w-[30px]" />
+        ) : (
+          <Assinatura altura={28} />
+        )}
       </Link>
 
-      <div className="flex-1 space-y-6 overflow-y-auto px-3 py-4">
-        {grupos.map((g) => (
+      <div className={cn("flex-1 overflow-y-auto py-4", compacta ? "space-y-3 px-2" : "space-y-6 px-3")}>
+        {grupos.map((g, indice) => (
           <div key={g.titulo}>
-            <p className="px-2.5 pb-1.5 text-[11.5px] font-medium text-[var(--marca-tinta-3)]">{g.titulo}</p>
+            {compacta ? (
+              // Sem o título do grupo, um fio fino separa os grupos (o primeiro não precisa).
+              indice > 0 ? <div aria-hidden className="mx-2 mb-3 h-px bg-[var(--marca-borda)]" /> : null
+            ) : (
+              <p className="px-2.5 pb-1.5 text-[11.5px] font-medium text-[var(--marca-tinta-3)]">{g.titulo}</p>
+            )}
             <ul className="space-y-0.5">
               {g.itens.map((i) => {
                 const Icone = ICONES[i.icone];
@@ -105,15 +131,17 @@ function Navegacao({
                       href={i.href}
                       onClick={aoNavegar}
                       aria-current={ativo ? "page" : undefined}
+                      title={compacta ? i.rotulo : undefined}
                       className={cn(
-                        "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[14px] font-medium transition-colors",
+                        "flex items-center rounded-lg py-2 text-[14px] font-medium transition-colors",
+                        compacta ? "justify-center px-0" : "gap-2.5 px-2.5",
                         ativo
                           ? "bg-[var(--marca-ativo)] text-[var(--marca-tinta)]"
                           : "text-[var(--marca-tinta-2)] hover:bg-[var(--marca-hover)] hover:text-[var(--marca-tinta)]",
                       )}
                     >
-                      <Icone size={17} className={ativo ? "text-[var(--marca-tinta)]" : "text-[var(--marca-tinta-3)]"} />
-                      {i.rotulo}
+                      <Icone size={compacta ? 19 : 17} className={ativo ? "text-[var(--marca-tinta)]" : "text-[var(--marca-tinta-3)]"} />
+                      <span className={compacta ? "sr-only" : undefined}>{i.rotulo}</span>
                     </Link>
                   </li>
                 );
@@ -123,14 +151,32 @@ function Navegacao({
         ))}
       </div>
 
-      <div className="border-t border-[var(--marca-borda)] p-3">
+      <div className={cn("border-t border-[var(--marca-borda)] py-3", compacta ? "px-2" : "px-3")}>
+        {aoAlternar ? (
+          <button
+            type="button"
+            onClick={aoAlternar}
+            aria-expanded={!compacta}
+            aria-label={compacta ? "Expandir a barra lateral" : "Recolher a barra lateral"}
+            title={compacta ? "Expandir a barra lateral" : "Recolher a barra lateral"}
+            className={cn(
+              "mb-1 flex w-full items-center rounded-lg py-2 text-[13.5px] font-medium text-[var(--marca-tinta-2)] transition-colors hover:bg-[var(--marca-hover)] hover:text-[var(--marca-tinta)]",
+              compacta ? "justify-center px-0" : "gap-2.5 px-2.5",
+            )}
+          >
+            <IconBarraLateral size={compacta ? 19 : 16} className="text-[var(--marca-tinta-3)]" />
+            {compacta ? null : "Recolher"}
+          </button>
+        ) : null}
+
         <Link
           href="/minha-conta"
           onClick={aoNavegar}
-          title="Minha conta"
+          title={compacta ? `${nome} — Minha conta` : "Minha conta"}
           aria-current={caminho === "/minha-conta" ? "page" : undefined}
           className={cn(
-            "flex items-center gap-3 rounded-lg px-2.5 py-2 transition-colors",
+            "flex items-center rounded-lg py-2 transition-colors",
+            compacta ? "justify-center px-0" : "gap-3 px-2.5",
             caminho === "/minha-conta" ? "bg-[var(--marca-ativo)]" : "hover:bg-[var(--marca-hover)]",
           )}
         >
@@ -140,7 +186,7 @@ function Navegacao({
           >
             {iniciais(nome) || <IconUsuario size={15} />}
           </span>
-          <span className="min-w-0 flex-1">
+          <span className={cn("min-w-0 flex-1", compacta && "sr-only")}>
             <span className="block truncate text-[13.5px] font-medium text-[var(--marca-tinta)]">{nome}</span>
             <span className="block truncate text-[12px] text-[var(--marca-tinta-3)]" title={email}>
               {papel}
@@ -150,10 +196,14 @@ function Navegacao({
         <form action={logoutAction}>
           <button
             type="submit"
-            className="mt-1 flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13.5px] font-medium text-[var(--marca-tinta-2)] transition-colors hover:bg-[var(--marca-hover)] hover:text-[var(--marca-tinta)]"
+            title={compacta ? "Sair" : undefined}
+            className={cn(
+              "mt-1 flex w-full items-center rounded-lg py-2 text-[13.5px] font-medium text-[var(--marca-tinta-2)] transition-colors hover:bg-[var(--marca-hover)] hover:text-[var(--marca-tinta)]",
+              compacta ? "justify-center px-0" : "gap-2.5 px-2.5",
+            )}
           >
-            <IconSair size={16} className="text-[var(--marca-tinta-3)]" />
-            Sair
+            <IconSair size={compacta ? 19 : 16} className="text-[var(--marca-tinta-3)]" />
+            <span className={compacta ? "sr-only" : undefined}>Sair</span>
           </button>
         </form>
       </div>
@@ -166,16 +216,20 @@ export function Shell({
   nome,
   email,
   papel,
+  inicialRecolhida = false,
   children,
 }: {
   grupos: GrupoNav[];
   nome: string;
   email: string;
   papel: string;
+  /** Preferência lida do cookie no servidor — a página já nasce do tamanho certo. */
+  inicialRecolhida?: boolean;
   children: React.ReactNode;
 }) {
   const caminho = usePathname();
   const [aberta, setAberta] = useState(false);
+  const [recolhida, setRecolhida] = useState(inicialRecolhida);
 
   // Fecha a gaveta ao navegar e com Esc; trava a rolagem do corpo enquanto aberta.
   useEffect(() => setAberta(false), [caminho]);
@@ -191,13 +245,29 @@ export function Shell({
     };
   }, [aberta]);
 
+  function alternar() {
+    const proxima = !recolhida;
+    setRecolhida(proxima);
+    try {
+      // Preferência de interface, não sessão: um ano, só neste site.
+      document.cookie = `${COOKIE_NAV}=${proxima ? "1" : "0"}; path=/; max-age=31536000; samesite=lax`;
+    } catch {
+      /* sem cookie a preferência só dura até recarregar — a barra continua funcionando */
+    }
+  }
+
   const nav = { grupos, nome, email, papel };
 
   return (
-    <div className="min-h-screen lg:grid lg:grid-cols-[248px_minmax(0,1fr)]">
-      {/* Desktop: lateral fixa na altura da tela. */}
-      <aside className="sticky top-0 hidden h-screen lg:block">
-        <Navegacao {...nav} />
+    <div
+      className={cn(
+        "min-h-screen lg:grid lg:transition-[grid-template-columns] lg:duration-200 motion-reduce:transition-none",
+        recolhida ? "lg:grid-cols-[72px_minmax(0,1fr)]" : "lg:grid-cols-[248px_minmax(0,1fr)]",
+      )}
+    >
+      {/* Desktop: lateral fixa na altura da tela, recolhível. */}
+      <aside className="sticky top-0 hidden h-screen overflow-hidden lg:block">
+        <Navegacao {...nav} compacta={recolhida} aoAlternar={alternar} />
       </aside>
 
       {/* Celular: barra superior da cor da marca com o botão da gaveta. */}

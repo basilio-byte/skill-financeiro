@@ -1806,3 +1806,13 @@ O MCP conectou na claude.ai (cabeçalho `x-api-key`). `estado_do_sistema` mostro
 - Origem das rodadas visível: selo Automática (cinza) / Manual (azul) / Importação (âmbar) em "Últimas
   sincronizações" (Panorama) e no histórico de Sincronizações, com ⓘ explicando cada uma. Só apresentação.
 - Testes: 349 → 356.
+
+## 2026-10-06 (tarde) — Ajustes visuais: Metas alinhadas e barra lateral recolhível
+- Panorama → Metas: os blocos Mensal e Trimestral passam a dividir as mesmas 6 linhas (subgrid no desktop), então
+  a primeira barra de cada lado, os rodapés e a nota do traço ficam na mesma altura mesmo quando só um lado tem o
+  total agregado. Só aparência.
+- Barra lateral recolhível (desktop): botão "Recolher/Expandir" no rodapé da barra; recolhida vira uma coluna de
+  ícones (texto vira `title`/leitor de tela, monograma no topo). Preferência no cookie `seahub_nav` lido pelo
+  servidor (a página já nasce do tamanho certo, sem "piscar"). `COOKIE_NAV` mora em `lib/nav-pref.ts`: uma constante
+  exportada de módulo "use client" chega ao servidor como referência, não como texto.
+- Verificado em Chrome (claro/escuro, 1440 px e 390 px), `tsc` limpo, 356 testes. Celular inalterado.
