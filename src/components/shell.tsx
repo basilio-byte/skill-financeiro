@@ -8,7 +8,6 @@ import { cn } from "@/lib/ui";
 import { COOKIE_NAV } from "@/lib/nav-pref";
 import { Assinatura } from "@/components/logo";
 import {
-  IconBarraLateral,
   IconCategorias,
   IconConflitos,
   IconContas,
@@ -20,6 +19,7 @@ import {
   IconPanorama,
   IconRevisar,
   IconSair,
+  IconSeta,
   IconSincronizacoes,
   IconUsuario,
 } from "@/components/icons";
@@ -78,7 +78,6 @@ function Navegacao({
   papel,
   aoNavegar,
   compacta = false,
-  aoAlternar,
 }: {
   grupos: GrupoNav[];
   nome: string;
@@ -87,8 +86,6 @@ function Navegacao({
   aoNavegar?: () => void;
   /** Só desktop: mostra só os ícones. */
   compacta?: boolean;
-  /** Só desktop: presente = mostra o botão de recolher/expandir. */
-  aoAlternar?: () => void;
 }) {
   const caminho = usePathname();
 
@@ -152,23 +149,6 @@ function Navegacao({
       </div>
 
       <div className={cn("border-t border-[var(--marca-borda)] py-3", compacta ? "px-2" : "px-3")}>
-        {aoAlternar ? (
-          <button
-            type="button"
-            onClick={aoAlternar}
-            aria-expanded={!compacta}
-            aria-label={compacta ? "Expandir a barra lateral" : "Recolher a barra lateral"}
-            title={compacta ? "Expandir a barra lateral" : "Recolher a barra lateral"}
-            className={cn(
-              "mb-1 flex w-full items-center rounded-lg py-2 text-[13.5px] font-medium text-[var(--marca-tinta-2)] transition-colors hover:bg-[var(--marca-hover)] hover:text-[var(--marca-tinta)]",
-              compacta ? "justify-center px-0" : "gap-2.5 px-2.5",
-            )}
-          >
-            <IconBarraLateral size={compacta ? 19 : 16} className="text-[var(--marca-tinta-3)]" />
-            {compacta ? null : "Recolher"}
-          </button>
-        ) : null}
-
         <Link
           href="/minha-conta"
           onClick={aoNavegar}
@@ -265,9 +245,23 @@ export function Shell({
         recolhida ? "lg:grid-cols-[72px_minmax(0,1fr)]" : "lg:grid-cols-[248px_minmax(0,1fr)]",
       )}
     >
-      {/* Desktop: lateral fixa na altura da tela, recolhível. */}
-      <aside className="sticky top-0 hidden h-screen overflow-hidden lg:block">
-        <Navegacao {...nav} compacta={recolhida} aoAlternar={alternar} />
+      {/* Desktop: lateral fixa na altura da tela, recolhível. O recorte (overflow-hidden) fica num invólucro
+          INTERNO: o acionador é um círculo que sai metade para fora da borda, e um recorte no próprio aside o cortaria. */}
+      <aside className="sticky top-0 z-40 hidden h-screen lg:block">
+        <div className="h-full overflow-hidden">
+          <Navegacao {...nav} compacta={recolhida} />
+        </div>
+        <button
+          type="button"
+          onClick={alternar}
+          aria-expanded={!recolhida}
+          aria-label={recolhida ? "Expandir a barra lateral" : "Recolher a barra lateral"}
+          title={recolhida ? "Expandir a barra lateral" : "Recolher a barra lateral"}
+          className="absolute -right-3 top-7 flex h-6 w-6 items-center justify-center rounded-full border border-slate-200 bg-card text-slate-500 shadow-2 transition-colors hover:border-slate-300 hover:text-slate-900"
+        >
+          {/* Seta para a esquerda = recolher; para a direita = expandir. */}
+          <IconSeta size={14} className={cn("transition-transform duration-200 motion-reduce:transition-none", !recolhida && "rotate-180")} />
+        </button>
       </aside>
 
       {/* Celular: barra superior da cor da marca com o botão da gaveta. */}

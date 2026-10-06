@@ -1816,3 +1816,12 @@ O MCP conectou na claude.ai (cabeçalho `x-api-key`). `estado_do_sistema` mostro
   servidor (a página já nasce do tamanho certo, sem "piscar"). `COOKIE_NAV` mora em `lib/nav-pref.ts`: uma constante
   exportada de módulo "use client" chega ao servidor como referência, não como texto.
 - Verificado em Chrome (claro/escuro, 1440 px e 390 px), `tsc` limpo, 356 testes. Celular inalterado.
+
+## 2026-10-06 (tarde) — Correção do alinhamento das Metas e acionador da barra na borda
+- Metas: com a barra lateral EXPANDIDA a coluna fica mais estreita e o valor ("R$ x de R$ y  %") quebrava em duas
+  linhas num bloco e não no outro, desalinhando as barras (recolhida, cabia). Agora cada escopo tem DUAS linhas
+  fixas acima da barra (nome + percentual; "realizado de meta") com altura mínima fixa na primeira — a altura não
+  depende mais da largura. Medido em Chrome: barras na mesma altura (0 px) em 5 larguras (1024–1680 px) × barra
+  expandida/recolhida, inclusive com uma meta exagerada de R$ 10.502.885,10 para forçar o caso.
+- Barra lateral: o acionador saiu do rodapé e virou um círculo com seta (‹ recolher / › expandir) na borda do
+  painel, perto do logo. O recorte `overflow-hidden` ficou num invólucro interno para o círculo poder sair da borda.

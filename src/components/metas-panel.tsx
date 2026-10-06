@@ -83,8 +83,12 @@ function MetaRow({
 
   return (
     <li className="py-3">
-      <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <span className="text-sm font-medium text-slate-800">
+      {/* DUAS linhas FIXAS acima da barra: nome + percentual, depois "realizado de meta". Antes era uma linha só
+          com quebra automática — e a altura dependia da LARGURA da coluna (barra lateral expandida = coluna mais
+          estreita = o valor quebrava num bloco e não no outro, e as barras saíam de alinhamento). Com a estrutura
+          fixa, a altura acima da barra é a mesma nos dois blocos em qualquer largura razoável. */}
+      <div className="flex min-h-6 items-center justify-between gap-3">
+        <span className="min-w-0 text-sm font-medium text-slate-800">
           {escopo.nome}
           {escopo.abrangeTudo ? (
             <span
@@ -97,21 +101,25 @@ function MetaRow({
             </span>
           ) : null}
         </span>
-        <span className="text-sm tabular-nums text-slate-600">
-          {temMeta ? (
-            <>
-              <strong className="text-slate-900">{formatBRL(escopo.realizado)}</strong>
-              <span className="text-slate-400"> de </span>
-              {formatBRL(escopo.meta as string)}
-              <span className="ml-2 font-semibold text-slate-900">{formatPercent(escopo.percentual)}</span>
-            </>
-          ) : (
-            <>
-              <strong className="text-slate-900">{formatBRL(escopo.realizado)}</strong>
-              <span className="ml-2 text-slate-400">sem meta definida</span>
-            </>
-          )}
-        </span>
+        {temMeta ? (
+          <span className="shrink-0 whitespace-nowrap text-sm font-semibold tabular-nums text-slate-900">
+            {formatPercent(escopo.percentual)}
+          </span>
+        ) : null}
+      </div>
+      <div className="mb-1.5 text-sm tabular-nums text-slate-600">
+        {temMeta ? (
+          <>
+            <strong className="text-slate-900">{formatBRL(escopo.realizado)}</strong>
+            <span className="text-slate-400"> de </span>
+            {formatBRL(escopo.meta as string)}
+          </>
+        ) : (
+          <>
+            <strong className="text-slate-900">{formatBRL(escopo.realizado)}</strong>
+            <span className="ml-2 text-slate-400">sem meta definida</span>
+          </>
+        )}
       </div>
 
       <div
