@@ -1825,3 +1825,10 @@ O MCP conectou na claude.ai (cabeçalho `x-api-key`). `estado_do_sistema` mostro
   expandida/recolhida, inclusive com uma meta exagerada de R$ 10.502.885,10 para forçar o caso.
 - Barra lateral: o acionador saiu do rodapé e virou um círculo com seta (‹ recolher / › expandir) na borda do
   painel, perto do logo. O recorte `overflow-hidden` ficou num invólucro interno para o círculo poder sair da borda.
+
+## 2026-10-14 — Captcha removido pelo Conexa; login automático voltou; pausa deixa de ser às cegas
+- O Conexa removeu o reCAPTCHA da página de login. Após o restart do serviço a sincronização automática voltou
+  (rodada DONE, R$ 121.863,79 de 01–14/10, conferência 0,00, 3 novas / 498 atualizadas).
+- `conexa-web/client.ts`: com a pausa ativa, sonda a página de login (GET) e levanta a pausa se o widget sumiu
+  (`paginaTemWidgetCaptcha` + `podeLevantarPausa`, testadas). Nunca levanta no escuro (sondagem falhou) nem em laço
+  (já não havia widget ao pausar). Testes: 356 → 364.

@@ -58,3 +58,14 @@ Em **Sincronizações → Importar arquivos do Conexa** (só administradores):
    **Importar e categorizar** (com a caixa de confirmação, se a prévia pedir).
 
 Limite: 4,5 MB por arquivo. Primeira vez: compare o total do mês da prévia com o fechamento da Duda.
+
+## Atualização 2026-10-14 — o captcha saiu e o login automático voltou
+- A página de login (`?r=site/login`) deixou de carregar o widget do reCAPTCHA (sem `g-recaptcha`, sem
+  `data-sitekey`, sem script do Google; sobra uma regra de CSS órfã). Depois de reiniciar o serviço, a rodada
+  automática das 16:18 UTC concluiu (437 faturas, R$ 121.863,79, conferência 0,00): a sincronização automática
+  voltou. A importação manual (ADR-0034) fica como plano B.
+- Por que só voltou ao reiniciar: a pausa de 6 h do login (em memória) segurava as tentativas — a última real
+  (08:38 locais) ainda tinha sido recusada. Agora, com a pausa ativa, o sistema SONDA a página de login a cada
+  ciclo (GET público, sem credenciais) e, se o widget SUMIU depois de a pausa começar, tenta uma vez
+  (`podeLevantarPausa`). Se o servidor recusar mesmo sem widget, a pausa recomeça e NÃO é levantada por sondagem
+  (evita voltar a bater a cada 15 min). Provado com um Conexa falso nos dois cenários.

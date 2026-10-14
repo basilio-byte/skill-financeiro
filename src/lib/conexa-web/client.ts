@@ -1,6 +1,6 @@
 import "server-only";
 import { getEnv } from "@/lib/env";
-import { respostaPedeCaptcha } from "@/lib/conexa-web/captcha";
+import { paginaTemWidgetCaptcha, podeLevantarPausa, respostaPedeCaptcha } from "@/lib/conexa-web/captcha";
 
 /**
  * Cliente HTTP para a tela ADMIN (web) do Conexa — NÃO é a API REST v2.
@@ -38,6 +38,25 @@ export class ConexaWebError extends Error {}
  */
 const PAUSA_APOS_CAPTCHA_MS = 6 * 60 * 60_000;
 let captchaPausadoAte = 0;
+/**
+ * O widget estava na página de login quando a pausa começou? (null = não se sabe.) Serve para só
+ * levantar a pausa cedo quando o widget SUMIU depois — ver `podeLevantarPausa`.
+ */
+let widgetNaPausa: boolean | null = null;
+
+/** Sondagem leve da página de login (GET, sem credenciais). `null` = não foi possível ler. */
+async function sondarWidgetDaPaginaDeLogin(): Promise<boolean | null> {
+  try {
+    const res = await fetch(`${getEnv().CONEXA_BASE_URL}${LOGIN_PATH}`, {
+      headers: { "user-agent": USER_AGENT },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!res.ok) return null;
+    return paginaTemWidgetCaptcha(await res.text());
+  } catch {
+    return null;
+  }
+}
 
 function formatDateBR(d: Date): string {
   const dd = String(d.getUTCDate()).padStart(2, "0");
@@ -60,11 +79,22 @@ function extractSessionCookie(res: Response): string | null {
 async function login(): Promise<string> {
   const env = getEnv();
   if (Date.now() < captchaPausadoAte) {
+    // Em vez de esperar as 6 h às cegas: uma leitura barata da página de login. Se o widget SUMIU desde
+    // que a pausa começou, tenta UMA vez (se ainda for recusado, a pausa recomeça — e como o widget
+    // já não estava na página, não será levantada de novo por sondagem).
+    const agora = await sondarWidgetDaPaginaDeLogin();
+    if (podeLevantarPausa(widgetNaPausa, agora)) {
+      console.log("[conexa-web] o widget do captcha sumiu da página de login — levantando a pausa e tentando uma vez.");
+      captchaPausadoAte = 0;
+    }
+  }
+  if (Date.now() < captchaPausadoAte) {
     throw new ConexaWebError(
       "Login web do Conexa em pausa: ele exige reCAPTCHA e nenhuma automação resolve isso. " +
         "Nova tentativa automática em " +
         new Date(captchaPausadoAte).toISOString() +
-        " (ou ao reiniciar o serviço). Use a importação manual em Sincronizações — ver docs/context/conexa-integration.md.",
+        " (ou antes, se o widget do captcha sumir da página de login; ou ao reiniciar o serviço). " +
+        "Use a importação manual em Sincronizações — ver docs/context/conexa-integration.md.",
     );
   }
   if (!env.CONEXA_WEB_USERNAME || !env.CONEXA_WEB_PASSWORD) {
@@ -99,6 +129,8 @@ async function login(): Promise<string> {
     const corpo = res.status === 200 ? await res.text().catch(() => "") : "";
     if (respostaPedeCaptcha(corpo)) {
       captchaPausadoAte = Date.now() + PAUSA_APOS_CAPTCHA_MS;
+      // A resposta recusada é a própria página de login: dela sai o estado do widget neste momento.
+      widgetNaPausa = paginaTemWidgetCaptcha(corpo);
       throw new ConexaWebError(
         "O Conexa passou a exigir reCAPTCHA no login web (resposta: 'Marque o captcha e tente novamente'). " +
           "Usuário e senha NÃO são o problema, e não é a migração de servidor. Nenhum script resolve captcha — " +
