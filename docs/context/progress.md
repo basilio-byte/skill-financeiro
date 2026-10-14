@@ -1832,3 +1832,8 @@ O MCP conectou na claude.ai (cabeçalho `x-api-key`). `estado_do_sistema` mostro
 - `conexa-web/client.ts`: com a pausa ativa, sonda a página de login (GET) e levanta a pausa se o widget sumiu
   (`paginaTemWidgetCaptcha` + `podeLevantarPausa`, testadas). Nunca levanta no escuro (sondagem falhou) nem em laço
   (já não havia widget ao pausar). Testes: 356 → 364.
+- 2026-10-14 (depois do deploy de `533edf4`): confirmado pelo MCP — `saudavel`, `automatica: funcionando`, rodadas
+  automáticas DONE a cada 15 min (outubro R$ 122.070,75; set/ago/jul intactos). Achado: `causaProvavel` ainda citava o
+  captcha com a receita saudável (pegava o último erro do histórico). Agora a causa só vale para falha posterior à
+  última sincronização concluída que NÃO foi importação (uma importação não conserta a causa da automática).
+  Testes: 364 → 367.

@@ -178,3 +178,26 @@ describe("diagnosticarReceita — importacao_manual (automática bloqueada, algu
     expect(d.resumo).toMatch(/retrato ANTIGO/);
   });
 });
+
+describe("diagnosticarReceita — causaProvavel não fica velha depois que o problema some", () => {
+  const captcha = "O Conexa passou a exigir reCAPTCHA no login web";
+  const auto = (status: string, minutosAtras: number, erro: string | null = null): RodadaResumo => ({ ...r(status, minutosAtras, erro), origem: "AUTOMATICO" });
+
+  // Caso real de 2026-10-14: depois do restart a automática voltou; as falhas por captcha são ANTIGAS.
+  it("falhas por captcha ANTES da última concluída não viram causa provável", () => {
+    const d = diagnosticarReceita([auto("DONE", 2), auto("DONE", 17), auto("FAILED", 20, captcha), auto("FAILED", 35, captcha)], AGORA, 0);
+    expect(d.situacao).toBe("saudavel");
+    expect(d.causaProvavel).toBeNull();
+    expect(d.resumo).not.toMatch(/reCAPTCHA/);
+  });
+
+  it("falha DEPOIS da última concluída continua citando a causa", () => {
+    const d = diagnosticarReceita([auto("FAILED", 2, captcha), auto("FAILED", 17, captcha), auto("DONE", 200)], AGORA, 2);
+    expect(d.causaProvavel).toMatch(/reCAPTCHA/);
+  });
+
+  it("sem nenhuma concluída, a causa da falha vale", () => {
+    const d = diagnosticarReceita([auto("FAILED", 2, captcha), auto("FAILED", 17, captcha)], AGORA, 2);
+    expect(d.causaProvavel).toMatch(/reCAPTCHA/);
+  });
+});

@@ -120,7 +120,16 @@ export function diagnosticarReceita(rodadas: RodadaResumo[], agora: Date, falhas
   if (falhasReais !== undefined && falhasReais > falhasSeguidas) falhasSeguidas = falhasReais;
 
   const maisRecente = ordenadas[0]!;
-  const causa = causaDoErro(ordenadas.find((r) => r.status === "FAILED")?.erro);
+  // A causa só vale se a falha for POSTERIOR à última sincronização concluída QUE NÃO FOI IMPORTAÇÃO: uma
+  // importação manual não conserta a causa da falha da automática, então o erro continua valendo depois dela.
+  // Sem esta regra, quando o problema some (2026-10-14: captcha removido, automática de volta) o campo
+  // continuava citando o captcha com a receita "saudável" — o resumo estava certo e `causaProvavel` contradizia.
+  const ultimaDoneNaoImportada = ordenadas.find((r) => r.status === "DONE" && r.origem !== "IMPORTACAO");
+  const falhaMaisRecente = ordenadas.find((r) => r.status === "FAILED");
+  const falhaDepoisDaConcluida =
+    !!falhaMaisRecente &&
+    (!ultimaDoneNaoImportada || falhaMaisRecente.iniciadoEm.getTime() > ultimaDoneNaoImportada.iniciadoEm.getTime());
+  const causa = falhaDepoisDaConcluida ? causaDoErro(falhaMaisRecente!.erro) : null;
 
   const ultimaAutomatica = ordenadas.find((r) => r.origem === "AUTOMATICO");
   const automatica: EstadoAutomatica = !ultimaAutomatica
