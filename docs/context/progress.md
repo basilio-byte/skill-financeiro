@@ -1837,3 +1837,17 @@ O MCP conectou na claude.ai (cabeçalho `x-api-key`). `estado_do_sistema` mostro
   captcha com a receita saudável (pegava o último erro do histórico). Agora a causa só vale para falha posterior à
   última sincronização concluída que NÃO foi importação (uma importação não conserta a causa da automática).
   Testes: 364 → 367.
+
+## 2026-10-16 — Task ClickUp 86aktrw6v (Duda): categorização de cobrança negociada + filtros em Revisar
+- **Diagnóstico da cobrança 29113 (cliente 3148, R$ 1.000,00 → "SeaBox"):** é uma cobrança **gerada por negociação**
+  (Observações: "negociação das cobranças 27636, 27928 e 28169"). Os itens do Listar Vendas pertencem às cobranças
+  ORIGINAIS, então a nova não casa (`SEM_LV`) e a categoria sai só do texto do plano do Contas a Receber
+  ("SeaBox Básico\nSeatech - EV - Endereço Fiscal Litoral" → prefixo "SeaBox"). É o comportamento fiel ao script
+  (ADR-0018), não um defeito de cálculo. Não é caso isolado: em set/out, ~30 das 34 linhas `SEM_LV` são
+  "Quitada (Gerada por Negociação)".
+- **Limite da tela:** "Editar" troca categoria e valor de UMA linha; não divide uma linha em duas categorias
+  (essa fatura precisaria de "Outros Serviços" + "Serviço de Espaço avulso"). Correção da linha e mudança de
+  categorização de negociadas NÃO feitas — dependem de decisão (ver comentário na task).
+- **Feito (pedido da Duda): filtros em /revisar** por mês de crédito e por Proporcionado (S / Sem LV), por GET
+  (URL compartilhável), valor inválido ignorado, contadores usando o mesmo filtro; sem filtro o conjunto é idêntico
+  ao de antes. Verificado contra o banco (8 combinações) e em Chrome (claro/escuro/celular). Testes: 367 → 372.
