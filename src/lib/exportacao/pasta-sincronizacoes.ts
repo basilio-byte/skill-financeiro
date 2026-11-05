@@ -232,7 +232,7 @@ export function lerPedidoSincronizacoes(params: ParamsBrutos): { pedido: PedidoS
   if (invalidos.length) erros.push(`Grupo de colunas desconhecido: ${invalidos.map((g) => `"${g.slice(0, 20)}"`).join(", ")}.`);
   const grupos = gruposPedidos.filter((g) => GRUPOS_OPCIONAIS_SINC.includes(g));
 
-  const resumos = lerSimNao(params, "resumos", "Abas de resumo", true, enviado, erros);
+  const resumos = lerSimNao(params, "resumos", "Abas de resumo", false, enviado, erros);
 
   return { pedido: { de, ate, origens, status, grupos, resumos }, erros };
 }
@@ -830,5 +830,5 @@ export function montarAbasSincronizacoes(e: EntradaPastaSinc): SaidaPastaSinc {
       `${pedido.resumos ? "; as abas de resumo fecham com a aba Rodadas" : ""}; e o arquivo foi relido (cabeçalho e número de linhas) antes de entregar.`,
   });
 
-  return { abas: [leiaMe, detalhe.aba, ...abasDeResumo], detalhe, titulosDasColunas: colunas.map((c) => c.titulo), resumo };
+  return { abas: [detalhe.aba, ...abasDeResumo, leiaMe], detalhe, titulosDasColunas: colunas.map((c) => c.titulo), resumo };
 }

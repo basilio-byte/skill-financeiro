@@ -73,6 +73,14 @@ export async function PainelRegras({ params }: { params: ParamsBrutos }) {
             descricao="Os nomes de serviço/plano que ainda não têm regra, com quantas linhas e quanto dinheiro cada um representa."
             marcado={pedido.pendencias}
           />
+          <OpcaoComDescricao
+            id="rg-resumos"
+            nome="resumos"
+            valor="1"
+            rotulo="Aba de resumo 'Por categoria'"
+            descricao="Quantas regras ativas e inativas cada categoria tem."
+            marcado={pedido.resumos}
+          />
           <div>
             <button type="submit" className="btn-secondary">
               Atualizar prévia

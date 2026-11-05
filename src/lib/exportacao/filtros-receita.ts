@@ -155,7 +155,7 @@ export function lerFiltrosReceita(params: ParamsBrutos): ResultadoLeitura {
   // Grupo pedido de forma explícita vale com ou sem `f=1`; sem pedido nenhum e sem formulário, os padrões.
   const grupos = enviado || gruposBrutos.length > 0 ? gruposPedidos.filter((g) => GRUPOS_OPCIONAIS_RECEITA.includes(g)) : [...GRUPOS_PADRAO_RECEITA];
   const semZeradas = lerSimNao(params, "semZeradas", "Ignorar linhas de valor zero", false, enviado, erros);
-  const resumos = lerSimNao(params, "resumos", "Abas de resumo", true, enviado, erros);
+  const resumos = lerSimNao(params, "resumos", "Abas de resumo", false, enviado, erros);
   const itens = lerSimNao(params, "itens", "Aba Itens", false, enviado, erros);
 
   return {

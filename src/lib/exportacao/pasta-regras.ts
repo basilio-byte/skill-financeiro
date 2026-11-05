@@ -22,12 +22,14 @@ export interface PedidoRegras {
   busca: string | null;
   /** Incluir a aba "Sem categoria". */
   pendencias: boolean;
+  /** Incluir a aba de resumo "Por categoria". */
+  resumos: boolean;
 }
 
 export function lerPedidoRegras(params: ParamsBrutos): { pedido: PedidoRegras; erros: string[] } {
   const erros: string[] = [];
   const enviado = um(params.f) !== "";
-  validarParametros(params, ["f", "ativo", "busca", "pendencias"], erros);
+  validarParametros(params, ["f", "ativo", "busca", "pendencias", "resumos"], erros);
   const ativoBruto = um(params.ativo) || "todas";
   let ativo: FiltroAtivo = "todas";
   if (ativoBruto === "todas" || ativoBruto === "ativas" || ativoBruto === "inativas") ativo = ativoBruto;
@@ -38,8 +40,9 @@ export function lerPedidoRegras(params: ParamsBrutos): { pedido: PedidoRegras; e
     if (buscaBruta.length >= 2) busca = buscaBruta;
     else erros.push("Busca: digite ao menos 2 caracteres.");
   }
-  const pendencias = lerSimNao(params, "pendencias", "Aba Sem categoria", true, enviado, erros);
-  return { pedido: { categorias: lista(params.categoria), ativo, busca, pendencias }, erros };
+  const pendencias = lerSimNao(params, "pendencias", "Aba Sem categoria", false, enviado, erros);
+  const resumos = lerSimNao(params, "resumos", "Aba Por categoria", false, enviado, erros);
+  return { pedido: { categorias: lista(params.categoria), ativo, busca, pendencias, resumos }, erros };
 }
 
 export function descreverPedidoRegras(p: PedidoRegras): Array<[string, string]> {
@@ -107,20 +110,23 @@ export function montarAbasRegras(e: EntradaPastaRegras): { abas: Sheet[]; nLinha
     porCategoria.set(r.categoria, c);
   }
   const cats = [...porCategoria.entries()].sort((a, b) => b[1].ativas + b[1].inativas - (a[1].ativas + a[1].inativas) || a[0].localeCompare(b[0], "pt-BR"));
-  abas.push(
-    abaDeTabela({
-      nome: "Por categoria",
-      colunas: [
-        { titulo: "Categoria", tipo: "texto", largura: 44 },
-        { titulo: "Regras ativas", tipo: "inteiro", largura: 14 },
-        { titulo: "Regras inativas", tipo: "inteiro", largura: 14 },
-        { titulo: "Total", tipo: "inteiro", largura: 10 },
-      ],
-      linhas: cats.map(([c, n]) => [c, n.ativas, n.inativas, n.ativas + n.inativas]),
-      total: ["TOTAL", regras.filter((r) => r.ativo).length, regras.filter((r) => !r.ativo).length, regras.length],
-      autoFiltro: false,
-    }),
-  );
+  // O resumo por categoria só vem se pedido: o painel já resume, a planilha é para os dados.
+  if (e.pedido.resumos) {
+    abas.push(
+      abaDeTabela({
+        nome: "Por categoria",
+        colunas: [
+          { titulo: "Categoria", tipo: "texto", largura: 44 },
+          { titulo: "Regras ativas", tipo: "inteiro", largura: 14 },
+          { titulo: "Regras inativas", tipo: "inteiro", largura: 14 },
+          { titulo: "Total", tipo: "inteiro", largura: 10 },
+        ],
+        linhas: cats.map(([c, n]) => [c, n.ativas, n.inativas, n.ativas + n.inativas]),
+        total: ["TOTAL", regras.filter((r) => r.ativo).length, regras.filter((r) => !r.ativo).length, regras.length],
+        autoFiltro: false,
+      }),
+    );
+  }
 
   let totalPendente = ZERO;
   if (e.pedido.pendencias) {
@@ -160,5 +166,5 @@ export function montarAbasRegras(e: EntradaPastaRegras): { abas: Sheet[]; nLinha
     ],
     conferencia: "Esta exportação não tem total único a conferir; a leitura de volta do arquivo confere o cabeçalho e o número de linhas antes de entregar.",
   });
-  return { abas: [leiaMe, ...abas], nLinhas: regras.length };
+  return { abas: [...abas, leiaMe], nLinhas: regras.length };
 }

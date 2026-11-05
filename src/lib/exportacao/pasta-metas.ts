@@ -199,7 +199,7 @@ export function montarAbasMetas(e: EntradaPastaMetas): { abas: Sheet[]; nLinhas:
     ],
     conferencia: "Esta exportação não tem total único a conferir (as linhas não são aditivas); a leitura de volta do arquivo confere o cabeçalho e o número de linhas antes de entregar.",
   });
-  return { abas: [leiaMe, metas, historico, escopos], nLinhas: linhas.length };
+  return { abas: [metas, historico, escopos, leiaMe], nLinhas: linhas.length };
 }
 
 /**

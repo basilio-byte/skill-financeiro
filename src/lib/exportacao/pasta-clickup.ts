@@ -715,7 +715,7 @@ export function montarAbasClickUp(e: EntradaPastaClickUp): SaidaPastaClickUp {
   });
 
   return {
-    abas: [leiaMe, abaVinculos, detalhe.aba, abaResumo, abaExcluidas, abaEnvios],
+    abas: [detalhe.aba, abaVinculos, abaResumo, abaExcluidas, abaEnvios, leiaMe],
     detalhe,
     total,
     linhasComposicao: linhas.length,

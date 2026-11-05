@@ -103,7 +103,7 @@ export function lerPedidoConflitos(params: ParamsBrutos): { pedido: PedidoConfli
   let classificacoes = CLASSIFICACOES.filter((c) => pedidas.includes(c));
   if (classificacoes.length === CLASSIFICACOES.length) classificacoes = [];
 
-  const resumos = lerSimNao(params, "resumos", "Abas de resumo", true, enviado, erros);
+  const resumos = lerSimNao(params, "resumos", "Abas de resumo", false, enviado, erros);
   return { pedido: { classificacoes, resumos }, erros };
 }
 
@@ -667,7 +667,7 @@ export function montarAbasConflitos(e: EntradaPastaConflitos): SaidaPastaConflit
   });
 
   return {
-    abas: [leiaMe, detalhe.aba, ...abas],
+    abas: [detalhe.aba, ...abas, leiaMe],
     detalhe,
     total: resumo.somaAtual,
     nLinhas: linhas.length,

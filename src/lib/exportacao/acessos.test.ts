@@ -427,11 +427,11 @@ describe("do banco para a linha", () => {
 describe("montarAbasAcessos", () => {
   it("abas: Leia-me e as escolhidas, na ordem do catálogo; a principal é a primeira escolhida", () => {
     const s = montar();
-    expect(s.abas.map((a) => a.name)).toEqual(["Leia-me", "Contas", "Acessos", "Auditoria do MCP", "Tokens do MCP", "Exportações"]);
+    expect(s.abas.map((a) => a.name)).toEqual(["Contas", "Acessos", "Auditoria do MCP", "Tokens do MCP", "Exportações", "Leia-me"]);
     expect(s.principal).toBe("Contas");
 
     const parcial = montar(pedido({ f: "1", abas: ["exportacoes", "acessos"] }), { acessos: dados().acessos, exportacoes: dados().exportacoes });
-    expect(parcial.abas.map((a) => a.name)).toEqual(["Leia-me", "Acessos", "Exportações"]);
+    expect(parcial.abas.map((a) => a.name)).toEqual(["Acessos", "Exportações", "Leia-me"]);
     expect(parcial.principal).toBe("Acessos");
   });
 
@@ -447,7 +447,7 @@ describe("montarAbasAcessos", () => {
 
   it("no CSV só a aba principal é montada (e as outras nem precisam ter sido lidas)", () => {
     const s = montar(pedido({ f: "1", abas: ["acessos", "mcp"] }), { acessos: dados().acessos }, "csv");
-    expect(s.abas.map((a) => a.name)).toEqual(["Leia-me", "Acessos"]);
+    expect(s.abas.map((a) => a.name)).toEqual(["Acessos", "Leia-me"]);
     expect(s.principal).toBe("Acessos");
     expect(s.esperado).toHaveLength(1);
     expect(abasDoFormato(pedido({ f: "1", abas: ["acessos", "mcp"] }), "csv")).toEqual(["acessos"]);
@@ -456,7 +456,7 @@ describe("montarAbasAcessos", () => {
 
   it("cabeçalho e linhas de cada aba, lidos de volta do arquivo", () => {
     const buf = buildXlsx(montar().abas);
-    expect(nomesDasAbas(buf)).toEqual(["Leia-me", "Contas", "Acessos", "Auditoria do MCP", "Tokens do MCP", "Exportações"]);
+    expect(nomesDasAbas(buf)).toEqual(["Contas", "Acessos", "Auditoria do MCP", "Tokens do MCP", "Exportações", "Leia-me"]);
     const contas = lerAba(buf, "Contas").linhas;
     expect(contas[0]).toEqual(titulosDaAba("contas"));
     // Números de série do Excel, derivados à mão (não copiados do código): 15/09/2026 = 46280.
@@ -510,7 +510,7 @@ describe("montarAbasAcessos", () => {
     const iValor = titulosDaAba("exportacoes").indexOf("Valor total do arquivo");
     expect(exp.slice(1).map((r) => r[iValor])).toEqual(["45678.90", "", "0.10", "0.20"]);
     // estilo de dinheiro (s=2) só nas células de valor preenchidas, como número (<v>), nunca texto
-    const xml = lerXml(buf, "xl/worksheets/sheet6.xml");
+    const xml = lerXml(buf, "xl/worksheets/sheet5.xml");
     expect(xml).toContain('<c r="G2" s="2"><v>45678.90</v></c>');
     expect(xml).toContain('<c r="G4" s="2"><v>0.10</v></c>');
     expect(xml).not.toContain('<c r="G3" s="2">'); // a exportação que falhou não tem valor: célula vazia
@@ -685,7 +685,7 @@ describe("texto hostil", () => {
     const buf = buildXlsx(montar(p(), comHostil()).abas);
     const linhas = lerAba(buf, "Acessos").linhas;
     expect(linhas[1]![5]).toBe("Mozilla <script>alert(1)</script> & \"aspas\" 'apóstrofo'  controle 😀 acentuação ção");
-    const xml = lerXml(buf, "xl/worksheets/sheet2.xml");
+    const xml = lerXml(buf, "xl/worksheets/sheet1.xml");
     expect(xml).not.toContain("<script>");
     expect(xml).toContain("&lt;script&gt;");
     expect(xml).not.toMatch(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/);
@@ -693,7 +693,7 @@ describe("texto hostil", () => {
 
   it("no .xlsx texto que parece fórmula é texto (string inline), nunca fórmula", () => {
     const buf = buildXlsx(montar(p(), comHostil()).abas);
-    const xml = lerXml(buf, "xl/worksheets/sheet2.xml");
+    const xml = lerXml(buf, "xl/worksheets/sheet1.xml");
     expect(xml).not.toContain("<f>");
     expect(xml).toContain('t="inlineStr"');
     expect(lerAba(buf, "Acessos").linhas[1]![1]).toBe('=HYPERLINK("http://evil.example","clique")');
@@ -714,7 +714,7 @@ describe("texto hostil", () => {
     const s = montarAbasAcessos({ dados: { acessos: [] }, pedido: p1, formato: "xlsx", geradoEm: GERADO_EM, usuario: { ...ADMIN, nome: "Ana \u0008\u0000 <b>&</b>" } });
     const buf = buildXlsx(s.abas);
     expect(leiaMe(s.abas)).toContain("Gerado por | Ana  <b>&</b> (admin@teste.local)");
-    expect(lerXml(buf, "xl/worksheets/sheet1.xml")).not.toMatch(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/);
+    expect(lerXml(buf, "xl/worksheets/sheet2.xml")).not.toMatch(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/);
   });
 
   it("texto gigante (user agent de 40 mil caracteres) é cortado, de forma marcada, no limite da célula", () => {
@@ -834,7 +834,7 @@ describe("conferência do arquivo lido de volta", () => {
     const s = montar();
     const e = entregar(s.abas, s.esperado, "xlsx", s.principal);
     expect(e.extensao).toBe("xlsx");
-    expect(nomesDasAbas(e.buffer)).toEqual(["Leia-me", "Contas", "Acessos", "Auditoria do MCP", "Tokens do MCP", "Exportações"]);
+    expect(nomesDasAbas(e.buffer)).toEqual(["Contas", "Acessos", "Auditoria do MCP", "Tokens do MCP", "Exportações", "Leia-me"]);
     expect(lerPasta(e.buffer).find((a) => a.nome === "Exportações")!.linhas).toHaveLength(5);
   });
 

@@ -2079,10 +2079,13 @@ mudança é aditiva e a ausência de regressão foi PROVADA (ver "Validação").
    pelo mesmo filtro; (b) cada resumo × o detalhe; (c) o ARQUIVO escrito, lido de volta, × o esperado (cabeçalho,
    linhas, soma). Divergência vira erro e o arquivo NÃO é entregue. Cada conferência foi provada capaz de acusar um
    defeito injetado.
-6. **Pasta de trabalho:** aba Leia-me (filtros que valeram, hora, quem gerou, atualidade dos dados, avisos de leitura,
-   conferência) · detalhe (datas e números de verdade, autofiltro, cabeçalho congelado, TOTAL com `SUBTOTAL(109)` que
-   acompanha o filtro do Excel) · resumos (por categoria, conta, unidade, situação, rateio, dia; por mês e categoria ×
-   mês quando há mais de um mês) · aba Itens (itens do Listar Vendas e o valor rateado de cada um, opcional).
+6. **Pasta de trabalho:** o arquivo ABRE NO DETALHE (datas e números de verdade, autofiltro, cabeçalho congelado, TOTAL
+   com `SUBTOTAL(109)` que acompanha o filtro do Excel). As abas de RESUMO (por categoria, conta, unidade, situação, rateio,
+   dia; por mês e categoria × mês quando há mais de um mês) só vêm se a pessoa marcar — o painel já resume — e a aba Itens
+   (itens do Listar Vendas e o valor rateado de cada um) também é opcional. A aba Leia-me (filtros que valeram, hora, quem
+   gerou, atualidade dos dados, avisos de leitura, conferência) fica por ÚLTIMO. *(Revisto em 05/11/2026: a primeira versão
+   abria no Leia-me e trazia os resumos ligados; o usuário abriu o primeiro arquivo e pediu "os dados, não resumo de
+   informações".)*
 7. **Rigor financeiro nos números:** só "Valor Recebido Cat." soma; `Valor Recebido Total`, `Valor Bruto` e `Valor
    Desconto` são do CABEÇALHO da fatura e se repetem em cada linha dela (somá-los dobra o dinheiro) — os títulos dizem
    "NÃO somar" e o Leia-me repete. Metas: mensal × trimestral e o escopo "todas as categorias" não somam. Sincronizações:
@@ -2189,3 +2192,9 @@ ficou dito na tela); limite de requisições por usuário (3 usuários internos)
 entrega CPF/CNPJ e Observações também ao Visualizador — a regra "dados pessoais só ADMIN" vale na central nova, e mudar a rota
 antiga contraria "não altere nada"; (b) /conflitos usa `key={crConexaId}` mas o conflito é por fatura × mês; (c) "resolver
 automaticamente" reclassifica com todas as linhas da fatura enquanto a lista classifica por fatura × mês.
+
+23. **Dados primeiro (05/11/2026).** Em TODOS os conjuntos a primeira aba é o detalhe e o Leia-me vai por último; os resumos
+    (`resumos`, e em Regras também `pendencias`) vêm DESLIGADOS por padrão, tanto na tela quanto na API sem `f=1`; os atalhos
+    da tela deixaram de ligá-los. O Leia-me continua no arquivo (filtros, hora, atualidade dos dados — a sincronização parada
+    só aparece ali e no selo "Atenção" da prévia — e o aviso de "NÃO somar"), mas ninguém precisa passar por ele para chegar
+    nos dados. ClickUp passou a abrir em Composição (os dados); Metas e Contas/acessos mantêm as abas que já eram dados.

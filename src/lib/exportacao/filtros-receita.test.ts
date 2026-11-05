@@ -45,11 +45,11 @@ describe("datas e meses", () => {
 });
 
 describe("lerFiltrosReceita", () => {
-  it("sem parâmetros: padrões (grupo 'fatura', com resumos, sem itens) e nenhum erro", () => {
+  it("sem parâmetros: padrões (grupo 'fatura', SEM resumos, sem itens) e nenhum erro", () => {
     const { filtros, erros } = ler({});
     expect(erros).toEqual([]);
     expect(filtros.grupos).toEqual(["fatura"]);
-    expect(filtros.resumos).toBe(true);
+    expect(filtros.resumos).toBe(false); // a planilha é para os dados; o painel já resume
     expect(filtros.itens).toBe(false);
     expect(filtros.categorias).toEqual([]);
   });

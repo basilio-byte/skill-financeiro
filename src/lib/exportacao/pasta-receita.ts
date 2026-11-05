@@ -157,7 +157,7 @@ export function montarAbasReceita(e: EntradaPasta): SaidaPasta {
   });
 
   return {
-    abas: [leiaMe, detalhe.aba, ...resumos.map((r) => r.aba), ...(matriz ? [matriz.aba] : []), ...(e.extras ?? []).map((x) => x.aba)],
+    abas: [detalhe.aba, ...resumos.map((r) => r.aba), ...(matriz ? [matriz.aba] : []), ...(e.extras ?? []).map((x) => x.aba), leiaMe],
     detalhe,
     total: total.valor,
     faturas: total.faturas,

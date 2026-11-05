@@ -394,9 +394,9 @@ describe("o mês apurado", () => {
 // ---------------------------------------------------------------------------------------------------------------
 
 describe("montarAbasClickUp", () => {
-  it("abas na ordem: Leia-me, Vínculos, Composição, Resumo por vínculo, Excluídas, Envios", () => {
+  it("abas na ordem: Composição (os dados) primeiro, Vínculos, Resumo por vínculo, Excluídas, Envios e o Leia-me por último", () => {
     const s = montarAbasClickUp(entrada());
-    expect(s.abas.map((a) => a.name)).toEqual(["Leia-me", "Vínculos", "Composição", "Resumo por vínculo", "Excluídas", "Envios"]);
+    expect(s.abas.map((a) => a.name)).toEqual(["Composição", "Vínculos", "Resumo por vínculo", "Excluídas", "Envios", "Leia-me"]);
     expect(nomesDasAbas(buildXlsx(s.abas))).toEqual(s.abas.map((a) => a.name));
     expect(s.esperado.map((e) => e.nomeAba)).toEqual(["Composição", "Vínculos", "Resumo por vínculo", "Excluídas", "Envios"]);
   });
@@ -420,7 +420,7 @@ describe("montarAbasClickUp", () => {
 
   it("o rodapé soma a coluna CERTA (SUBTOTAL sobre 'Valor atribuído', acompanha o filtro do Excel)", () => {
     const s = montarAbasClickUp(entrada());
-    const xml = lerXml(buildXlsx(s.abas), "xl/worksheets/sheet3.xml"); // Composição é a 3ª aba
+    const xml = lerXml(buildXlsx(s.abas), "xl/worksheets/sheet1.xml"); // Composição é a 1ª aba
     const letra = String.fromCharCode(65 + COLUNAS_COMPOSICAO.findIndex((c) => c.titulo === "Valor atribuído ao vínculo"));
     expect(xml).toContain(`SUBTOTAL(109,${letra}2:${letra}6)`);
   });
@@ -853,7 +853,7 @@ describe("arquivo entregue (conferido lendo de volta)", () => {
     const s = montarAbasClickUp(entrada());
     const e = entregar(s.abas, s.esperado, "xlsx", NOME_ABA_PRINCIPAL);
     expect(e.extensao).toBe("xlsx");
-    expect(nomesDasAbas(e.buffer)).toEqual(["Leia-me", "Vínculos", "Composição", "Resumo por vínculo", "Excluídas", "Envios"]);
+    expect(nomesDasAbas(e.buffer)).toEqual(["Composição", "Vínculos", "Resumo por vínculo", "Excluídas", "Envios", "Leia-me"]);
     // dinheiro é NÚMERO de verdade (o Excel soma), nunca texto formatado
     const linhas = lerAba(e.buffer, NOME_ABA_PRINCIPAL).linhas;
     for (const r of dados(linhas)) expect(r[indice(linhas, "Valor atribuído ao vínculo")]).toMatch(/^-?\d+\.\d{2}$/);
@@ -940,7 +940,7 @@ describe("texto hostil (campos livres vindos do Conexa e do ClickUp)", () => {
     expect(r[indice(linhas, "Itens atribuídos a este vínculo")]).toBe('=HYPERLINK("http://evil","x") (10,00)');
     // id de tarefa numérico com zero à esquerda continua TEXTO — no XML, não só na leitura (o Excel mostraria "123")
     expect(r[indice(linhas, "Tarefa ClickUp")]).toBe("0123");
-    const xml = lerXml(e.buffer, "xl/worksheets/sheet3.xml"); // Composição é a 3ª aba
+    const xml = lerXml(e.buffer, "xl/worksheets/sheet1.xml"); // Composição é a 1ª aba
     expect(xml).toContain('<is><t xml:space="preserve">0123</t></is>');
     expect(xml).not.toContain("<v>0123</v>");
 
@@ -1100,7 +1100,7 @@ describe("gerarExportacaoClickUp (orquestração; banco e composição simulados
     expect(r.dadosPessoais).toBe(false);
     expect(r.filtrosJson).toEqual(PEDIDO_OUT);
     expect(r.filtros[0]).toEqual(["Mês de apuração (Data de Crédito)", "Outubro de 2026"]);
-    expect(nomesDasAbas(r.buffer)).toEqual(["Leia-me", "Vínculos", "Composição", "Resumo por vínculo", "Excluídas", "Envios"]);
+    expect(nomesDasAbas(r.buffer)).toEqual(["Composição", "Vínculos", "Resumo por vínculo", "Excluídas", "Envios", "Leia-me"]);
 
     // a vizinhança do envio: só vínculos ATIVOS da MESMA categoria disputam linhas; o inativo vb não é concorrente do va
     expect(h.compor).toHaveBeenCalledTimes(2);

@@ -82,7 +82,7 @@ export default async function ExportarPage({ searchParams }: { searchParams: Pro
       <div className="-mt-2 flex flex-col gap-1 text-sm text-slate-500">
         <p>{ativo.descricao}</p>
         <p className="text-[13px] text-slate-400">
-          Os arquivos .xlsx levam uma aba Leia-me com os filtros, a hora e a atualidade dos dados; o CSV traz só o detalhe. Antes de entregar, cada arquivo é relido e conferido, e as somas de receita, inadimplentes,
+          Os arquivos .xlsx abrem direto nos dados (resumos só se você marcar) e levam, na última aba, um Leia-me com os filtros, a hora e a atualidade; o CSV traz só o detalhe. Antes de entregar, cada arquivo é relido e conferido, e as somas de receita, inadimplentes,
           conflitos e ClickUp também contra o banco. Nesta tela, dados pessoais só para administradores.
         </p>
       </div>

@@ -69,7 +69,8 @@ describe("receita", () => {
 
   it("resumos e itens: 0/1 explícito vale sem f; valor estranho é erro", () => {
     expect(lerFiltrosReceita({ resumos: "0" }).filtros.resumos).toBe(false);
-    expect(lerFiltrosReceita({}).filtros.resumos).toBe(true);
+    expect(lerFiltrosReceita({}).filtros.resumos).toBe(false); // padrão: só os dados
+    expect(lerFiltrosReceita({ resumos: "1" }).filtros.resumos).toBe(true);
     expect(lerFiltrosReceita({ itens: "1" }).filtros.itens).toBe(true);
     expect(lerFiltrosReceita({}).filtros.itens).toBe(false);
     expect(lerFiltrosReceita({ f: "1", itens: "0" }).filtros.itens).toBe(false);
@@ -89,7 +90,8 @@ describe("inadimplentes", () => {
     expect(lerPedidoInadimplencia({ grupos: "contato" }).pedido.grupos).toEqual(["contato"]);
     expect(lerPedidoInadimplencia({}).pedido.grupos).toEqual([]);
     expect(lerPedidoInadimplencia({ resumos: "0" }).pedido.resumos).toBe(false);
-    expect(lerPedidoInadimplencia({}).pedido.resumos).toBe(true);
+    expect(lerPedidoInadimplencia({}).pedido.resumos).toBe(false);
+    expect(lerPedidoInadimplencia({ resumos: "1" }).pedido.resumos).toBe(true);
     expect(lerPedidoInadimplencia({ resumos: "talvez" }).erros[0]).toMatch(/Abas de resumo: valor desconhecido/);
     expect(lerPedidoInadimplencia({ status: ["unpaid", "juridical"] }).erros[0]).toMatch(/enviado 2 vezes/);
   });
@@ -97,8 +99,10 @@ describe("inadimplentes", () => {
 
 describe("regras, metas, conflitos, ClickUp, sincronizações e acessos", () => {
   it("regras: pendencias explícita vale sem f; ativo repetido é erro", () => {
-    expect(lerPedidoRegras({ pendencias: "0" }).pedido.pendencias).toBe(false);
-    expect(lerPedidoRegras({}).pedido.pendencias).toBe(true);
+    expect(lerPedidoRegras({ pendencias: "1" }).pedido.pendencias).toBe(true);
+    expect(lerPedidoRegras({}).pedido.pendencias).toBe(false);
+    expect(lerPedidoRegras({ resumos: "1" }).pedido.resumos).toBe(true);
+    expect(lerPedidoRegras({}).pedido.resumos).toBe(false);
     expect(lerPedidoRegras({ pendencias: "talvez" }).erros[0]).toMatch(/Aba Sem categoria: valor desconhecido/);
     expect(lerPedidoRegras({ ativo: ["ativas", "inativas"] }).erros[0]).toMatch(/"ativo" foi enviado 2 vezes/);
   });
@@ -110,7 +114,8 @@ describe("regras, metas, conflitos, ClickUp, sincronizações e acessos", () => 
 
   it("conflitos: resumos 0/1 explícito vale sem f", () => {
     expect(lerPedidoConflitos({ resumos: "0" }).pedido.resumos).toBe(false);
-    expect(lerPedidoConflitos({}).pedido.resumos).toBe(true);
+    expect(lerPedidoConflitos({}).pedido.resumos).toBe(false);
+    expect(lerPedidoConflitos({ resumos: "1" }).pedido.resumos).toBe(true);
     expect(lerPedidoConflitos({ resumos: ["0", "1"] }).erros[0]).toMatch(/"resumos" foi enviado 2 vezes/);
   });
 

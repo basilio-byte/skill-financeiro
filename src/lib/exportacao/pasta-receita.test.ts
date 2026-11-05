@@ -10,6 +10,12 @@ import { conferirContraBanco, conferirLeituraDeVolta } from "@/lib/exportacao/co
 import { celulaDe, paraParede } from "@/lib/exportacao/planilha";
 import { textoSeguro, LIMITE_CELULA } from "@/lib/exportacao/texto";
 
+/**
+ * Hoje as abas de RESUMO vêm DESLIGADAS por padrão (a planilha é para os dados; o painel já resume). Estes testes exercitam os
+ * resumos, então pedem explicitamente — a menos que o próprio teste mande `f` (formulário enviado), caso em que vale o que ele mandou.
+ */
+const comResumos = (params: Record<string, string | string[]>): Record<string, string | string[]> => ("f" in params ? params : { resumos: "1", ...params });
+
 const dia = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
 
 let seq = 0;
@@ -82,13 +88,13 @@ const base: Omit<EntradaPasta, "filtros"> = {
   hoje: "2026-11-04",
 };
 
-const entrada = (params: Record<string, string | string[]>): EntradaPasta => ({ ...base, filtros: lerFiltrosReceita(params).filtros });
+const entrada = (params: Record<string, string | string[]>): EntradaPasta => ({ ...base, filtros: lerFiltrosReceita(comResumos(params)).filtros });
 
 describe("montarAbasReceita", () => {
-  it("abas na ordem: Leia-me, Cobranças e os resumos; 'Por mês' e 'Categoria x mês' só quando há mais de um mês", () => {
+  it("abas na ordem: Cobranças (os dados) primeiro, os resumos (só se pedidos) e o Leia-me por ÚLTIMO; 'Por mês' e 'Categoria x mês' só quando há mais de um mês", () => {
     const multi = montarAbasReceita(entrada({ f: "1", grupos: "fatura", resumos: "1" }));
     expect(multi.abas.map((a) => a.name)).toEqual([
-      "Leia-me", "Cobranças", "Por categoria", "Por conta", "Por unidade", "Por situação", "Rateio", "Por mês", "Por dia", "Categoria x mês",
+      "Cobranças", "Por categoria", "Por conta", "Por unidade", "Por situação", "Rateio", "Por mês", "Por dia", "Categoria x mês", "Leia-me",
     ]);
 
     const umMes = montarAbasReceita({ ...entrada({ f: "1", resumos: "1" }), linhas: LINHAS.filter((l) => l.mesCredito === "2026-09") });
@@ -96,7 +102,7 @@ describe("montarAbasReceita", () => {
     expect(umMes.abas.map((a) => a.name)).not.toContain("Categoria x mês");
 
     const semResumos = montarAbasReceita(entrada({ f: "1", grupos: "fatura" }));
-    expect(semResumos.abas.map((a) => a.name)).toEqual(["Leia-me", "Cobranças"]);
+    expect(semResumos.abas.map((a) => a.name)).toEqual(["Cobranças", "Leia-me"]);
   });
 
   it("o total do detalhe é a soma EXATA de valorRecebidoCat (decimal, sem float)", () => {
@@ -342,7 +348,7 @@ describe("texto e células", () => {
   });
 
   it("nomesDasAbas lê o que o gerador escreveu", () => {
-    expect(nomesDasAbas(buildXlsx(montarAbasReceita(entrada({ f: "1" })).abas))).toEqual(["Leia-me", "Cobranças"]);
+    expect(nomesDasAbas(buildXlsx(montarAbasReceita(entrada({ f: "1" })).abas))).toEqual(["Cobranças", "Leia-me"]);
   });
 
   it("dinheiro em decimal: 0,1 + 0,2 + … nunca vira 0,30000000000000004", () => {

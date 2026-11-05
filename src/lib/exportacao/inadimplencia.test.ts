@@ -16,6 +16,12 @@ import {
 import { fraseDeFrescorInad } from "@/lib/exportacao/frescor-texto";
 import { conferirLeituraDeVolta } from "@/lib/exportacao/conferencia";
 
+/**
+ * Hoje as abas de RESUMO vêm DESLIGADAS por padrão (a planilha é para os dados; o painel já resume). Estes testes exercitam os
+ * resumos, então pedem explicitamente — a menos que o próprio teste mande `f` (formulário enviado), caso em que vale o que ele mandou.
+ */
+const comResumos = (params: Record<string, string | string[]>): Record<string, string | string[]> => ("f" in params ? params : { resumos: "1", ...params });
+
 const dia = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
 const HOJE = "2026-11-04";
 const hojeD = dia(HOJE);
@@ -53,14 +59,14 @@ const base = {
   frescor: { texto: "Atualizado em 04/11/2026 16:50 (há 10 min).", alerta: false },
   hoje: HOJE,
 };
-const pedido = (params: Record<string, string | string[]>) => lerPedidoInadimplencia(params).pedido;
+const pedido = (params: Record<string, string | string[]>) => lerPedidoInadimplencia(comResumos(params)).pedido;
 
 describe("lerPedidoInadimplencia", () => {
-  it("sem parâmetros: nada filtrado, resumos ligados, sem contato", () => {
+  it("sem parâmetros: nada filtrado, resumos DESLIGADOS, sem contato", () => {
     const { pedido: p, erros } = lerPedidoInadimplencia({});
     expect(erros).toEqual([]);
     expect(p.grupos).toEqual([]);
-    expect(p.resumos).toBe(true);
+    expect(p.resumos).toBe(false); // a planilha é para os dados; o painel já resume
     expect(p.filtros.status).toBeNull();
   });
 
@@ -117,8 +123,8 @@ describe("colunas e permissões", () => {
 describe("montarAbasInadimplencia", () => {
   it("abas: Leia-me, Por cobrança, Por cliente, Faixas de atraso, Por situação, Por unidade", () => {
     const s = montarAbasInadimplencia({ ...base, pedido: pedido({}) });
-    expect(s.abas.map((a) => a.name)).toEqual(["Leia-me", "Por cobrança", "Por cliente", "Faixas de atraso", "Por situação", "Por unidade"]);
-    expect(montarAbasInadimplencia({ ...base, pedido: pedido({ f: "1" }) }).abas.map((a) => a.name)).toEqual(["Leia-me", "Por cobrança", "Por cliente"]);
+    expect(s.abas.map((a) => a.name)).toEqual(["Por cobrança", "Por cliente", "Faixas de atraso", "Por situação", "Por unidade", "Leia-me"]);
+    expect(montarAbasInadimplencia({ ...base, pedido: pedido({ f: "1" }) }).abas.map((a) => a.name)).toEqual(["Por cobrança", "Por cliente", "Leia-me"]);
   });
 
   it("o total é a soma exata dos valores e TODAS as abas fecham com ele", () => {

@@ -47,6 +47,12 @@ import {
   type RowRodada,
 } from "@/lib/exportacao/pasta-sincronizacoes";
 
+/**
+ * Hoje as abas de RESUMO vêm DESLIGADAS por padrão (a planilha é para os dados; o painel já resume). Estes testes exercitam os
+ * resumos, então pedem explicitamente — a menos que o próprio teste mande `f` (formulário enviado), caso em que vale o que ele mandou.
+ */
+const comResumos = (params: Record<string, string | string[]>): Record<string, string | string[]> => ("f" in params ? params : { resumos: "1", ...params });
+
 // ---------------------------------------------------------------------------------------------------------------
 // Dados de teste: seis rodadas em quatro dias (o dia 03/11 NÃO tem rodada), em instantes UTC (Fortaleza = UTC-3)
 // ---------------------------------------------------------------------------------------------------------------
@@ -158,7 +164,7 @@ const base = {
   frescor: { texto: "Receita sincronizando normalmente. Última sincronização concluída em 04/11/2026 16:16 (há 54 min).", alerta: false },
   hoje: HOJE,
 };
-const ped = (params: Record<string, string | string[]>) => lerPedidoSincronizacoes(params).pedido;
+const ped = (params: Record<string, string | string[]>) => lerPedidoSincronizacoes(comResumos(params)).pedido;
 const PERIODO = { f: "1", resumos: "1", de: "2026-11-01", ate: "2026-11-04" };
 
 /** Número de série do Excel de um instante, no formato que o gerador grava (relógio de parede em UTC). */
@@ -186,10 +192,10 @@ const leiaMe = (s: { abas: Sheet[] }): Map<string, string> => {
 // ---------------------------------------------------------------------------------------------------------------
 
 describe("lerPedidoSincronizacoes", () => {
-  it("sem parâmetros: a API NÃO assume período, cobre tudo, só essenciais, resumos ligados", () => {
+  it("sem parâmetros: a API NÃO assume período, cobre tudo, só essenciais, resumos DESLIGADOS", () => {
     const { pedido, erros } = lerPedidoSincronizacoes({});
     expect(erros).toEqual([]);
-    expect(pedido).toEqual({ de: null, ate: null, origens: [], status: [], grupos: [], resumos: true });
+    expect(pedido).toEqual({ de: null, ate: null, origens: [], status: [], grupos: [], resumos: false });
   });
 
   it("data malformada, inexistente ou invertida vira ERRO (nunca o histórico inteiro como se fosse o recorte)", () => {
@@ -220,7 +226,7 @@ describe("lerPedidoSincronizacoes", () => {
 
   it("grupos: desconhecido é erro, 'essenciais' é aceito sem alarde, e o pedido explícito vale até sem f=1", () => {
     expect(lerPedidoSincronizacoes({ grupos: "segredo" }).erros[0]).toMatch(/Grupo de colunas desconhecido: "segredo"/);
-    expect(lerPedidoSincronizacoes({ grupos: ["essenciais"] })).toEqual({ pedido: ped({}), erros: [] });
+    expect(lerPedidoSincronizacoes({ grupos: ["essenciais"] })).toEqual({ pedido: lerPedidoSincronizacoes({}).pedido, erros: [] });
     expect(lerPedidoSincronizacoes({ grupos: "tecnico" }).pedido.grupos).toEqual(["tecnico"]); // (a API não finge que não viu o pedido)
     expect(lerPedidoSincronizacoes({ f: "1", grupos: ["essenciais", "tecnico"] }).pedido.grupos).toEqual(["tecnico"]);
   });
@@ -506,11 +512,11 @@ describe("colunas e permissões", () => {
 describe("montarAbasSincronizacoes", () => {
   it("abas: Leia-me, Rodadas (principal, com autofiltro), Por origem e status, Por dia; sem resumos só as duas primeiras", () => {
     const s = montarAbasSincronizacoes({ ...base, pedido: ped(PERIODO) });
-    expect(s.abas.map((a) => a.name)).toEqual(["Leia-me", "Rodadas", "Por origem e status", "Por dia"]);
-    expect(nomesDasAbas(abasDe(s))).toEqual(["Leia-me", "Rodadas", "Por origem e status", "Por dia"]);
-    expect(s.abas[1]!.autoFiltro).toEqual({ primeiraLinha: 1, ultimaLinha: 1 + LINHAS.length, ultimaColuna: TITULOS_ESSENCIAIS.length - 1 });
+    expect(s.abas.map((a) => a.name)).toEqual(["Rodadas", "Por origem e status", "Por dia", "Leia-me"]);
+    expect(nomesDasAbas(abasDe(s))).toEqual(["Rodadas", "Por origem e status", "Por dia", "Leia-me"]);
+    expect(s.abas[0]!.autoFiltro).toEqual({ primeiraLinha: 1, ultimaLinha: 1 + LINHAS.length, ultimaColuna: TITULOS_ESSENCIAIS.length - 1 });
     expect(s.titulosDasColunas).toEqual(TITULOS_ESSENCIAIS);
-    expect(montarAbasSincronizacoes({ ...base, pedido: ped({ f: "1", de: "2026-11-01", ate: "2026-11-04" }) }).abas.map((a) => a.name)).toEqual(["Leia-me", "Rodadas"]);
+    expect(montarAbasSincronizacoes({ ...base, pedido: ped({ f: "1", de: "2026-11-01", ate: "2026-11-04" }) }).abas.map((a) => a.name)).toEqual(["Rodadas", "Leia-me"]);
   });
 
   it("Rodadas: uma linha por rodada, na ordem recebida, sem rodapé TOTAL, sem linha em branco e sem fórmula", () => {
@@ -811,7 +817,7 @@ describe("entregar() sobre as abas desta exportação", () => {
     const e = entregar(s.abas, esperado(), "xlsx", "Rodadas");
     expect(e.extensao).toBe("xlsx");
     expect(e.buffer.subarray(0, 2).toString("latin1")).toBe("PK");
-    expect(nomesDasAbas(e.buffer)).toEqual(["Leia-me", "Rodadas", "Por origem e status", "Por dia"]);
+    expect(nomesDasAbas(e.buffer)).toEqual(["Rodadas", "Por origem e status", "Por dia", "Leia-me"]);
   });
 
   it("a leitura de volta ACUSA linha faltando e cabeçalho deslocado (o arquivo não é entregue)", () => {

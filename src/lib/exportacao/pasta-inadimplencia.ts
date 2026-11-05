@@ -123,7 +123,7 @@ export function lerPedidoInadimplencia(params: ParamsBrutos): { pedido: PedidoIn
   if (invalidos.length) erros.push(`Grupo de colunas desconhecido: ${invalidos.map((g) => `"${g.slice(0, 20)}"`).join(", ")}.`);
   // Grupo pedido de forma explícita vale com ou sem `f=1` (o padrão é nenhum grupo opcional).
   const grupos = pedidos.filter((g) => GRUPOS_OPCIONAIS_INAD.includes(g));
-  const resumos = lerSimNao(params, "resumos", "Abas de resumo", true, enviado, erros);
+  const resumos = lerSimNao(params, "resumos", "Abas de resumo", false, enviado, erros);
 
   // `lerFiltros` normaliza do JEITO DA TELA (mesma `condicao` depois). Já validei acima o que ele ignoraria em silêncio.
   const filtros = lerFiltros({ de: de ?? undefined, ate: ate ?? undefined, q: um(params.q), status: status || undefined, unidade: um(params.unidade), ordem: ordem || undefined, dir: dir || undefined, visao: "cobranca" });
@@ -317,5 +317,5 @@ export function montarAbasInadimplencia(e: EntradaPastaInad): SaidaPastaInad {
     conferencia: `OK. A soma do detalhe (${formatBRL(total)}) foi conferida contra o banco, contra cada aba e contra o arquivo lido de volta, antes de entregar.`,
   });
 
-  return { abas: [leiaMe, detalhe.aba, ...abas], detalhe, total, clientes: clientesDistintos, titulosDasColunas: colunas.map((c) => c.titulo) };
+  return { abas: [detalhe.aba, ...abas, leiaMe], detalhe, total, clientes: clientesDistintos, titulosDasColunas: colunas.map((c) => c.titulo) };
 }

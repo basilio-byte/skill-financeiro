@@ -118,7 +118,7 @@ export function ErrosDoPedido({ erros }: { erros: string[] }) {
 /**
  * Rodapé de download — o MESMO em todas as telas. O botão é um submit do formulário `idForm` (atributo `form`) com
  * `formAction` na rota de download; o seletor de formato também pertence ao formulário. O que vale é o que está nos
- * campos agora; a aba Leia-me do .xlsx lista os filtros que valeram.
+ * campos agora; a aba Leia-me (a última) do .xlsx lista os filtros que valeram.
  */
 export function RodapeDeDownload({
   idForm,
@@ -152,7 +152,7 @@ export function RodapeDeDownload({
         Baixar arquivo
       </button>
       <span className="text-xs text-slate-500">
-        {nota ?? "O .xlsx leva uma aba Leia-me com os filtros, a hora e a atualidade dos dados, e só é entregue depois de conferido."}
+        {nota ?? "O .xlsx abre direto nos dados; a última aba (Leia-me) traz os filtros, a hora e a atualidade, e só é entregue depois de conferido."}
         {formatos.includes("csv") ? " O CSV traz só o detalhe, sem Leia-me nem resumos, e o Excel pode converter chaves de mês (2026-10) em data: para conservá-las, use o .xlsx." : ""}
         {" A prévia mostra o recorte da última vez que você clicou em Atualizar prévia; o download usa os campos como estão agora."}
       </span>

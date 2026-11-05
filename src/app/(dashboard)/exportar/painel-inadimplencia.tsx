@@ -30,7 +30,7 @@ export async function PainelInadimplencia({ params, papel }: { params: ParamsBru
   const iso = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : "");
   const temFiltro = !!(f.de || f.ate || f.q || f.status || f.unidade);
 
-  const base: Array<[string, string]> = [["dataset", "inadimplencia"], ["f", "1"], ["resumos", "1"]];
+  const base: Array<[string, string]> = [["dataset", "inadimplencia"], ["f", "1"]];
   const atalhos = [
     { rotulo: "Todas", dica: "Sem filtro nenhum.", url: href(base) },
     ...FAIXAS_DE_ATRASO.map((fx) => {

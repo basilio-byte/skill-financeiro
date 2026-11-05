@@ -38,7 +38,7 @@ export async function PainelConflitos({ params, papel }: { params: ParamsBrutos;
   const r = resumirConflitos(selecionados);
   const filtrado = pedido.classificacoes.length > 0;
 
-  const base: Array<[string, string]> = [["dataset", "conflitos"], ["f", "1"], ["resumos", "1"]];
+  const base: Array<[string, string]> = [["dataset", "conflitos"], ["f", "1"]];
   const atalhos = [
     { rotulo: "Todos", dica: "Todas as classificações.", url: href(base) },
     {
@@ -151,7 +151,7 @@ export async function PainelConflitos({ params, papel }: { params: ParamsBrutos;
           idForm={ID_FORM}
           rota="conflitos" formatoAtual={formatoDe(params)}
           formatos={["xlsx", "csv"]}
-          nota="O .xlsx traz as abas Leia-me (o que cada classificação significa e o que fazer), Conflitos (uma linha por linha de cada fatura), Por fatura e Por classificação, e só é entregue depois de conferido."
+          nota="O .xlsx abre na aba Conflitos (uma linha por linha de cada fatura); Por fatura e Por classificação só vêm se você marcar, e o Leia-me (o que cada classificação significa e o que fazer) é a última aba. Só é entregue depois de conferido."
         />
       </Card>
     </div>

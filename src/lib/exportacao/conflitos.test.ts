@@ -39,6 +39,12 @@ import {
   type LinhaDoDetalhe,
 } from "@/lib/exportacao/pasta-conflitos";
 
+/**
+ * Hoje as abas de RESUMO vêm DESLIGADAS por padrão (a planilha é para os dados; o painel já resume). Estes testes exercitam os
+ * resumos, então pedem explicitamente — a menos que o próprio teste mande `f` (formulário enviado), caso em que vale o que ele mandou.
+ */
+const comResumos = (params: Record<string, string | string[]>): Record<string, string | string[]> => ("f" in params ? params : { resumos: "1", ...params });
+
 const serialHoraDeParede = (paredeIso: string): string => {
   const ms = Date.parse(paredeIso);
   const dias = Math.floor(ms / 86_400_000);
@@ -148,7 +154,7 @@ const FRESCOR = { texto: "Receita sincronizando normalmente. Última sincroniza�
 const GERADO_EM = new Date("2026-11-04T20:00:00Z");
 
 function montar(c: Cenario, params: Record<string, string | string[]> = {}, extra: Partial<EntradaPastaConflitos> = {}) {
-  const pedido = lerPedidoConflitos(params).pedido;
+  const pedido = lerPedidoConflitos(comResumos(params)).pedido;
   const selecionados = filtrarPorClassificacao(c.conflitos, pedido.classificacoes);
   const junto = juntarComBanco(selecionados, c.leitura(selecionados));
   expect(junto.problemas).toEqual([]);
@@ -165,10 +171,10 @@ const textoDoLeiaMe = (buf: Buffer) =>
 // ---------------------------------------------------------------------------------------------------------------
 
 describe("lerPedidoConflitos", () => {
-  it("sem parâmetros: todas as classificações, resumos ligados", () => {
+  it("sem parâmetros: todas as classificações, resumos DESLIGADOS (a planilha é para os dados)", () => {
     const { pedido, erros } = lerPedidoConflitos({});
     expect(erros).toEqual([]);
-    expect(pedido).toEqual({ classificacoes: [], resumos: true });
+    expect(pedido).toEqual({ classificacoes: [], resumos: false });
   });
 
   it("classificação pedida: uma, várias (na ordem do catálogo, não na da URL) e repetidas/vazias ignoradas", () => {
@@ -207,9 +213,9 @@ describe("lerPedidoConflitos", () => {
     expect(muitos.pedido.classificacoes).toEqual([]);
   });
 
-  it("f=1: a caixa 'resumos' ausente é desmarcada; sem f os resumos vêm ligados; o valor EXPLÍCITO (0 ou 1) vale sempre", () => {
+  it("f=1: a caixa 'resumos' ausente é desmarcada; sem f os resumos vêm desligados; o valor EXPLÍCITO (0 ou 1) vale sempre", () => {
     expect(lerPedidoConflitos({ f: "1" }).pedido.resumos).toBe(false);
-    expect(lerPedidoConflitos({}).pedido.resumos).toBe(true);
+    expect(lerPedidoConflitos({}).pedido.resumos).toBe(false);
     expect(lerPedidoConflitos({ f: "1", resumos: "1" }).pedido.resumos).toBe(true);
     expect(lerPedidoConflitos({ resumos: "0" }).pedido.resumos).toBe(false);
     expect(lerPedidoConflitos({ f: "1", resumos: "0" }).pedido.resumos).toBe(false);
@@ -427,7 +433,7 @@ describe("conferirConflitos: a soma de Valor Cat. fecha com a soma de somaAtual 
     const junto = juntarComBanco(c.conflitos, c.leitura());
     const adulterados = junto.conflitos.map((x) => (x.crConexaId === 1003 ? { ...x, linhas: x.linhas.map((l, i) => (i === 0 ? { ...l, valorRecebidoCat: "0.11" } : l)) } : x));
     const tenta = () =>
-      montarAbasConflitos({ conflitos: adulterados, totalSemFiltro: 5, pedido: lerPedidoConflitos({}).pedido, geradoEm: GERADO_EM, usuario: USUARIO, frescor: FRESCOR });
+      montarAbasConflitos({ conflitos: adulterados, totalSemFiltro: 5, pedido: lerPedidoConflitos({ resumos: "1" }).pedido, geradoEm: GERADO_EM, usuario: USUARIO, frescor: FRESCOR });
     expect(tenta).toThrow(ExportacaoInconsistenteError);
     expect(tenta).toThrow(/o arquivo não foi entregue/);
   });
@@ -444,7 +450,7 @@ describe("conferirConflitos: a soma de Valor Cat. fecha com a soma de somaAtual 
     const c = cenario();
     const junto = juntarComBanco(c.conflitos, c.leitura());
     const quebrados = junto.conflitos.map((x) => (x.crConexaId === 1002 ? { ...x, linhas: x.linhas.map((l) => (l.revisadoEm ? { ...l, revisadoEm: "ontem de manhã" } : l)) } : x));
-    expect(() => montarAbasConflitos({ conflitos: quebrados, totalSemFiltro: 5, pedido: lerPedidoConflitos({}).pedido, geradoEm: GERADO_EM, usuario: USUARIO, frescor: FRESCOR })).toThrow(
+    expect(() => montarAbasConflitos({ conflitos: quebrados, totalSemFiltro: 5, pedido: lerPedidoConflitos({ resumos: "1" }).pedido, geradoEm: GERADO_EM, usuario: USUARIO, frescor: FRESCOR })).toThrow(
       /data de revisão "ontem de manhã" não é uma data válida/,
     );
   });
@@ -496,11 +502,11 @@ describe("resumo e ordem", () => {
 // ---------------------------------------------------------------------------------------------------------------
 
 describe("montarAbasConflitos", () => {
-  it("abas: Leia-me, Conflitos (principal), Por fatura, Por classificação; sem resumos só as duas primeiras", () => {
+  it("abas: Conflitos (principal) primeiro, depois Por fatura e Por classificação, e o Leia-me por ÚLTIMO; sem resumos só Conflitos e Leia-me", () => {
     const c = cenario();
-    expect(montar(c).abas.map((a) => a.name)).toEqual(["Leia-me", "Conflitos", "Por fatura", "Por classificação"]);
-    expect(montar(c, { f: "1" }).abas.map((a) => a.name)).toEqual(["Leia-me", "Conflitos"]);
-    expect(nomesDasAbas(buildXlsx(montar(c).abas))).toEqual(["Leia-me", "Conflitos", "Por fatura", "Por classificação"]);
+    expect(montar(c).abas.map((a) => a.name)).toEqual(["Conflitos", "Por fatura", "Por classificação", "Leia-me"]);
+    expect(montar(c, { f: "1" }).abas.map((a) => a.name)).toEqual(["Conflitos", "Leia-me"]);
+    expect(nomesDasAbas(buildXlsx(montar(c).abas))).toEqual(["Conflitos", "Por fatura", "Por classificação", "Leia-me"]);
   });
 
   it("aba principal: uma linha por LINHA de cada conflito, na ordem da tela, com o cabeçalho do catálogo", () => {
@@ -686,7 +692,7 @@ describe("entregar: o arquivo escrito, lido de volta, fecha — e acusa defeito"
     const s = montar(cenario());
     const e = entregar(s.abas, s.esperado, "xlsx", ABA_DETALHE_CONFLITOS);
     expect(e.extensao).toBe("xlsx");
-    expect(nomesDasAbas(e.buffer)).toEqual(["Leia-me", "Conflitos", "Por fatura", "Por classificação"]);
+    expect(nomesDasAbas(e.buffer)).toEqual(["Conflitos", "Por fatura", "Por classificação", "Leia-me"]);
     expect(s.esperado.map((x) => x.nomeAba)).toEqual(["Conflitos", "Por fatura", "Por classificação"]);
     const lida = lerAba(e.buffer, "Conflitos").linhas;
     expect(conferirLeituraDeVolta(lida, { titulos: s.titulosDasColunas, nLinhas: 8, indiceValor: s.detalhe.indiceColunaTotal, total: "337.50" })).toEqual([]);
@@ -761,7 +767,7 @@ describe("texto hostil vindo do banco", () => {
     expect(hostil[col("Chave da linha")]).toBe("k-"); // \u000b removido
     expect(det[1]![col("Cliente")]).toBe("Cliente & Filhos <Ltda>"); // & e < escapados no XML e relidos intactos
     // texto é string inline, nunca fórmula: a única <f> da aba é o SUBTOTAL do rodapé
-    const xml = lerXml(e.buffer, "xl/worksheets/sheet2.xml");
+    const xml = lerXml(e.buffer, "xl/worksheets/sheet1.xml");
     expect([...xml.matchAll(/<f>([^<]*)<\/f>/g)].map((m) => m[1]!)).toEqual([expect.stringMatching(/^SUBTOTAL\(109,L2:L9\)$/)]);
     expect(xml).not.toMatch(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/);
   });
@@ -781,7 +787,7 @@ describe("texto hostil vindo do banco", () => {
 
 describe("sem nenhum conflito (o melhor resultado)", () => {
   const vazio = (params: Record<string, string> = {}) => {
-    const pedido = lerPedidoConflitos(params).pedido;
+    const pedido = lerPedidoConflitos(comResumos(params)).pedido;
     return montarAbasConflitos({ conflitos: [], totalSemFiltro: 0, pedido, geradoEm: GERADO_EM, usuario: USUARIO, frescor: FRESCOR });
   };
 
@@ -790,7 +796,7 @@ describe("sem nenhum conflito (o melhor resultado)", () => {
     expect(s.nLinhas).toBe(0);
     expect(s.detalhe.total).toBe("0.00");
     const x = entregar(s.abas, s.esperado, "xlsx", ABA_DETALHE_CONFLITOS);
-    expect(nomesDasAbas(x.buffer)).toEqual(["Leia-me", "Conflitos", "Por fatura", "Por classificação"]);
+    expect(nomesDasAbas(x.buffer)).toEqual(["Conflitos", "Por fatura", "Por classificação", "Leia-me"]);
     const csv = lerCsv(entregar(vazio().abas, vazio().esperado, "csv", ABA_DETALHE_CONFLITOS).buffer.toString("utf8"));
     expect(csv).toEqual([TITULOS_COLUNAS_CONFLITOS]);
   });

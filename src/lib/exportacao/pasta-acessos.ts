@@ -781,5 +781,5 @@ export function montarAbasAcessos(e: EntradaPastaAcessos): SaidaPastaAcessos {
     conferencia: `OK. A contagem de linhas de cada aba${ids.includes("exportacoes") ? " (e, em Exportações, a soma de 'Valor total do arquivo')" : ""} foi conferida contra o banco, lida na mesma transação, e contra o arquivo lido de volta, antes de entregar.`,
   });
 
-  return { abas: [leiaMe, ...abasDeDados], esperado, principal: defDaAba(ids[0]!).nome, linhasPorAba, nLinhas };
+  return { abas: [...abasDeDados, leiaMe], esperado, principal: defDaAba(ids[0]!).nome, linhasPorAba, nLinhas };
 }

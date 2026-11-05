@@ -154,7 +154,7 @@ export async function PainelAcessos({ params, papel }: { params: ParamsBrutos; p
           idForm={ID_FORM}
           rota="acessos" formatoAtual={formatoDe(params)}
           formatos={["xlsx", "csv"]}
-          nota="O .xlsx leva uma aba Leia-me com o recorte, a hora e como ler cada aba, e só é entregue depois de conferido contra o banco. Contém dados pessoais: somente administrador. No CSV sai só a primeira aba marcada."
+          nota="O .xlsx abre nas abas de dados e leva, por último, um Leia-me com o recorte, a hora e como ler cada aba. Só é entregue depois de conferido contra o banco. Contém dados pessoais: somente administrador. No CSV sai só a primeira aba marcada."
         />
       </Card>
     </div>

@@ -44,7 +44,7 @@ export async function PainelSincronizacoes({ params, papel }: { params: ParamsBr
 
   const [previa, frescor] = erros.length ? [null, null] : await Promise.all([previaSincronizacoes(pedido), frescorDaReceita(new Date())]);
 
-  const base: Array<[string, string]> = [["dataset", "sincronizacoes"], ["f", "1"], ["resumos", "1"]];
+  const base: Array<[string, string]> = [["dataset", "sincronizacoes"], ["f", "1"]];
   const de7 = somarDias(hoje, -6);
   const de30 = somarDias(hoje, -29);
   const mesAtual = getPeriodBounds("month");
@@ -184,7 +184,7 @@ export async function PainelSincronizacoes({ params, papel }: { params: ParamsBr
           idForm={ID_FORM}
           rota="sincronizacoes" formatoAtual={formatoDe(params)}
           formatos={["xlsx", "csv"]}
-          nota="O .xlsx leva as abas Leia-me, Rodadas, Por origem e status e Por dia, e só é entregue depois de conferido contra o banco."
+          nota="O .xlsx abre na aba Rodadas; Por origem e status e Por dia só vêm se você marcar, e o Leia-me é a última aba. Só é entregue depois de conferido contra o banco."
         />
       </Card>
     </div>

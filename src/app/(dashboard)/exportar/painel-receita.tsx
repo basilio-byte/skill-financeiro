@@ -37,7 +37,7 @@ export async function PainelReceita({ params, papel }: { params: ParamsBrutos; p
   const meses = [...opcoes.meses];
   if (filtros.mes && !meses.includes(filtros.mes)) meses.unshift(filtros.mes);
 
-  const base: Array<[string, string]> = [["dataset", "receita"], ["f", "1"], ["grupos", "fatura"], ["resumos", "1"]];
+  const base: Array<[string, string]> = [["dataset", "receita"], ["f", "1"], ["grupos", "fatura"]];
   const mesAtual = hoje.slice(0, 7);
   const mesAnterior = shiftPeriodKey(getPeriodBounds("month").fromKey, "month", -1).slice(0, 7);
   const tri = getPeriodBounds("quarter");
@@ -297,7 +297,7 @@ export async function PainelReceita({ params, papel }: { params: ParamsBrutos; p
           </div>
         ) : null}
 
-        <RodapeDeDownload idForm={ID_FORM} rota="receita" formatoAtual={formatoDe(params)} formatos={["xlsx", "csv"]} nota="O .xlsx leva uma aba Leia-me com os filtros, a hora e a atualidade dos dados, e só é entregue depois de conferido contra o banco." />
+        <RodapeDeDownload idForm={ID_FORM} rota="receita" formatoAtual={formatoDe(params)} formatos={["xlsx", "csv"]} nota="O .xlsx abre na aba Cobranças (os dados); as abas de resumo só vêm se você marcar, e o Leia-me (filtros, hora, atualidade) é a última aba. Só é entregue depois de conferido contra o banco." />
       </Card>
     </div>
   );

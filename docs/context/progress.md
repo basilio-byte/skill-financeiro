@@ -1897,3 +1897,7 @@ O MCP conectou na claude.ai (cabeçalho `x-api-key`). `estado_do_sistema` mostro
   /conflitos usa `key={crConexaId}` mas o conflito é por fatura × mês (chaves React repetidas); (c) a ação "resolver
   automaticamente" reclassifica com todas as linhas da fatura enquanto a lista classifica por fatura × mês.
 - Testes: 372 → 937.
+- **05/11/2026 — "dados primeiro" (pedido do usuário ao abrir o primeiro arquivo: "quero os dados, não resumo de informações;
+  para resumo já temos a dashboard"):** a primeira aba de todo .xlsx passou a ser o detalhe; o Leia-me foi para a ÚLTIMA aba;
+  as abas de resumo (e a "Sem categoria"/"Por categoria" de Regras) vêm desligadas por padrão (opt-in na tela e na API);
+  os atalhos da tela não as ligam mais. ADR-0035, decisões 6 e 23. Testes: 372 → 938.

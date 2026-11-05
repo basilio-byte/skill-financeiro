@@ -75,7 +75,7 @@ describe("metas — montagem das abas", () => {
   const abas = montarAbasMetas({ linhas, eventos, escopos, pedido: { ano: 2026, granularidades: ["MES", "TRIMESTRE"], escopos: [] }, geradoEm, usuario, frescor: { texto: "ok", alerta: false } });
 
   it("abas na ordem e mensal antes de trimestral, em ordem de período", () => {
-    expect(abas.abas.map((a) => a.name)).toEqual(["Leia-me", "Metas e realizado", "Histórico de alterações", "Escopos"]);
+    expect(abas.abas.map((a) => a.name)).toEqual(["Metas e realizado", "Histórico de alterações", "Escopos", "Leia-me"]);
     expect(abas.nLinhas).toBe(5);
     const m = lerAba(buildXlsx(abas.abas), "Metas e realizado").linhas;
     expect(m[0]).toEqual(["Tipo", "Período", "Chave", "Situação do período", "Escopo", "Soma todas as categorias", "Meta", "Realizado", "% atingido", "Falta para a meta"]);
@@ -150,9 +150,9 @@ describe("regras — pedido", () => {
   it("padrões, erros e descrição", () => {
     const { pedido, erros } = lerPedidoRegras({});
     expect(erros).toEqual([]);
-    expect(pedido).toEqual({ categorias: [], ativo: "todas", busca: null, pendencias: true });
+    expect(pedido).toEqual({ categorias: [], ativo: "todas", busca: null, pendencias: false, resumos: false }); // a planilha é para os dados
     expect(lerPedidoRegras({ f: "1" }).pedido.pendencias).toBe(false);
-    expect(lerPedidoRegras({ f: "1", pendencias: "1", ativo: "ativas", busca: "Batial", categoria: ["A", "B"] }).pedido).toEqual({ categorias: ["A", "B"], ativo: "ativas", busca: "Batial", pendencias: true });
+    expect(lerPedidoRegras({ f: "1", pendencias: "1", ativo: "ativas", busca: "Batial", categoria: ["A", "B"] }).pedido).toEqual({ categorias: ["A", "B"], ativo: "ativas", busca: "Batial", pendencias: true, resumos: false });
     expect(lerPedidoRegras({ ativo: "talvez" }).erros[0]).toMatch(/Situação da regra desconhecida/);
     expect(lerPedidoRegras({ busca: "a" }).erros[0]).toMatch(/ao menos 2/);
     expect(descreverPedidoRegras(pedido)).toEqual([["Situação das regras", "todas (ativas e inativas)"], ["Outros filtros", "nenhum"]]);
@@ -176,8 +176,8 @@ describe("regras — montagem das abas", () => {
   const entrada = { regras, pendencias, geradoEm, usuario };
 
   it("ordena por categoria e nome, preserva o espaçamento exato e soma as pendências em decimal exato", () => {
-    const pasta = montarAbasRegras({ ...entrada, pedido: { categorias: [], ativo: "todas", busca: null, pendencias: true } });
-    expect(pasta.abas.map((a) => a.name)).toEqual(["Leia-me", "Regras", "Por categoria", "Sem categoria"]);
+    const pasta = montarAbasRegras({ ...entrada, pedido: { categorias: [], ativo: "todas", busca: null, pendencias: true, resumos: true } });
+    expect(pasta.abas.map((a) => a.name)).toEqual(["Regras", "Por categoria", "Sem categoria", "Leia-me"]);
     expect(pasta.nLinhas).toBe(4);
     const buf = buildXlsx(pasta.abas);
     const r = lerAba(buf, "Regras").linhas;
@@ -195,9 +195,16 @@ describe("regras — montagem das abas", () => {
     expect(p[1]![0]).toBe("Serviço novo  com espaço duplo");
   });
 
+  it("o padrão abre nos DADOS: só Regras e o Leia-me por último (resumo por categoria e Sem categoria são opcionais)", () => {
+    const pasta = montarAbasRegras({ ...entrada, pedido: { categorias: [], ativo: "todas", busca: null, pendencias: false, resumos: false } });
+    expect(pasta.abas.map((a) => a.name)).toEqual(["Regras", "Leia-me"]);
+    // o Leia-me continua contando as categorias distintas mesmo sem a aba de resumo
+    expect(lerAba(buildXlsx(pasta.abas), "Leia-me").linhas.map((r) => r.join(" | ")).join("\n")).toContain("Categorias distintas | 3");
+  });
+
   it("sem pendências no pedido, a aba não existe; o Leia-me conta ativas e categorias", () => {
-    const pasta = montarAbasRegras({ ...entrada, pedido: { categorias: [], ativo: "todas", busca: null, pendencias: false } });
-    expect(pasta.abas.map((a) => a.name)).toEqual(["Leia-me", "Regras", "Por categoria"]);
+    const pasta = montarAbasRegras({ ...entrada, pedido: { categorias: [], ativo: "todas", busca: null, pendencias: false, resumos: true } });
+    expect(pasta.abas.map((a) => a.name)).toEqual(["Regras", "Por categoria", "Leia-me"]);
     const texto = lerAba(buildXlsx(pasta.abas), "Leia-me").linhas.map((r) => r.join(" | ")).join("\n");
     expect(texto).toContain("Regras exportadas | 4");
     expect(texto).toContain("Ativas | 3");

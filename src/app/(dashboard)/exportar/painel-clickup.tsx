@@ -206,7 +206,7 @@ export async function PainelClickUp({ params, papel }: { params: ParamsBrutos; p
           idForm={ID_FORM}
           rota="clickup" formatoAtual={formatoDe(params)}
           formatos={["xlsx", "csv"]}
-          nota="O .xlsx leva as abas Vínculos, Composição, Resumo por vínculo, Excluídas e Envios, mais o Leia-me, e só é entregue depois de conferido contra o banco."
+          nota="O .xlsx abre na aba Composição e leva também Vínculos, Resumo por vínculo, Excluídas e Envios, com o Leia-me por último. Só é entregue depois de conferido contra o banco."
         />
       </Card>
     </div>

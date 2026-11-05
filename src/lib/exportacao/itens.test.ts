@@ -116,10 +116,11 @@ describe("a aba Itens dentro da pasta de receita", () => {
     extras,
   });
 
-  it("entra como última aba, e o resumo vai para os avisos do Leia-me", () => {
+  it("entra depois dos resumos e antes do Leia-me (que fecha o arquivo), e o resumo vai para os avisos do Leia-me", () => {
     const r = abaDeItens(linhas);
     const pasta = montarAbasReceita(entrada([{ aba: r.aba, soma: r.soma, aviso: r.aviso }]));
-    expect(pasta.abas.at(-1)!.name).toBe("Itens");
+    expect(pasta.abas.at(-2)!.name).toBe("Itens");
+    expect(pasta.abas.at(-1)!.name).toBe("Leia-me");
     expect(lerAba(buildXlsx(pasta.abas), "Leia-me").linhas.flat().join(" ")).toContain("Aba Itens:");
   });
 
