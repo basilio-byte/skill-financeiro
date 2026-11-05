@@ -2041,3 +2041,151 @@ um export parcial (filtro errado, meio mês) **apagaria receita real não revisa
   por categoria podem mudar, não só o total. A prévia mostra o total; a quebra por categoria está no detalhe.
 - A sincronização automática continua tentando e falhando por captcha (pausa de 6 h); quando o Conexa voltar a
   funcionar, ela retoma sozinha e sobrescreve com o mesmo dado.
+
+
+---
+
+## ADR-0035
+
+**Central de exportação: planilhas (.xlsx e CSV) de todos os dados do painel, com filtros — só leitura, conferida antes de entregar e com rastro.**
+
+**Data:** 2026-11-04 · **Status:** aceito (F1, F2 e F3 implementadas; ver "Validação").
+
+### Contexto
+
+A Duda pediu (04/11) para "filtrar por mês e conseguir uma planilha com as cobranças e categorias". Até então a
+única exportação era a planilha por rodada (`/api/runs/[id]/export`): só linhas de receita, sem filtro escolhido
+pela pessoa e no ponto de entrada errado (~10 mil rodadas, quase todas ticks automáticos de 15 min). O estudo
+(tela a tela + volume real: 4,7 mil linhas de receita, ~1,1 mil por mês; 1,3 mil inadimplentes) concluiu: um núcleo
+único, uma tela "Exportar" no menu lateral (ideia do usuário) e uma exportação por conjunto de dados.
+
+Restrição do usuário durante a implementação: **não alterar nem quebrar nada do painel existente.** Por isso a
+mudança é aditiva e a ausência de regressão foi PROVADA (ver "Validação").
+
+### Decisões
+
+1. **Tela `/exportar`** (item "Exportar" no grupo Visão do menu, visível a todos os papéis) + `GET
+   /api/exportar/<conjunto>?<filtros>`. Formulário por GET e sem JavaScript, como /revisar e /inadimplentes: o
+   estado vive na URL (colável, favoritável). Cada conjunto tem prévia (o que o recorte vai entregar) antes de baixar.
+2. **Conjuntos:** receita, inadimplentes, metas, regras de categoria (F1/F2); conflitos, sincronizações, ClickUp,
+   contas/acessos/auditoria (F3; os que têm dado sensível só para ADMIN).
+3. **"Mês" = Data de Crédito da Cobrança**, o critério do Panorama (decisão do usuário): o total de um mês exportado é
+   o mesmo número do Panorama daquele mês (provado em 5 meses, total e quebra por categoria). Competência, vencimento
+   e quitação aparecem como colunas, nunca como filtro.
+4. **Só LEITURA, em transação `REPEATABLE READ`:** contagem, soma, soma por categoria e as linhas vêm do MESMO
+   instante, mesmo que a sincronização de 15 min atualize linhas no meio (provado com 1.500 commits concorrentes);
+   não bloqueia a sincronização.
+5. **Conferido antes de entregar** (`entregar()`, ponto único de saída): (a) o que está em memória × o que o banco soma
+   pelo mesmo filtro; (b) cada resumo × o detalhe; (c) o ARQUIVO escrito, lido de volta, × o esperado (cabeçalho,
+   linhas, soma). Divergência vira erro e o arquivo NÃO é entregue. Cada conferência foi provada capaz de acusar um
+   defeito injetado.
+6. **Pasta de trabalho:** aba Leia-me (filtros que valeram, hora, quem gerou, atualidade dos dados, avisos de leitura,
+   conferência) · detalhe (datas e números de verdade, autofiltro, cabeçalho congelado, TOTAL com `SUBTOTAL(109)` que
+   acompanha o filtro do Excel) · resumos (por categoria, conta, unidade, situação, rateio, dia; por mês e categoria ×
+   mês quando há mais de um mês) · aba Itens (itens do Listar Vendas e o valor rateado de cada um, opcional).
+7. **Rigor financeiro nos números:** só "Valor Recebido Cat." soma; `Valor Recebido Total`, `Valor Bruto` e `Valor
+   Desconto` são do CABEÇALHO da fatura e se repetem em cada linha dela (somá-los dobra o dinheiro) — os títulos dizem
+   "NÃO somar" e o Leia-me repete. Metas: mensal × trimestral e o escopo "todas as categorias" não somam. Sincronizações:
+   "Total recebido" por rodada não soma (cada tick recalcula o mesmo período). Dinheiro é sempre Decimal.
+8. **Permissões:** dados pessoais (CPF/CNPJ, texto livre das observações, telefone e e-mail de inadimplentes) só ADMIN,
+   decisão do usuário — o servidor RECUSA com 403 (nunca omite em silêncio) e a tela mostra o grupo como "somente
+   administrador". Conjuntos administrativos só ADMIN, conferido no servidor mesmo que o link seja digitado à mão. A
+   busca por cliente nunca varre CPF/CNPJ (quem não vê a coluna usaria a busca como oráculo).
+9. **Parâmetro malformado vira ERRO** (diferente de /revisar e /inadimplentes, que ignoram): numa exportação, uma data
+   digitada errada entregaria o banco inteiro como se fosse o recorte pedido.
+10. **Rastro:** tabela nova `exportacoes_log` (migration `20261104120000`, só aditiva: um CREATE TABLE sem FK nem relação
+    com nada existente). Gravação "melhor esforço" (nunca derruba um download); histórico na tela, só ADMIN.
+11. **Recursos (o mesmo processo Node serve painel, sincronização e MCP):** só as colunas dos grupos escolhidos são lidas
+    do banco (cada coluna do catálogo declara os campos que usa; um teste com `Proxy` prova que não lê além), em lotes
+    de 2 mil linhas; **uma exportação por vez** por processo (fila de 4, depois 503); teto de **20.000 linhas** por
+    arquivo; cessão ao event loop entre as fases. Medido no servidor vivo com 19,9 mil linhas: ~+120 MB de pico, 5,5–8,6 s.
+12. **Gerador de xlsx estendido de forma retrocompatível** (datas reais, autofiltro, painel congelado, fórmulas, DEFLATE
+    opcional, estilos novos só quando usados): a exportação por rodada continua **byte a byte igual**, travada por hash
+    (`writer.compat.test.ts`). O leitor de importação do Conexa (`reader.ts`) não foi tocado.
+13. **CSV:** `;` como separador, decimal com vírgula, `dd/mm/aaaa`, UTF-8 com BOM, CRLF, só a aba principal (sem
+    Leia-me nem resumos). Texto que começa com `=`, `+`, `-`, `@`, tab ou CR recebe apóstrofo (injeção de fórmula no
+    Excel/Sheets); números e datas nunca. No .xlsx isso não existe (string inline).
+14. **Texto livre** (observações do Conexa) passa por `textoSeguro`: caractere de controle XML (que faz o Excel abrir em
+    "modo de reparo"), substitutos soltos e o teto de 32.767 caracteres por célula são tratados — provado com dado hostil.
+
+### O que mudou em arquivos EXISTENTES (todo o resto é arquivo novo)
+
+- `src/components/icons.tsx`, `src/components/shell.tsx`, `src/app/(dashboard)/layout.tsx`: o ícone e o item de menu.
+- `src/lib/xlsx/writer.ts`: extensão retrocompatível (acima).
+- `src/lib/inadimplencia/consulta.ts`: só a palavra `export` em `condicao` e `nomeDe` (a exportação usa o MESMO
+  filtro da tela, por construção, em vez de uma cópia que poderia divergir).
+- `prisma/schema.prisma` + migration nova (`exportacoes_log`).
+
+### Validação
+
+- **Sem regressão (a prova que o usuário pediu):** impressão digital (texto, links, campos de formulário, contagem de
+  elementos) de 38 rotas × 2 papéis, servidor ANTES × DEPOIS lado a lado, banco clonado: 0 diferenças além do item
+  novo do menu; o comparador foi provado capaz de acusar 5 adulterações. Respostas do MCP (22 chamadas de consulta):
+  idênticas. `/api/runs/[id]/export` (admin e visualizador): mesmo hash. Hashes do gerador de xlsx antigo: iguais.
+- **Dado real:** 6 recortes de receita, 6 de inadimplência, metas, regras e itens conferidos linha a linha (como
+  multiconjunto) e em soma contra SQL feito direto no banco por um caminho separado; inadimplência = a própria consulta
+  da tela; metas = `buildMetas` (o cálculo do painel); arquivos abertos com um leitor independente (openpyxl) e todas as
+  partes XML com parser estrito.
+- **Esforço:** teto de linhas (422 com mensagem), arquivo de ~20 mil linhas, 1.500 escritas concorrentes (23
+  exportações, todas com a soma de um estado real do banco), formulário e rota por HTTP, páginas em claro/escuro/celular.
+- **Migration** aplicada a um banco com dado real de produção-like e conferida: o `prisma migrate diff` mostra UMA
+  tabela e dois índices, nada mais.
+
+### O que NÃO foi validado
+
+- **Excel de verdade** (sem Excel nesta máquina): o arquivo segue a ordem do schema OOXML, abre sem erro no openpyxl e
+  tem todas as partes XML bem formadas, mas "abre sem pedir reparo no Excel" não foi observado. Primeiro uso real:
+  abrir UM arquivo no Excel e confirmar (o risco conhecido é a fórmula SUBTOTAL sem `calcChain`: o Excel mostra o valor
+  em cache e recalcula ao filtrar).
+- Os números de produção: tudo foi medido num banco de teste (dado real de julho + meses sintéticos). A exportação de
+  setembro/outubro de produção deve ser conferida contra o Panorama e o fechamento da Duda no primeiro uso.
+
+### Consequências e observações
+
+- **Mês fechado e reprocessado é RECATEGORIZADO com as regras de hoje** (ADR-0030): a quebra por categoria de uma
+  exportação pode diferir da anterior do mesmo mês; o Leia-me avisa.
+- Achados FORA do escopo (não alterados, para decisão do usuário): (1) `listarConflitos()` ordena por diferença sem
+  critério de desempate, então a ordem dos empates varia entre bancos fisicamente diferentes (mesmo conjunto); (2) a
+  tela /inadimplentes mostra telefone e e-mail a todos os papéis, enquanto a exportação os reserva ao ADMIN.
+
+### Revisão adversarial (04/11/2026) — o que mudou depois dela
+
+Seis revisores independentes (dinheiro/dados, segurança/privacidade, robustez, validade dos arquivos, UX/texto,
+regressão) acharam 32 pontos. A segunda fase (3 céticos por achado, tentando refutar) foi interrompida por tempo depois de 18
+achados agrupados; os 32 foram triados e os reais reproduzidos ou medidos diretamente. Os corrigidos têm teste que os trava:
+
+15. **Texto sem caractere de controle.** Todo parâmetro é recusado (400) se trouxer controle/NUL/substituto solto (o NUL
+    derrubava a consulta no Postgres); o Leia-me, as notas e os rótulos de total passam por `textoSeguro`; e `entregar` recusa
+    o arquivo se alguma célula ainda trouxer caractere inválido para XML (falha alto, com aba e linha).
+16. **Fila com cancelamento e prazo.** `emExclusao` aceita o sinal da requisição: quem desconectou enquanto esperava não
+    roda e quem desconecta no meio para no próximo `ceder()`; prazo de 120 s por exportação (erro 422 que diz o que fazer);
+    HEAD responde 405 (não gera arquivo); a permissão por grupo/conjunto é conferida ANTES da fila; recusa repetida do
+    mesmo usuário em 30 s vira uma linha de log; resultado `cancelada` no histórico.
+17. **Gerador de .xlsx assíncrono** (`buildXlsxAsync`): o MESMO arquivo, byte a byte (testado, STORE e DEFLATE), sem prender o
+    event loop — fatias de 500 linhas com cessão, CRC em pedaços e DEFLATE no pool de threads. Maior travada medida num
+    arquivo de 20 mil linhas × 40 colunas: 3,8 s → 0,08 s. O caminho síncrono (exportação por rodada) não mudou; ganhou casos
+    de 499, 500, 501, 1.000, 1.001 e 1.100 linhas nos hashes dourados (calculados com o writer do HEAD).
+18. **Conferência do CSV sem matriz** (`varrerCsv`): cabeçalho + contagem + soma da coluna de valor numa passada. A leitura
+    completa guardava ~25 bytes de heap por caractere: um CSV de 30 MB estourava um heap de 300 MB; agora passa com 87 MB.
+    O cabeçalho do CSV sai sempre entre aspas (um CSV que começa por `ID` é tratado como SYLK pelo Excel).
+19. **Leitura estável.** Metas faz 16 apurações independentes: com uma impressão digital da receita (contagem, soma, última
+    atualização) antes e depois, refaz até 3 vezes se a sincronização gravou no meio; senão erro explícito.
+20. **Busca literal e filtros que não mentem.** `%`, `_` e `\` do texto digitado são escapados (antes `cliente=__` devolvia o
+    banco inteiro); acentos e espaços contam (dito na tela e no Leia-me); novo filtro "ignorar linhas de valor zero" faz o
+    atalho Pendentes bater com a fila do Revisar; parâmetro explícito (`grupos`, `resumos`, `itens`...) vale com ou sem `f=1`
+    e repetido com valores diferentes é erro; `um()` pula valores vazios.
+21. **Mensagem de erro assinada.** A rota de download devolve o navegador à tela com a mensagem na URL assinada por HMAC (segredo da
+    sessão): link forjado não vira alerta "oficial".
+22. **Corrigido no gerador:** data e hora gravadas com precisão total (com 8 casas o LibreOffice mostrava `00:01:00` como
+    `00:00:59` em 3,5 mil de 7,2 mil horários); o Leia-me de Metas não imprime R$ 0,00 quando o recorte não traz os 12 meses
+    (ou os 4 trimestres) do escopo "todas as categorias"; o Leia-me da inadimplência só traz o texto bruto do último erro de
+    sincronização para ADMIN; rótulos de fuso, conjunto e resultado em português; plurais.
+
+**Decididos como NÃO fazer (registrado):** nome oculto `_xlnm._FilterDatabase` no autofiltro (o Excel recria; sem Excel aqui não
+dá para provar que mexer no workbook.xml não pior); busca sem diferenciar acentos/espaços (exigiria `unaccent` ou pré-consulta;
+ficou dito na tela); limite de requisições por usuário (3 usuários internos); CSV não cede o event loop (~0,5 s no teto).
+
+**Fora do escopo, para decisão do dono:** (a) a exportação por rodada já existente (`/api/runs/[id]/export`, botão em /runs/[id])
+entrega CPF/CNPJ e Observações também ao Visualizador — a regra "dados pessoais só ADMIN" vale na central nova, e mudar a rota
+antiga contraria "não altere nada"; (b) /conflitos usa `key={crConexaId}` mas o conflito é por fatura × mês; (c) "resolver
+automaticamente" reclassifica com todas as linhas da fatura enquanto a lista classifica por fatura × mês.

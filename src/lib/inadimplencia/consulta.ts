@@ -49,7 +49,7 @@ export interface ResultadoInadimplencia {
   sincronizacao: { em: Date | null; status: string | null; erro: string | null; total: number | null };
 }
 
-const nomeDe = (nome: string | null, fantasia: string | null, id: number | null) => {
+export const nomeDe = (nome: string | null, fantasia: string | null, id: number | null) => {
   const n = (nome ?? "").trim();
   const f = (fantasia ?? "").trim();
   if (n && f && f.toLowerCase() !== n.toLowerCase()) return `${n} (${f})`;
@@ -60,7 +60,7 @@ const nomeDe = (nome: string | null, fantasia: string | null, id: number | null)
 const PESO_STATUS: Record<string, number> = { juridical: 3, protested: 2, unpaid: 1 };
 
 /** Condição de banco equivalente aos filtros (sem a busca por nome, tratada junto). */
-function condicao(f: FiltrosInadimplencia): Prisma.CobrancaEmAbertoWhereInput {
+export function condicao(f: FiltrosInadimplencia): Prisma.CobrancaEmAbertoWhereInput {
   const and: Prisma.CobrancaEmAbertoWhereInput[] = [];
   if (f.de || f.ate) and.push({ vencimento: { ...(f.de ? { gte: f.de } : {}), ...(f.ate ? { lte: f.ate } : {}) } });
   if (f.status) and.push({ status: f.status });

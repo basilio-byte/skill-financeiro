@@ -1851,3 +1851,49 @@ O MCP conectou na claude.ai (cabeçalho `x-api-key`). `estado_do_sistema` mostro
 - **Feito (pedido da Duda): filtros em /revisar** por mês de crédito e por Proporcionado (S / Sem LV), por GET
   (URL compartilhável), valor inválido ignorado, contadores usando o mesmo filtro; sem filtro o conjunto é idêntico
   ao de antes. Verificado contra o banco (8 combinações) e em Chrome (claro/escuro/celular). Testes: 367 → 372.
+
+
+## 2026-11-04 — Central de exportação (ADR-0035): F1, F2 e F3
+- **Pedido da Duda:** "filtrar por mês e conseguir uma planilha com as cobranças e categorias". O usuário pediu um estudo
+  de TODA a necessidade de exportação, sugeriu um item "Exportar" no menu lateral e exigiu **não alterar nem quebrar
+  nada do painel**. Construído em três fases, todas só de LEITURA e conferidas antes de entregar.
+- **F1 — receita:** tela `/exportar` (+ `GET /api/exportar/receita`), filtros por mês/intervalo de Data de Crédito,
+  unidade, conta, categoria, rateio (N/S/Sem LV), situação, revisão manual, cliente, serviço/plano, fatura e faixa de
+  valor; colunas por grupo (essenciais, dados da fatura, auditoria/revisão, dados pessoais só ADMIN); abas de resumo;
+  aba Leia-me; atalhos (mês atual/anterior, trimestre, ano, pendentes de revisão, sem categoria); log de exportações
+  (tabela `exportacoes_log`, migration aditiva) e histórico para o ADMIN.
+- **F2:** inadimplentes (mesmo filtro da tela, `condicao` exportada; por cobrança, por cliente, faixas de atraso; contato
+  só ADMIN), aba Itens da fatura, metas (realizado = `buildMetas`, o cálculo do painel; histórico de alterações) e regras
+  de categoria (+ o que está sem categoria).
+- **F3:** conflitos, sincronizações, ClickUp (composição = `composicaoDoVinculo`, a MESMA do envio) e contas/acessos/
+  auditoria (nunca hash de senha/token nem argumentos do MCP); formato CSV (`;`, vírgula, BOM, anti-injeção de fórmula);
+  TOTAL das abas de detalhe como `SUBTOTAL` que acompanha o filtro do Excel.
+- **Achados no caminho (corrigidos antes de entregar):** (1) a exportação por rodada já existente (`/runs/[id]`) soma
+  colunas que se repetem por linha de fatura — o novo arquivo marca "NÃO somar" e avisa; (2) um export de 24 mil linhas
+  custava ~600 MB e 12 s: agora lê só as colunas escolhidas, em lotes, uma exportação por vez, teto de 20 mil linhas
+  (+120 MB de pico medido no servidor vivo); (3) o balão do ⓘ estourava a largura no celular com textos longos.
+- **Prova de que nada existente mudou:** impressão digital de 38 rotas × 2 papéis ANTES × DEPOIS (0 diferenças além do
+  item novo do menu; o comparador acusa 5 adulterações injetadas), 22 chamadas do MCP idênticas, exportação por rodada
+  com o mesmo hash, hashes do gerador antigo travados em `writer.compat.test.ts`.
+- **Conferido contra dado real:** total e quebra por categoria de 5 meses = Panorama ao centavo; inadimplência = consulta
+  da tela; metas = `buildMetas`; todos por SQL independente; 1.500 escritas concorrentes sem arquivo inconsistente.
+- **Pendente do usuário:** abrir UM arquivo no Excel e confirmar que não pede reparo (não há Excel nesta máquina);
+  conferir setembro/outubro de produção contra o Panorama no primeiro uso. Achados fora do escopo, só registrados:
+  `listarConflitos()` sem desempate na ordenação; /inadimplentes mostra contato a todos os papéis.
+- **Revisão adversarial (6 revisores independentes; a fase dos 3 céticos por achado foi interrompida por tempo — os 32 achados foram triados e os reais reproduzidos ou medidos à mão) — corrigido antes de entregar:** caractere de
+  controle digitado num filtro gerava .xlsx com XML inválido (o Excel abriria em reparo) e o NUL derrubava a consulta com
+  500 → agora 400, o texto de TODA célula e do Leia-me é limpo e a entrega confere; a conferência do CSV guardava ~25 bytes
+  por caractere (derrubaria o servidor com Observações longas) → varredura sem matriz; a geração do .xlsx prendia o event
+  loop por ~3 s → versão assíncrona (maior travada medida 3,8 s → 0,08 s, arquivo idêntico byte a byte); a fila ganhou
+  cancelamento (aba fechada) e prazo de 2 min, HEAD não gera arquivo, permissão negada não espera na fila e repetição de
+  recusa vira uma linha de log; mensagem de erro na URL passou a ser assinada (link forjado não vira alerta); busca por
+  texto literal (`%` e `_` eram curingas: `cliente=__` devolvia tudo); filtro "ignorar linhas de valor zero" (o atalho
+  Pendentes agora bate com a fila do Revisar); Metas: o total do ano não imprime mais R$ 0,00 quando o recorte não o traz
+  e as 16 apurações são refeitas se a receita mudar no meio; data e hora gravadas com precisão total (o LibreOffice
+  mostrava 1 s a menos); parâmetro explícito ou repetido nunca é ignorado em silêncio; Leia-me com rótulos que quebram e
+  notas legíveis; textos, plurais e rótulos em português.
+- **Fora do escopo, só registrado para decisão do dono:** (a) a exportação por rodada já existente (`/runs/[id]`) entrega
+  CPF/CNPJ e Observações também ao Visualizador — a regra "dados pessoais só ADMIN" vale na central nova; (b) a tela
+  /conflitos usa `key={crConexaId}` mas o conflito é por fatura × mês (chaves React repetidas); (c) a ação "resolver
+  automaticamente" reclassifica com todas as linhas da fatura enquanto a lista classifica por fatura × mês.
+- Testes: 372 → 937.

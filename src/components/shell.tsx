@@ -11,6 +11,7 @@ import {
   IconCategorias,
   IconConflitos,
   IconContas,
+  IconExportar,
   IconFechar,
   IconInadimplentes,
   IconIntegracao,
@@ -46,6 +47,7 @@ const ICONES = {
   conflitos: IconConflitos,
   contas: IconContas,
   integracao: IconIntegracao,
+  exportar: IconExportar,
 } as const;
 
 export interface ItemNav {

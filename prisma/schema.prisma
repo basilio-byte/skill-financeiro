@@ -643,3 +643,41 @@ model AuditoriaMcp {
   @@index([escrita, quando])
   @@map("auditoria_mcp")
 }
+
+// ===========================================================================
+// Central de exportação (ADR-0035) — rastro de quem baixou o quê.
+//
+// ⚠ Tabela NOVA e ISOLADA: sem FK e sem relação com receita, metas, usuários ou MCP (por isso nada do que já existe
+// muda). `quem` é um texto "Nome (email)" gravado no momento do download — apagar o usuário não apaga o rastro.
+// A gravação é "melhor esforço": se falhar, o download acontece do mesmo jeito (ver src/lib/exportacao/log.ts).
+// ===========================================================================
+
+model ExportacaoLog {
+  id            String   @id @default(cuid())
+  quando        DateTime @default(now())
+  /// "Nome (email)".
+  quem          String
+  /// ADMIN | VIEWER
+  papel         String
+  /// receita | inadimplencia | metas | regras | ...
+  conjunto      String
+  /// xlsx | csv
+  formato       String
+  /// Filtros normalizados — o suficiente para reproduzir o recorte.
+  filtros       Json?
+  /// Os mesmos filtros em português, como saíram na aba Leia-me.
+  resumoFiltros String?
+  linhas        Int      @default(0)
+  /// Soma da coluna de valor, quando o conjunto tem uma.
+  total         Decimal? @db.Decimal(14, 2)
+  /// Saiu CPF/CNPJ, contato ou texto livre?
+  dadosPessoais Boolean  @default(false)
+  /// ok | erro | recusada
+  resultado     String
+  erro          String?
+  duracaoMs     Int?
+
+  @@index([quando])
+  @@index([conjunto, quando])
+  @@map("exportacoes_log")
+}

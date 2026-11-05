@@ -95,6 +95,14 @@ export const IconIntegracao = (p: P) => (
   </Base>
 );
 
+export const IconExportar = (p: P) => (
+  <Base {...p}>
+    <path d="M12 3v12" />
+    <path d="m7 11 5 5 5-5" />
+    <path d="M5 21h14" />
+  </Base>
+);
+
 export const IconUsuario = (p: P) => (
   <Base {...p}>
     <circle cx="12" cy="8" r="4" />

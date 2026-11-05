@@ -19,6 +19,8 @@ const NAV: Array<{ titulo: string; itens: Array<GrupoNav["itens"][number] & { ad
       { href: "/", rotulo: "Panorama", icone: "panorama" },
       { href: "/metas", rotulo: "Metas", icone: "metas" },
       { href: "/inadimplentes", rotulo: "Inadimplentes", icone: "inadimplentes" },
+      // ADR-0035 — central de exportação. Visível a todos os papéis; o que é só de administrador é conferido no servidor.
+      { href: "/exportar", rotulo: "Exportar", icone: "exportar" },
     ],
   },
   {

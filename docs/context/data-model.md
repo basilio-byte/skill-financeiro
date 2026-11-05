@@ -96,3 +96,8 @@ terminar — nunca sobrepõe sincronizações.
   auditoria de login, portado do projeto irmão com as mesmas guardas (nunca ficar sem
   admin ativo, ninguém se tranca fora).
 - **`/minha-conta`** — troca da própria senha.
+- **`/exportar`** — central de exportação (ADR-0035): planilhas .xlsx/CSV de receita, inadimplentes, metas, regras de
+  categoria, conflitos, sincronizações, ClickUp e contas/acessos/auditoria, com filtros e prévia. Só LEITURA. Tabela
+  **`exportacoes_log`** (`ExportacaoLog`): quem baixou o quê, com quais filtros e quanto saiu, se levou dado pessoal e se
+  deu certo — sem FK nem relação com nenhuma outra tabela, gravação "melhor esforço" (nunca derruba um download);
+  histórico na própria tela, só ADMIN. Código em `src/lib/exportacao/` (parte PURA `pasta-*.ts` + parte do servidor).
