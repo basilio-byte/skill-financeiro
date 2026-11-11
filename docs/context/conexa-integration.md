@@ -69,3 +69,21 @@ Limite: 4,5 MB por arquivo. Primeira vez: compare o total do mês da prévia com
   ciclo (GET público, sem credenciais) e, se o widget SUMIU depois de a pausa começar, tenta uma vez
   (`podeLevantarPausa`). Se o servidor recusar mesmo sem widget, a pausa recomeça e NÃO é levantada por sondagem
   (evita voltar a bater a cada 15 min). Provado com um Conexa falso nos dois cenários.
+
+## Atualização 2026-11-11 — o export de Contas a Receber passou a ser PAGINADO (ADR-0036)
+- **O que mudou no Conexa (depois de 27/10):** `r=cobranca/admin&export=excel` devolve só a página atual da grade — 20
+  linhas sem `itemsPerPage` — e `show_all=1` é ignorado. O Listar Vendas continua inteiro com `show_all=1`. O tamanho de
+  página mudado numa sessão não vale para a próxima.
+- **Como baixar tudo:** `itemsPerPage=100` (máximo; o seletor aceita 5/10/20/50/100) + `isChangeItemsPerPage=1` +
+  `cobranca_page=N` (minúsculo — é o que o paginador da tela usa; `Cobranca_page`, `page`, `offset` etc. são ignorados) +
+  `sort=id` (ordem total; a padrão tem empates). Cada página termina com uma linha de preenchimento (20 colunas, `&nbsp;`
+  em "Valor" e "Valor Atual") que não é cobrança.
+- **Como saber o total:** a grade HTML (mesma URL, sem `export`) com `page=1&0=&count=` — é o que o botão "Clique para
+  exibir o total de itens" faz — traz `<div class="page-summary"><div>1-20 de N</div></div>`. Vale para `cobranca-grid` e
+  `venda-grid`; grade vazia = `<td class="empty">` sem resumo; sem cookie = 302 para o login. A página tem ~1,7 MB.
+- **Medidas de 11/11:** pico de cobranças por dia de crédito entre jul e nov/2026: 70, 100 (10/08), 74, 70 e 80; um mês tem
+  ~940 a 1.010 cobranças (10 a 11 páginas). Uma página de 100 leva ~6 a 7 s para o Conexa gerar.
+- **Importação manual:** o botão "Exportar" da tela entrega só a página visível (no máximo 100 linhas). Para um mês
+  inteiro, o arquivo precisa ser gerado pelo sistema (o download paginado + conferido) — ver ADR-0036.
+- Os scripts `scripts/conferencia-completa.mjs` e `scripts/diagnostico-residuo-motor.mjs` ainda usam o download antigo
+  (sem paginação): hoje veriam o CR cortado.

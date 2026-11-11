@@ -1901,3 +1901,25 @@ O MCP conectou na claude.ai (cabeçalho `x-api-key`). `estado_do_sistema` mostro
   para resumo já temos a dashboard"):** a primeira aba de todo .xlsx passou a ser o detalhe; o Leia-me foi para a ÚLTIMA aba;
   as abas de resumo (e a "Sem categoria"/"Por categoria" de Regras) vêm desligadas por padrão (opt-in na tela e na API);
   os atalhos da tela não as ligam mais. ADR-0035, decisões 6 e 23. Testes: 372 → 938.
+
+## 2026-11-11 — Incidente: o Conexa passou a cortar o export de Contas a Receber em 20 linhas (ADR-0036)
+- **O que se viu:** Panorama de novembro em R$ 3.508,56 (1% da meta) e outubro em R$ 19.315, com todas as sincronizações
+  "Concluída" e conferência 0,00 (aviso do Diego).
+- **Causa (medida ao vivo, só leitura):** depois de 27/10 o export de Contas a Receber do Conexa passou a devolver só a
+  primeira página da grade (20 linhas; `show_all=1` ignorado). A rodada via 20 de ~950 cobranças, a limpeza de órfãs
+  apagava o resto e a conferência (arquivo × ele mesmo) fechava em zero. Listar Vendas não mudou.
+- **Correção:** download página a página (`itemsPerPage=100`, `cobranca_page=N`, `sort=id`), conferido com o TOTAL que a
+  grade do Conexa informa para o mesmo filtro (`count`); falta ou repetição → até 3 tentativas e depois FAILED sem gravar
+  nada. Listar Vendas ganhou a mesma conferência. Na gravação, freio de QUEDA LÍQUIDA (≥ 30% e ≥ R$ 2.000,00 → FAILED com
+  explicação; importação manual confirmada passa). Prazo de 90 s em toda requisição ao Conexa.
+- **Arquivos:** novos `src/lib/conexa-web/exports-completos.ts` (+ teste) e `src/lib/categorization/remocao-em-massa.ts`
+  (+ teste); alterados `conexa-web/client.ts`, `categorization/persist.ts` (freio + `valorRecebidoCat` no select) e
+  `categorization/run.ts` (repassa `permitirRemocaoEmMassa` só na importação manual).
+- **Validação:** ao vivo, 6 dias e setembro inteiro iguais às rodadas de quando o export vinha inteiro, julho e agosto
+  iguais ao Panorama, todos ao centavo; ponta a ponta com Conexa falso (o código anterior reproduz o incidente: DONE e 934
+  de 954 linhas apagadas; o novo falha sem tocar no banco); 11/11 mutações acusadas; testes 938 → 977; `tsc` e build ok.
+- **Custo:** um mês inteiro passa de ~25 s para 70 a 106 s (contagem + ~10 páginas), sequencial de propósito.
+- **Pendente do usuário:** commit/push e deploy. Depois: novembro se refaz no primeiro tick; outubro precisa de UM
+  reprocessamento (avisar antes: recategoriza com as regras de hoje) ou da importação manual com os arquivos completos
+  gerados em 11/11. Conferir os campos de mês no ClickUp. A importação manual pela tela do Conexa ficou limitada a uma
+  página (no máximo 100 linhas) — pendência registrada no ADR-0036.

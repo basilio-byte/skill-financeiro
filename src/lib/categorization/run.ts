@@ -24,11 +24,12 @@ async function persistComRetry(
   linhas: CategorizedLine[],
   periodoInicio: Date,
   periodoFim: Date,
+  opcoes: { permitirRemocaoEmMassa?: boolean } = {},
 ): Promise<PersistResumo> {
   const MAX_TENTATIVAS = 3;
   for (let tentativa = 1; tentativa <= MAX_TENTATIVAS; tentativa++) {
     try {
-      return await persistLinhasCategorizadas(runId, linhas, periodoInicio, periodoFim);
+      return await persistLinhasCategorizadas(runId, linhas, periodoInicio, periodoFim, opcoes);
     } catch (err) {
       const isP2034 = (err as { code?: string })?.code === "P2034";
       if (!isP2034 || tentativa === MAX_TENTATIVAS) throw err;
@@ -134,7 +135,11 @@ export async function startCategorizationRun(params: {
       rules,
     });
 
-    const persistResumo = await persistComRetry(run.id, resultado.linhas, params.periodoInicio, params.periodoFim);
+    // Freio de remoção em massa (ADR-0036): vale para toda rodada que BAIXA do Conexa (automática, manual, MCP).
+    // A importação manual passa por cima porque a prévia dela já mostrou "total hoje × depois" e uma pessoa confirmou.
+    const persistResumo = await persistComRetry(run.id, resultado.linhas, params.periodoInicio, params.periodoFim, {
+      permitirRemocaoEmMassa: params.exportsManuais !== undefined,
+    });
 
     // Conferência (ADR-0018): calculada em prepararRodada. Diferente de zero é sinal de algo
     // estrutural — nunca ignorado silenciosamente (regra #8).

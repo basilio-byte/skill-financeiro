@@ -5,6 +5,7 @@ import { money, toAmountString, ZERO } from "@/lib/money";
 import type { CategorizedLine } from "@/lib/categorization/types";
 import { mesDoCreditoOuSentinela, mesesNoIntervalo } from "@/lib/categorization/mes-credito";
 import { planejarLimpeza } from "@/lib/categorization/orfas";
+import { avaliarQuedaLiquida, mensagemRemocaoEmMassa, RemocaoEmMassaError } from "@/lib/categorization/remocao-em-massa";
 
 export interface PersistResumo {
   totalLinhasNovas: number;
@@ -167,12 +168,21 @@ export function filtroLinhasAlcancadas(
  * por isso `updateCategorizedLineAction` também precisa ser Serializable
  * (ver actions.ts), senão o Postgres não tem como detectar o conflito entre
  * as duas.
+ *
+ * Freio de remoção em massa (ADR-0036): antes de apagar/gravar, simula o total
+ * das linhas alcançadas depois da gravação; se a QUEDA LÍQUIDA passar dos
+ * limites de `remocao-em-massa.ts`, lança `RemocaoEmMassaError` — a transação
+ * desfaz tudo e a rodada termina FAILED com a explicação, em vez de
+ * "Concluída" com a receita do mês apagada (o incidente de novembro/2026).
+ * `permitirRemocaoEmMassa` existe só para a importação manual, cuja prévia já
+ * mostrou o total "hoje × depois" e foi confirmada por uma pessoa.
  */
 export async function persistLinhasCategorizadas(
   syncRunId: string,
   linhas: CategorizedLine[],
   periodoInicio: Date,
   periodoFim: Date,
+  opcoes: { permitirRemocaoEmMassa?: boolean } = {},
 ): Promise<PersistResumo> {
   return prisma.$transaction(
     async (tx) => {
@@ -195,7 +205,14 @@ export async function persistLinhasCategorizadas(
       // `decidirOrfas`, com a verdade do Conexa; a query só junta os candidatos.
       const existentes = await tx.revenueCategorizedLine.findMany({
         where: filtroLinhasAlcancadas(linhas, periodoInicio, periodoFim),
-        select: { id: true, crConexaId: true, chaveLinha: true, mesCredito: true, revisadoManualmente: true },
+        select: {
+          id: true,
+          crConexaId: true,
+          chaveLinha: true,
+          mesCredito: true,
+          revisadoManualmente: true,
+          valorRecebidoCat: true,
+        },
       });
 
       const revisadaAntes = new Map<string, boolean>();
@@ -206,6 +223,23 @@ export async function persistLinhasCategorizadas(
       // Quem morre e quem vive — a MESMA decisão que a prévia da importação
       // manual mostra (ver `planejarLimpeza`).
       const decisao = planejarLimpeza(existentes, linhas, periodoInicio, periodoFim);
+
+      // Freio de remoção em massa (ADR-0036) — ANTES de qualquer escrita. Avalia
+      // sempre, com ou sem órfãs: valores zerados por uma mudança de formato do
+      // export derrubam a receita sem apagar linha nenhuma.
+      const avaliacao = avaliarQuedaLiquida(
+        existentes.map((e) => ({ ...e, valorRecebidoCat: money(e.valorRecebidoCat.toString()) })),
+        decisao.idsParaApagar,
+        linhas,
+      );
+      if (avaliacao.bloquear) {
+        if (!opcoes.permitirRemocaoEmMassa) throw new RemocaoEmMassaError(mensagemRemocaoEmMassa(avaliacao));
+        console.warn(
+          `[persist] queda líquida de ${toAmountString(avaliacao.queda)} (${avaliacao.percentual}%) AUTORIZADA — ` +
+            "importação manual com prévia confirmada por uma pessoa.",
+        );
+      }
+
       const totalLinhasOrfasPreservadas = decisao.preservadasPorRevisao.length;
       const faturasComOrfaPreservada = new Set(decisao.preservadasPorRevisao);
       if (decisao.idsParaApagar.length > 0) {

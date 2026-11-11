@@ -1,6 +1,12 @@
 import "server-only";
 import { getEnv } from "@/lib/env";
 import { paginaTemWidgetCaptcha, podeLevantarPausa, respostaPedeCaptcha } from "@/lib/conexa-web/captcha";
+import {
+  coletarExportCompleto,
+  extrairTotalDaGrade,
+  ITENS_POR_PAGINA_CONTAS_RECEBER,
+  montarXlsx,
+} from "@/lib/conexa-web/exports-completos";
 
 /**
  * Cliente HTTP para a tela ADMIN (web) do Conexa — NÃO é a API REST v2.
@@ -150,6 +156,9 @@ async function fetchExport(cookie: string, params: Record<string, string>): Prom
 
   const res = await fetch(url, {
     headers: { cookie, "user-agent": USER_AGENT },
+    // Uma rodada agora faz ~uma dúzia de requisições (uma por página, ADR-0036): sem prazo, uma travada no meio
+    // deixaria a rodada RUNNING até o guard de 30 min de run.ts.
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
   if (!res.ok) {
     throw new ConexaWebError(`Falha ao baixar export do Conexa (HTTP ${res.status}).`);
@@ -230,22 +239,104 @@ const COBRANCA_FIXED_PARAMS: Record<string, string> = {
   export: "excel",
 };
 
-/** Baixa Listar Vendas filtrado por Data de Crédito da Cobrança (`Venda[creditoFilterFirst/Last]`). */
+/**
+ * O TOTAL de itens que a grade do Conexa informa para um filtro — a conferência independente do download
+ * (ADR-0036). É a mesma requisição que o botão "Clique para exibir o total de itens" da tela faz (`page=1&0=&count=`),
+ * sem `export`: a resposta é a página HTML da grade, com o resumo "1-20 de N".
+ *
+ * Não manda `itemsPerPage`/`isChangeItemsPerPage`: a contagem não pode mexer no tamanho de página da sessão.
+ * Resposta que não é a grade (login expirado, erro, tela mudou) é ERRO, nunca "zero itens".
+ */
+async function contarTotalDaGrade(
+  cookie: string,
+  paramsDoExport: Record<string, string>,
+  idGrade: string,
+  rotulo: string,
+): Promise<number> {
+  const env = getEnv();
+  const params: Record<string, string> = { ...paramsDoExport, page: "1", "0": "", count: "" };
+  delete params.export;
+  delete params.show_all;
+  const res = await fetch(`${env.CONEXA_BASE_URL}/index.php?${new URLSearchParams(params).toString()}`, {
+    headers: { cookie, "user-agent": USER_AGENT },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
+  if (!res.ok) {
+    throw new ConexaWebError(`Falha ao consultar o total de ${rotulo} na grade do Conexa (HTTP ${res.status}).`);
+  }
+  const total = extrairTotalDaGrade(await res.text(), idGrade);
+  if (total === null) {
+    throw new ConexaWebError(
+      `Não foi possível ler o total de ${rotulo} na grade do Conexa (sessão expirada ou a tela mudou). ` +
+        "Sem esse total não há como conferir se o download veio inteiro — a rodada foi interrompida sem gravar nada.",
+    );
+  }
+  return total;
+}
+
+/**
+ * Baixa Listar Vendas filtrado por Data de Crédito da Cobrança (`Venda[creditoFilterFirst/Last]`).
+ *
+ * Este export ainda vem inteiro numa requisição (`show_all=1` honrado; medido em 2026-11-11: 65, 849, 1837 e 712
+ * linhas = o total da grade). Ganhou só a CONFERÊNCIA pelo total (ADR-0036): se o Conexa passar a cortá-lo como fez
+ * com o Contas a Receber, a rodada falha em vez de seguir com dado faltando. O arquivo entregue é o original.
+ */
 export async function fetchListarVendas(cookie: string, periodoInicio: Date, periodoFim: Date): Promise<Buffer> {
-  return fetchExport(cookie, {
+  const params = {
     ...VENDA_FIXED_PARAMS,
     "Venda[creditoFilterFirst]": formatDateBR(periodoInicio),
     "Venda[creditoFilterLast]": formatDateBR(periodoFim),
+  };
+  const coletado = await coletarExportCompleto({
+    rotulo: "Listar Vendas",
+    // A contagem (feita antes do download) não manda `itemsPerPage`, então não muda o tamanho de página da sessão;
+    // e este export usa `show_all=1`, que o Conexa honra aqui (medido: veio inteiro depois de contagens na mesma sessão).
+    contarTotal: () => contarTotalDaGrade(cookie, params, "venda-grid", "Listar Vendas"),
+    baixarPagina: () => fetchExport(cookie, params),
+    log: (m) => console.warn(`[conexa-web] ${m}`),
   });
+  console.log(`[conexa-web] Listar Vendas: ${coletado.linhas.length} linha(s), conferidas com o total da grade do Conexa (${coletado.totalNoConexa}).`);
+  // Sem `bufferOriginal` só se o Conexa tivesse entregado em mais de uma página — impossível sem `itensPorPagina`.
+  return coletado.bufferOriginal ?? montarXlsx("Listar Vendas", coletado.cabecalho, coletado.linhas);
 }
 
-/** Baixa Contas a Receber filtrado por Data de Crédito da Cobrança (`Cobranca[dataCreditoFilterFirst/Last]`). */
+/**
+ * Baixa Contas a Receber filtrado por Data de Crédito da Cobrança (`Cobranca[dataCreditoFilterFirst/Last]`).
+ *
+ * ADR-0036: desde o fim de outubro de 2026 o Conexa entrega este export PAGINADO — sem `itemsPerPage` vêm só as
+ * 20 primeiras cobranças, e `show_all=1` é ignorado. Foi o que apagou outubro e novembro do painel: a rodada viu
+ * 20 de ~950 cobranças, a limpeza de órfãs removeu o resto e tudo ficou "Concluída". Agora: 100 por página
+ * (o máximo que a grade aceita), páginas por `cobranca_page` (o nome que o paginador da própria tela usa — em
+ * minúsculas), ordem TOTAL por `sort=id` (a ordem padrão tem empates e poderia repetir/perder linha entre páginas)
+ * e a soma conferida com o total que a grade informa. Medido ao vivo em 2026-11-11: setembro = 939 cobranças em
+ * 10 páginas, igual ao total da grade e às 939 que o painel registrou em 06/10, quando o export ainda vinha inteiro.
+ */
 export async function fetchContasReceber(cookie: string, periodoInicio: Date, periodoFim: Date): Promise<Buffer> {
-  return fetchExport(cookie, {
+  const params = {
     ...COBRANCA_FIXED_PARAMS,
     "Cobranca[dataCreditoFilterFirst]": formatDateBR(periodoInicio),
     "Cobranca[dataCreditoFilterLast]": formatDateBR(periodoFim),
+  };
+  const coletado = await coletarExportCompleto({
+    rotulo: "Contas a Receber",
+    contarTotal: () => contarTotalDaGrade(cookie, params, "cobranca-grid", "Contas a Receber"),
+    baixarPagina: (pagina) =>
+      fetchExport(cookie, {
+        ...params,
+        itemsPerPage: String(ITENS_POR_PAGINA_CONTAS_RECEBER),
+        isChangeItemsPerPage: "1",
+        sort: "id",
+        cobranca_page: String(pagina),
+      }),
+    itensPorPagina: ITENS_POR_PAGINA_CONTAS_RECEBER,
+    colunaId: "ID",
+    log: (m) => console.warn(`[conexa-web] ${m}`),
   });
+  console.log(
+    `[conexa-web] Contas a Receber: ${coletado.linhas.length} cobrança(s) em ${coletado.paginas} página(s), ` +
+      `conferidas com o total da grade do Conexa (${coletado.totalNoConexa}).`,
+  );
+  return montarXlsx("Contas a Receber", coletado.cabecalho, coletado.linhas);
 }
 
 /** Loga uma única vez e baixa os dois exports do período — uso normal de uma rodada. */

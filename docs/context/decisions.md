@@ -2198,3 +2198,98 @@ automaticamente" reclassifica com todas as linhas da fatura enquanto a lista cla
     da tela deixaram de ligá-los. O Leia-me continua no arquivo (filtros, hora, atualidade dos dados — a sincronização parada
     só aparece ali e no selo "Atenção" da prévia — e o aviso de "NÃO somar"), mas ninguém precisa passar por ele para chegar
     nos dados. ClickUp passou a abrir em Composição (os dados); Metas e Contas/acessos mantêm as abas que já eram dados.
+
+## ADR-0036
+
+**O Conexa passou a PAGINAR o export de Contas a Receber: download página a página CONFERIDO com o total da grade, e
+freio de queda líquida na gravação.**
+
+**Data:** 2026-11-11 · **Status:** implementado e validado (testes, ponta a ponta local e ao vivo só leitura); commit,
+push e deploy pendentes do usuário.
+
+### Contexto — o incidente
+
+- 11/11/2026: o Diego avisou ("deu uma bugada homérica"): Panorama de novembro em R$ 3.508,56 (1% da meta), outubro em
+  R$ 19.315, e todas as "Últimas sincronizações" como **Concluída**, conferência 0,00.
+- **Causa, medida ao vivo (só leitura):** o export de Contas a Receber (`r=cobranca/admin&export=excel`) passou a devolver
+  só a PRIMEIRA PÁGINA da grade — 20 linhas sem `itemsPerPage` — e `show_all=1` deixou de valer. Ex.: 15/10 → a grade diz
+  "1-20 de 40" e o export traz 20. A mudança é posterior a 27/10 (rodadas manuais de 27/10 ainda receberam as 40 linhas de
+  15/10). O **Listar Vendas não mudou** (`show_all` honrado: 65, 849, 1.837 e 712 linhas = o total da grade). O tamanho de
+  página mudado numa sessão NÃO persiste para a próxima (medido: sessão nova sem `itemsPerPage` volta a 20).
+- **Por que o painel não percebeu:** a conferência da skill (ADR-0018) compara a soma do CR aceito com a soma categorizada
+  — o arquivo com ele mesmo; um arquivo cortado fecha em 0,00. E a limpeza de órfãs (ADR-0029) apagou as linhas das faturas
+  que "sumiram" do período: novembro a cada 15 min (mês corrente) e outubro na carência de 1 a 10/11 (ADR-0030).
+- **Reproduzido localmente:** o código anterior, contra um Conexa falso que imita o real, conclui DONE, conferência 0,00,
+  `linhasCR=20` (a mesma assinatura da rodada de teste feita em produção em 11/11) e apaga 934 de 954 linhas.
+
+### Decisões
+
+1. **Paginação real do export** (`exports-completos.ts` + `client.ts`): `itemsPerPage=100` (o máximo do seletor da tela:
+   5/10/20/50/100), `isChangeItemsPerPage=1`, `cobranca_page=N` — o nome que o paginador da própria tela usa, em
+   minúsculas (`Cobranca_page`, `page`, `p`, `offset`, `start`, `pageNumber` são ignorados pelo export) — e `sort=id`: a
+   ordem padrão não é por chave única e poderia repetir/perder linha entre páginas; com `sort=id` a ordem é total.
+2. **Conferência pelo TOTAL da grade:** a mesma requisição do botão "Clique para exibir o total de itens"
+   (`page=1&0=&count=`, sem `export`) devolve `<div class="page-summary"><div>1-20 de N</div></div>`. N bate com as linhas
+   do export (CR e LV) e com o `linhasCR` gravado por rodadas antigas (6 dias e o mês de setembro). A contagem não manda
+   `itemsPerPage` (não mexe na sessão). Resposta que não é a grade (login, erro, outra tela) é ERRO, nunca zero; grade
+   vazia (`td.empty`, sem resumo) é 0.
+3. **Só entrega o que fecha:** falta (baixado < total) ou linha repetida entre páginas (o conjunto mudou no meio) → nova
+   tentativa (até 3; espera de 2 s e 4 s); persistindo → `ExportIncompletoError`, a rodada termina FAILED e NADA é gravado.
+   SOBRA é aceita (entrou cobrança durante o download: superconjunto). Cabeçalho diferente entre páginas, coluna `ID`
+   ausente ou total que exigiria mais de 150 páginas → erro imediato.
+4. **Linha de preenchimento:** cada página termina com uma linha de 20 colunas (`&nbsp;` em "Valor" e "Valor Atual") —
+   descartada antes de contar.
+5. **Um único .xlsx remontado** (`montarXlsx`): cada célula como texto com a string crua que o leitor viu; célula vazia
+   OMITIDA. Nunca `<c r="X"/>`: o leitor do projeto lê errado uma célula autofechada seguida de outra (ela "engole" a
+   vizinha). Os exports do Conexa não têm nenhuma (0 em ~41 mil células medidas), por isso o leitor nunca foi alterado. O
+   parser, a categorização e a persistência recebem exatamente o que recebiam.
+6. **Listar Vendas:** continua num download só e entrega o arquivo ORIGINAL; ganhou só a conferência pelo total (se o
+   Conexa cortar também esta tela, a rodada falha em vez de seguir).
+7. **Freio de queda líquida na gravação** (`remocao-em-massa.ts`, dentro da transação de `persistLinhasCategorizadas`,
+   antes de qualquer escrita): simula o total das linhas alcançadas DEPOIS de gravar (apagadas somem; criadas e
+   atualizadas entram; revisada manualmente fica congelada). Queda ≥ 30% E ≥ R$ 2.000,00 → `RemocaoEmMassaError`, tudo é
+   desfeito e a rodada termina FAILED com a explicação. Mede a QUEDA LÍQUIDA, não o valor apagado: recategorizar ("Aplicar
+   agora") apaga buckets e recria com o mesmo dinheiro. Avalia sempre, mesmo sem órfãs (valores zerados por mudança de
+   formato derrubam a receita sem apagar linha). É a segunda camada, para o defeito que ainda não conhecemos. A
+   importação manual passa por cima (`permitirRemocaoEmMassa`): a prévia dela já mostrou "hoje × depois" e uma pessoa
+   confirmou.
+8. **Prazo de 90 s em toda requisição de export e de contagem** (antes só o login tinha).
+
+### Custo
+
+- Um mês inteiro: login + 2 contagens (a página da grade tem ~1,7 MB) + ~10 páginas de CR + 1 LV — medido 70 a 106 s
+  (julho a outubro), contra ~25 s antes. Sequencial de propósito: o Conexa (PHP) serializa as requisições de uma mesma
+  sessão, então paralelizar não ganharia nada e pesaria no sistema de terceiro. O agendador espera o tick terminar; a
+  trava de rodada (30 min) continua folgada.
+- `disparar_sincronizacao` (MCP) e o botão "Sincronizar" esperam a rodada: um mês inteiro passa de 1 minuto. Se o cliente
+  desistir antes, a rodada continua no servidor — conferir em Sincronizações ou `listar_rodadas`.
+
+### Validação
+
+- 39 testes novos (977 no total), `tsc` limpo, build ok; 11 de 11 mutações (defeitos injetados de propósito) acusadas.
+- **Ao vivo, só leitura, código novo + parser real contra o histórico do próprio painel:** 15/10 (40; R$ 21.159,29), 13/10
+  (70; R$ 36.331,79), 26/10 (42; R$ 17.159,16), 21/09 (71; R$ 35.666,47), 10/09 (62; R$ 31.874,44), 31/08 (60;
+  R$ 24.433,91) e setembro inteiro (939; R$ 360.491,81) iguais às rodadas de quando o export vinha inteiro; agosto
+  (R$ 338.933,09) e julho (R$ 376.965,94) iguais ao Panorama. Conferência 0,00 em todos. Outubro: 954 cobranças,
+  R$ 327.580,71. Novembro até 11/11: 380, R$ 119.275,03.
+- **Ponta a ponta local** (Conexa falso HTTP + banco descartável, dados sintéticos): carga completa DONE ao centavo; o
+  defeito de produção → FAILED e banco intacto; total da grade também mentindo → o freio barra (queda de 97,9%) e banco
+  intacto; importação confirmada passa; o reparo volta ao total. O código ANTERIOR, no mesmo Conexa falso, conclui DONE e
+  apaga 934 de 954 linhas.
+
+### Consequências e pendências
+
+- **Reparo de produção (depois do deploy):** novembro se refaz no primeiro tick automático (mês corrente); outubro precisa
+  ser reprocessado uma vez — `disparar_sincronizacao` de 2026-10-01 a 2026-10-31 com `confirmarMesFechado`, ou a
+  importação manual com os arquivos completos. Reprocessar recategoriza com as regras de hoje.
+- **A importação manual (plano B, ADR-0034) também foi afetada:** o "Exportar" da tela do Conexa entrega só a página
+  visível (no máximo 100 linhas), e a importação aceita UM arquivo de CR. Um mês inteiro (~950) não sai inteiro da tela.
+  Até a importação aceitar várias páginas, o arquivo completo tem de ser gerado pelo próprio sistema (como foi feito para
+  outubro em 11/11). A prévia mostra "hoje × depois", mas um arquivo da tela com 20/50/100 linhas exatas é sinal de
+  página única.
+- **ClickUp (inferência pelo código, não conferido no ClickUp):** depois de toda rodada concluída o mês CORRENTE é
+  empurrado ao ClickUp (`pushValoresDoMesCorrente`); durante o incidente os campos de novembro receberam valores cortados.
+  A primeira rodada correta os sobrescreve. Se a mudança do Conexa aconteceu antes de 31/10, os de outubro também.
+- **Registrado, não alterado:** a leitura errada de `<c/>` autofechada em `reader.ts` (sem impacto hoje); os scripts
+  `scripts/conferencia-completa.mjs` e `scripts/diagnostico-residuo-motor.mjs` têm cópia própria do download ANTIGO (sem
+  paginação) — hoje veriam o CR cortado; não usar sem portar a paginação.
